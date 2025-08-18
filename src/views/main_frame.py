@@ -47,10 +47,10 @@ class MainFrame(wx.Frame):
         toolbar.SetToolBitmapSize((20, 20))
 
         # 添加工具栏按钮，并绑定事件
-        new_button = toolbar.AddTool(wx.ID_NEW, "New", wx.Bitmap("icons/file.png"))
-        open_button = toolbar.AddTool(wx.ID_OPEN, "Open", wx.Bitmap("icons/open.png"))
-        help_button = toolbar.AddTool(wx.ID_OPEN, "Help", wx.Bitmap("icons/help.png"))
-        about_button = toolbar.AddTool(wx.ID_OPEN, "About", wx.Bitmap("icons/about.png"))
+        new_button = toolbar.AddTool(wx.ID_NEW, "New", wx.Bitmap("icons/tools/new.png"))
+        open_button = toolbar.AddTool(wx.ID_OPEN, "Open", wx.Bitmap("icons/tools/open.png"))
+        help_button = toolbar.AddTool(wx.ID_OPEN, "Help", wx.Bitmap("icons/tools/help.png"))
+        about_button = toolbar.AddTool(wx.ID_OPEN, "About", wx.Bitmap("icons/tools/about.png"))
         toolbar.Bind(wx.EVT_TOOL, self.OnNew, new_button)
         toolbar.Bind(wx.EVT_TOOL, self.OnOpen, open_button)
         # 启用工具栏
