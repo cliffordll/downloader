@@ -194,14 +194,15 @@ class TabIndex(wx.Panel):
         # self.model.Cleared()  # 清空并重新加载
         # self.model.Resort()    # 重置模型
 
-        # 3. 不需要调用 ValueChanged()
-        # 因为 Cleared() 已经通知视图重新加载数据
-        self.model.Cleared()
-
-        # 方法2：完全重置数据
+        # 完全重置数据
         self.model.fileTree = FileManager.GetFileInfos()
         # self.model.Reset()  # 完全重置模型
         # self.model.Refresh()
+
+        # 不需要调用 ValueChanged()
+        # 因为 Cleared() 已经通知视图重新加载数据
+        self.model.Cleared()
+
 
     def OnActivatedChanged(self, event):
         """选中项变化事件"""
