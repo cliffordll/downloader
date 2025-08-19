@@ -112,15 +112,15 @@ class TabIndex(wx.Panel):
             child, cookie = self.model.GetNextChild(parent, cookie)
         return dv.NullDataViewItem
 
-    def _DownloadCall(self, flag: bool, message: str):
+    def _DownloadCall(self, flag: bool, message: str, item):
         if flag:
-            # flag, fileItem = FileManager.GetFileItem(absFile)
+            flag, fileItem = FileManager.GetFileItem(message)
 
-            # 方法一，更新所有数据，并展开
-            self.OnRefresh(None)
-            self.OnExpandAll(None)
-            # # 方法二，更新 item 的低0列数据
-            # self.model.SetValue(variant=fileItem, item=item, col=0)
+            # # 方法一，更新所有数据，并展开
+            # self.OnRefresh(None)
+            # self.OnExpandAll(None)
+            # 方法二，更新 item 的低0列数据 （不用刷新整个页面，还能保证上一次是否展开）
+            self.model.SetValue(variant=fileItem, item=item, col=0)
         else:
             wx.MessageBox(f"错误信息：{message}", "提示")
         return
@@ -138,7 +138,7 @@ class TabIndex(wx.Panel):
             return
         
         SysSetting.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
-        Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall)
+        Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
         return
     
     def _CreatePlaylist(self, tsSeed: str):

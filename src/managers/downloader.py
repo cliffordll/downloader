@@ -43,18 +43,18 @@ class Downloader(object):
         # return False, "Download Error"
 
     @classmethod
-    def _DownLoadFile(cls, baseUrl: str, fileName: str, callback):
+    def _DownLoadFile(cls, baseUrl: str, fileName: str, callback, item):
         try:
             flag, content = cls.DownloadContent(baseUrl)
             if flag:
                 with open(fileName, 'wb') as f:
                     f.write(content)
                 print(f'Downloader.Downloaded {fileName}')
-                callback(True, fileName)
+                callback(True, fileName, item)
             else:
                 print(f'Downloader._DownLoadFile Error: {content}')
                 # response.content
-                callback(False, fileName)
+                callback(False, fileName, item)
 
             # timeout = SysSetting.GetTimeout()
             # # print(absFile)
@@ -77,13 +77,13 @@ class Downloader(object):
 
     
     @classmethod
-    def DownloadTSFile(cls, absUri:str, absFile: str, callback):
+    def DownloadTSFile(cls, absUri:str, absFile: str, callback, item):
         try:
             print(f"Downloader.DownloadFile absUri:{absUri}")
             print(f"Downloader.DownloadFile absFile:{absFile}")
 
             # 使用线程控制下载
-            t1 = Thread(target=cls._DownLoadFile, args=(absUri, absFile, callback))
+            t1 = Thread(target=cls._DownLoadFile, args=(absUri, absFile, callback, item))
             # 如果有参数
             # t2 = threading.Thread(target=consumer_task_queue, args=(taskqueue, db, ds, tokenizer, evaltool))
             # def consumer_task_queue(taskqueue, db, ds, tokenizer, evaltool):
