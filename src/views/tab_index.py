@@ -125,14 +125,15 @@ class TabIndex(wx.Panel):
             wx.MessageBox(f"错误信息：{message}", "提示")
         return
 
-    def _DownloadFile(self, seedFile: str, index: int, tsName: str, item):
+    def _DownloadFile(self, tsSeed: str, index: int, tsName: str, item):
         '''下载文件并修改视图状态'''
+        absSeed = SysSetting.GetAbsolutePath(tsSeed)
         absFile = SysSetting.GetAbsolutePath(tsName)
         # 文件已经存在，返回
         if SysSetting.IsExists(absFile):
             return
         
-        absUri = FileManager.GetUriByIdx(seedFile, index)
+        absUri = FileManager.GetUriByIdx(absSeed, index)
         if not absUri:
             return
         
@@ -140,11 +141,11 @@ class TabIndex(wx.Panel):
         Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall)
         return
     
-    def _CreatePlaylist(self, seedFile: str):
+    def _CreatePlaylist(self, tsSeed: str):
+        absSeed = SysSetting.GetAbsolutePath(tsSeed)
+
         # 写palylist文件
-        # seedFile = os.path.join(downPath, "download.seed")
-        # playDir = SysSetting.GetRelativeDir(seedFile)
-        playDir = SysSetting.GetAbsoluteDir(seedFile)
+        playDir = SysSetting.GetAbsoluteDir(absSeed)
         # # 2. 确保下载文件一定存在
         # SysSetting.MakeDirsByPath(playDir)
         playlist = SysSetting.GetPath(playDir, "playlist.txt")
@@ -155,10 +156,10 @@ class TabIndex(wx.Panel):
             wx.MessageBox(f"视频文件已经存在。", "提示")
             return
 
-        print("seedFile", seedFile)
+        print("absSeed", absSeed)
         print("playDir", playDir)
         print("playlist", playlist)
-        absFile = FileManager.CreatePlaylist(seedFile=seedFile, playDir=playDir, playlist=playlist)
+        absFile = FileManager.CreatePlaylist(absSeed=absSeed, playDir=playDir, playlist=playlist)
 
         Converter.ConvertTSFile(playlist, outputFile)
      
@@ -216,32 +217,32 @@ class TabIndex(wx.Panel):
         objs = self.model.ParseKey(keys)
         if len(objs) == 1:      # 父节点
             if item.IsOk():
-                seedFile = self.model.GetValue(item, 1)
+                tsSeed = self.model.GetValue(item, 1)
                 if value == "转MP4":
                     # wx.MessageBox(f"将要合并多少个文件。", "提示")
-                    self._CreatePlaylist(seedFile)
+                    self._CreatePlaylist(tsSeed)
                     return
 
-                # # dlg = wx.MessageBox(f"是否下载{seedFile}文件中，所有TS文件。", "提示", style=wx.ICON_QUESTION)
-                # dlg = wx.MessageBox(f"是否下载{seedFile}文件中，所有TS文件。", "提示", style=wx.OK|wx.ICON_INFORMATION)
+                # # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.ICON_QUESTION)
+                # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.OK|wx.ICON_INFORMATION)
                 # if dlg != wx.ID_OK:
                 #     return
                 childs = []
                 self.model.GetChildren(item, childs)
                 for idxj, child in enumerate(childs):
                     tsName = self.model.GetValue(child, 1)
-                    self._DownloadFile(seedFile, idxj, tsName, child)
+                    self._DownloadFile(tsSeed, idxj, tsName, child)
         elif len(objs) == 2:    # 子节点
             idxj = objs[1]
             tsName = self.model.GetValue(item, 1)
             parent = self.model.GetParent(item)
             if parent.IsOk():
-                seedFile = self.model.GetValue(parent, 1)
+                tsSeed = self.model.GetValue(parent, 1)
                 # # dlg = wx.MessageBox(f"是否下载{tsName}文件。", "提示", style=wx.ICON_QUESTION)
                 # dlg = wx.MessageBox(f"是否下载{tsName}文件。", "提示", style=wx.OK|wx.ICON_QUESTION)
                 # if dlg != wx.ID_OK:
                 #     return
 
-                self._DownloadFile(seedFile, idxj, tsName, item)
+                self._DownloadFile(tsSeed, idxj, tsName, item)
         else:
             pass

@@ -25,13 +25,22 @@ class TabDownload(wx.Panel):
         
         # 下载按钮行
         btnSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblPath = wx.StaticText(self, -1, label="下载地址：", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        # self.lblStatus.SetBackgroundColour(wx.GREEN)
+        lblName = wx.StaticText(self, -1, label="下载地址：", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        
+        # 根据内容自动调整宽度
+        workPath = SysSetting.GetWorkPath()
+        dc = wx.ClientDC(self)
+        width, height = dc.GetTextExtent(workPath)
+        # self.lblPath.SetSize((width + 10, height + 10))  # 加一些边距
+        # self._SetDefaultValue()
+        self.lblPath = wx.StaticText(self, -1, label=workPath, size=(width, height), style=wx.ALIGN_LEFT|wx.VERTICAL|wx.ST_NO_AUTORESIZE)
+        self.lblPath.SetBackgroundColour(wx.LIGHT_GREY)
         self.tcDown = wx.TextCtrl(self)
 
         btnDown = wx.Button(self, label="下载")
         btnDown.Bind(wx.EVT_BUTTON, self.OnBtnDownClicked)
-        btnSizer.Add(lblPath, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.RIGHT, border=5)
+        btnSizer.Add(lblName, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.LEFT|wx.RIGHT, border=5)
+        btnSizer.Add(self.lblPath, proportion=5, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.LEFT, border=5)
         btnSizer.Add(self.tcDown, proportion=100, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.TOP|wx.RIGHT, border=5)
         # btnSizer.AddStretchSpacer(prop=100)
         btnSizer.Add(btnDown, proportion=1, flag=wx.ALIGN_LEFT|wx.TOP|wx.LEFT, border=5)
@@ -40,25 +49,32 @@ class TabDownload(wx.Panel):
         sizer.Add(self.books, proportion=1, flag=wx.EXPAND|wx.ALL, border=0)
         sizer.Add(btnSizer, border=0)
         self.SetSizer(sizer)
-        self._SetDefaultValue()
+
 
     def _SetDefaultValue(self):
         '''测试提供个默认值'''
         # m3u8_url = "https://yzzy.play-cdn10.com/20230104/21337_a024ad0f/1000k/hls/mixed.m3u8"
         workPath = SysSetting.GetWorkPath()
-        self.tcDown.SetValue(workPath)
+        self.lblPath.SetLabel(workPath)
+        # self.lblPath.Fit()  # 调整控件大小以适应内容
+        # self.lblPath.Wrap(-1)   # -1 表示根据内容自动调整宽度
+        # # self.tcDown.SetValue(workPath)
+
 
     def GetDownPath(self):
-        return self.tcDown.GetValue().strip()
+        downPath = self.lblPath.GetLabel().strip()
+        downPath += self.tcDown.GetValue().strip()
+        print(downPath)
+        return downPath
 
     def OnBookBtnClicked(self, event):
         '''提供默认下载路径'''
         baseUri = self.books.GetCurrentPage().GetBaseURI()
 
-        filePath, fileName, absPath = FileManager.GetPathFromURI(baseUri=baseUri)
+        filePath, fileName, absName = FileManager.GetPathFromURI(baseUri=baseUri)
         # print("TabDownload.OnBtnDownClicked", filePath)
         # print("TabDownload.OnBtnDownClicked", fileName)
-        # print("TabDownload.OnBtnDownClicked", absPath)
+        # print("TabDownload.OnBtnDownClicked", absName)
         self.tcDown.SetValue(filePath)
 
     def OnBtnDownClicked(self, event):

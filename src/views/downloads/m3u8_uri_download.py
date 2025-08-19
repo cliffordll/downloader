@@ -113,14 +113,16 @@ class M3U8URIDownload(wx.Panel):
         #     可以显示大量文本内容，支持滚动查看"""
         m3u8Url = self.tcURI.GetValue()
         if not m3u8Url:
-            wx.MessageBox("请输入正确的m3u8下载地址！", "警告", wx.OK|wx.ICON_WARNING)
+            wx.MessageBox("请输入正确的M3U8下载地址！", "警告", wx.OK|wx.ICON_WARNING)
             return
 
-        content = Downloader.DownloadContent(m3u8Url)
-        self.tsList.SetValue(content)
-
-        # 传递事件，通知下载页修改下载路径
-        event.Skip()
+        flag, content = Downloader.DownloadContent(m3u8Url)
+        if flag:
+            self.tsList.SetValue(content)
+            # 传递事件，通知下载页修改下载路径
+            event.Skip()
+        else:
+            wx.MessageBox(content, "警告", wx.OK|wx.ICON_WARNING)
 
     # def OnBtnDownClicked(self, event):
     #     """按钮点击事件处理函数"""

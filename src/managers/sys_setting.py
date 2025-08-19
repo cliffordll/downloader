@@ -7,7 +7,7 @@ class SysSetting(object):
     @classmethod
     def GetWorkPath(cls):
         # return os.path.join(os.getcwd(), f"downloads{os.sep}videos")
-        return os.path.join(os.getcwd(), f"downloads")
+        return os.path.join(os.getcwd(), f"downloads{os.sep}")
     
     @classmethod
     def GetTimeout(cls):
@@ -16,21 +16,18 @@ class SysSetting(object):
     @classmethod
     def GetAbsolutePath(cls, fileName: str):
         if not os.path.isabs(fileName):
-            # print("这是相对路径")
             workPath = cls.GetWorkPath()
-            # print(workPath)
-            # print(fileName)
             absFile = os.path.join(workPath, fileName)
             # print(absFile)
             return absFile
-        # print("这是绝对路径")
         return fileName
     
     @classmethod
     def GetRelativePath(cls, fileName: str):
         if os.path.isabs(fileName):
             workPath = cls.GetWorkPath()
-            return fileName.replace(workPath+os.sep, "")
+            # return fileName.replace(workPath+os.sep, "")
+            return fileName.replace(workPath, "")
         return fileName
     
     @classmethod

@@ -1,6 +1,6 @@
 from threading import Thread
 import requests
-
+from requests.exceptions import (ConnectionError, ConnectTimeout, ReadTimeout, SSLError, TooManyRedirects)
 from src.managers.sys_setting import SysSetting
 
 class Downloader(object):
@@ -10,35 +10,66 @@ class Downloader(object):
     @classmethod
     def DownloadContent(cls, baseUrl):
         try:
-            response = requests.get(baseUrl)
-            response.raise_for_status()
-
-            # with open(ts_file, 'wb') as f:
-            #     f.write(response.content)
-            # print(f'Downloaded {ts_file}')
-            return response.content
-        except requests.RequestException as e:
-            print(f'Error downloading {baseUrl}: {e}')
+            timeout = SysSetting.GetTimeout()
+            response = requests.get(baseUrl, timeout=timeout)
+            # response.raise_for_status()
+            if response.status_code == 200:
+                return True, response.content
+            else:
+                return False, response.content
+        except ConnectionError as ex:
+            print(f'Downloader.ConnectionError Exception: {ex}')
+            return False, "无法建立连接，可能是网络问题或服务器不可用"
+        except ConnectTimeout as ex:
+            print(f'Downloader.ConnectTimeout Exception: {ex}')
+            return False, "连接服务器超时"
+        except ReadTimeout as ex:
+            print(f'Downloader.ReadTimeout Exception: {ex}')
+            return False, "服务器响应超时"
+        except SSLError as ex:
+            print(f'Downloader.SSLError Exception: {ex}')
+            return False, "SSL证书验证失败"
+            # 可以选择忽略证书验证(不推荐用于生产环境)
+            # response = requests.get(url, verify=False)   
+        except TooManyRedirects as ex:
+            print(f'Downloader.TooManyRedirects Exception: {ex}')
+            return False, "重定向次数过多"
+        except requests.exceptions.HTTPError as ex:
+            print(f'Downloader.HTTPError Exception: {ex}')
+            return False, f"HTTP错误: {str(ex)}"
+        except Exception as ex:
+            print(f'Downloader.Exception Exception: {ex}')
+            return False, f"其他错误: {str(ex)}"
+        # return False, "Download Error"
 
     @classmethod
     def _DownLoadFile(cls, baseUrl: str, fileName: str, callback):
         try:
-            timeout = SysSetting.GetTimeout()
-
-            # print(absFile)
-            response = requests.get(baseUrl, timeout=timeout)
-            # response.raise_for_status()
-            if response.status_code == 200:
+            flag, content = cls.DownloadContent(baseUrl)
+            if flag:
                 with open(fileName, 'wb') as f:
-                    f.write(response.content)
+                    f.write(content)
                 print(f'Downloader.Downloaded {fileName}')
-
                 callback(True, fileName)
             else:
-                print(f'Downloader._DownLoadFile Error: {response.status_code}')
-                response.content
+                print(f'Downloader._DownLoadFile Error: {content}')
+                # response.content
                 callback(False, fileName)
-            
+
+            # timeout = SysSetting.GetTimeout()
+            # # print(absFile)
+            # response = requests.get(baseUrl, timeout=timeout)
+            # # response.raise_for_status()
+            # if response.status_code == 200:
+            #     with open(fileName, 'wb') as f:
+            #         f.write(response.content)
+            #     print(f'Downloader.Downloaded {fileName}')
+
+            #     callback(True, fileName)
+            # else:
+            #     print(f'Downloader._DownLoadFile Error: {response.status_code}')
+            #     # response.content
+            #     callback(False, fileName)
         except requests.RequestException as ex:
             print(f'Downloader._DownLoadFile Exception: {ex}')
             callback(False, "文件下载超时异常")

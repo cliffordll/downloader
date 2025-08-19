@@ -95,8 +95,6 @@ class FileManager():
 
     @classmethod
     def GetPathFromURI(cls, baseUri: str):
-        workPath = SysSetting.GetWorkPath()
-
         parsedUrl = urlparse(baseUri)
         # print(parsedUrl.scheme)    # 输出协议：https
         # print(parsedUrl.netloc)    # 输出域名：www.example.com
@@ -108,10 +106,10 @@ class FileManager():
         saveDirs = parsedUrl.path.split('/')
         # print(saveDirs)
         # print(saveDirs[1:-1])
-        filePath = os.path.join(workPath, *saveDirs[1:-1])
+        filePath = os.path.join("", *saveDirs[1:-1])
         fileName = saveDirs[-1]
-        absPath = os.path.join(workPath, *saveDirs[1:])
-        print(f"FileManager.GetPathFromURI filePath:{filePath} fileName:{fileName} absPath:{absPath}")
+        absName = os.path.join("", *saveDirs[1:])
+        print(f"FileManager.GetPathFromURI filePath:{filePath} fileName:{fileName} absName:{absName}")
 
         # # 2. 判断保存文件夹 路径是否存在。无则创建
         # if not os.path.exists(savePath):
@@ -119,7 +117,7 @@ class FileManager():
 
         # 判断文件是否存在，无则创建
         # return savePath, saveFile
-        return filePath, fileName, absPath
+        return filePath, fileName, absName
 
     # @classmethod
     # def _UriToPath(cls, baseUri: str):
@@ -162,10 +160,10 @@ class FileManager():
         return tsList
     
     @classmethod
-    def GetUriByIdx(cls, seedFile: str, index: int):
+    def GetUriByIdx(cls, absSeed: str, index: int):
         # 读取 m3u8 内容获取下载地址
         try:
-            basePath, baseUri, content = cls.ParseSeedFile(seedFile)
+            basePath, baseUri, content = cls.ParseSeedFile(absSeed)
             tsList = cls.CheckM3U8File(basePath, baseUri, content)
             if len(tsList) > 0:
                 absUri = tsList[index].absUri
@@ -178,15 +176,16 @@ class FileManager():
         return ""
 
     @classmethod
-    def CreatePlaylist(cls, seedFile: str, playDir: str, playlist: str):
+    def CreatePlaylist(cls, absSeed: str, playDir: str, playlist: str):
         try:
             # 读取路径
             tsNames = ""
-            basePath, baseUri, content = cls.ParseSeedFile(seedFile)
+            basePath, baseUri, content = cls.ParseSeedFile(absSeed)
             tsList = cls.CheckM3U8File(basePath, baseUri, content)
             for idx, ts in enumerate(tsList):
                 if idx > 0:
                     tsNames += "\n"
+                # 因为要用 ffmpeg 进程，所以指定了绝对路径
                 tsName = SysSetting.GetPath(playDir, ts.name)
                 tsNames += f"file '{tsName}'"
 
@@ -203,7 +202,7 @@ class FileManager():
     content: 下载内容
     '''
     @classmethod
-    def CreateSeedFile(cls, downPath: str, basePath: str, baseUri: str, content: str):
+    def CreateSeedFile(cls, downPath: str, basePath: str, baseUri: str, content: str, seedName: str="download.seed"):
         # 1.检查种子内容是否合法
         tsList = cls.CheckM3U8File(basePath, baseUri, content)
         if len(tsList) <= 0:
@@ -215,9 +214,8 @@ class FileManager():
 
         # 3. 写种子文件
         try:
-            # seedFile = os.path.join(downPath, "download.seed")
-            seedFile = SysSetting.GetPath(downPath, "download.seed")
-            with open(seedFile, 'w') as f:     # 不存在则创建
+            absSeed = SysSetting.GetPath(downPath, seedName)
+            with open(absSeed, 'w') as f:     # 不存在则创建
                 print(f"FileManager.CreateSeedFile [{basePath}]")
                 print(f"FileManager.CreateSeedFile [{baseUri}]")
                 f.write(basePath)
@@ -232,17 +230,17 @@ class FileManager():
         return False
 
     @classmethod
-    def ParseSeedFile(cls, seedFile: str):
+    def ParseSeedFile(cls, absSeed: str):
         basePath = ""
         baseUri = ""
         content = ""
-        absFile = SysSetting.GetAbsolutePath(seedFile)
+        # absFile = SysSetting.GetAbsolutePath(seedFile)
 
-        if not os.path.exists(absFile):    # 检查文件是否存在
-            print(f"文件 {absFile} 不存在")
+        if not os.path.exists(absSeed):    # 检查文件是否存在
+            print(f"文件 {absSeed} 不存在")
             return basePath, baseUri, content
         try:
-            with open(absFile, 'rb') as f:     # 不存在则创建
+            with open(absSeed, 'rb') as f:     # 不存在则创建
                 basePath = f.readline().decode().strip()
                 baseUri = f.readline().decode().strip()
                 # print("basePath", basePath)
