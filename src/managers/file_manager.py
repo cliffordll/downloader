@@ -119,34 +119,6 @@ class FileManager():
         # return savePath, saveFile
         return filePath, fileName, absName
 
-    # @classmethod
-    # def _UriToPath(cls, baseUri: str):
-    #     workPath = SysSetting.GetWorkPath()
-
-    #     parsedUrl = urlparse(baseUri)
-    #     # print(parsedUrl.scheme)    # 输出协议：https
-    #     # print(parsedUrl.netloc)    # 输出域名：www.example.com
-    #     # print(parsedUrl.path)      # 输出路径：/path
-    #     # print(parsedUrl.params)    # 
-    #     # print(parsedUrl.query)     # 输出查询参数：param1=value1&param2=value2
-    #     # print(parsedUrl.fragment)  # 片段标识符: 
-
-    #     saveDirs = parsedUrl.path.split('/')
-    #     # print(saveDirs)
-    #     # print(saveDirs[1:-1])
-    #     filePath = os.path.join(workPath, *saveDirs[1:-1])
-    #     fileName = saveDirs[-1]
-    #     absPath = os.path.join(workPath, *saveDirs[1:])
-    #     print(f"FileManager._UriToPath filePath:{filePath} fileName:{fileName} absPath:{absPath}")
-
-    #     # # 2. 判断保存文件夹 路径是否存在。无则创建
-    #     # if not os.path.exists(savePath):
-    #     #     os.makedirs(savePath)
-
-    #     # 判断文件是否存在，无则创建
-    #     # return savePath, saveFile
-    #     return filePath, fileName, absPath
-
     @classmethod
     def CheckM3U8File(cls, basePath: str, baseUri, content: str):
         tsList = []

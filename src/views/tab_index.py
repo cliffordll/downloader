@@ -28,10 +28,10 @@ class TabIndex(wx.Panel):
         btnExpand = wx.Button(self, label="全部展开")
         btnCollapse = wx.Button(self, label="全部折叠")
         btnRefresh = wx.Button(self, label="刷新")
-        uriSizer.Add(bxSearch, proportion=50, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
-        uriSizer.Add(btnExpand, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
-        uriSizer.Add(btnCollapse, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
-        uriSizer.Add(btnRefresh, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
+        uriSizer.Add(bxSearch, proportion=50, flag=wx.EXPAND|wx.BOTTOM|wx.RIGHT, border=5)
+        uriSizer.Add(btnExpand, proportion=1, flag=wx.EXPAND|wx.BOTTOM|wx.RIGHT|wx.LEFT, border=5)
+        uriSizer.Add(btnCollapse, proportion=1, flag=wx.EXPAND|wx.BOTTOM|wx.RIGHT|wx.LEFT, border=5)
+        uriSizer.Add(btnRefresh, proportion=1, flag=wx.EXPAND|wx.BOTTOM|wx.LEFT, border=5)
         
         bxSearch.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnSearch)
         bxSearch.Bind(wx.EVT_TEXT, self.OnSearchText)
@@ -64,7 +64,7 @@ class TabIndex(wx.Panel):
 
         # 点击选中
         # self.mcTree.Bind(dv.EVT_DATAVIEW_SELECTION_CHANGED, self.OnSelectionChanged)
-        # 双颊下载
+        # 双击下载
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_ACTIVATED, self.OnActivatedChanged)
 
         listSizer.Add(self.mcTree, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)

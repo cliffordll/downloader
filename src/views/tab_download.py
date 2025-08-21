@@ -1,6 +1,6 @@
 import wx
-from src.views.downloads.m3u8_uri_download import M3U8URIDownload
-from src.views.downloads.m3u8_ts_download import M3U8TSDownload
+from src.views.downloads.edit_mu import DownloadEditMU
+from src.views.downloads.edit_ts import DownloadEditTS
 from src.managers.sys_setting import SysSetting
 from src.managers.file_manager import FileManager
 
@@ -15,8 +15,8 @@ class TabDownload(wx.Panel):
 
         # 下载详情页
         self.books = wx.Notebook(self)
-        uriDown = M3U8URIDownload(self.books)
-        tsDown = M3U8TSDownload(self.books)
+        uriDown = DownloadEditMU(self.books)
+        tsDown = DownloadEditTS(self.books)
         self.books.AddPage(uriDown, "M3U8 下载")
         self.books.AddPage(tsDown, "TS 下载")
         self.books.SetSelection(0)
@@ -39,9 +39,9 @@ class TabDownload(wx.Panel):
 
         btnDown = wx.Button(self, label="下载")
         btnDown.Bind(wx.EVT_BUTTON, self.OnBtnDownClicked)
-        btnSizer.Add(lblName, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.LEFT|wx.RIGHT, border=5)
-        btnSizer.Add(self.lblPath, proportion=5, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.LEFT, border=5)
-        btnSizer.Add(self.tcDown, proportion=100, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.TOP|wx.RIGHT, border=5)
+        btnSizer.Add(lblName, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.RIGHT, border=5)
+        btnSizer.Add(self.lblPath, proportion=5, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.LEFT|wx.RIGHT, border=5)
+        btnSizer.Add(self.tcDown, proportion=100, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.TOP, border=5)
         # btnSizer.AddStretchSpacer(prop=100)
         btnSizer.Add(btnDown, proportion=1, flag=wx.ALIGN_LEFT|wx.TOP|wx.LEFT, border=5)
 

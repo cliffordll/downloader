@@ -4,7 +4,7 @@ import re
 from src.managers.file_manager import FileManager
 from src.managers.m3m8_parser import M3U8Parser
 
-class M3U8TSDownload(wx.Panel):
+class DownloadEditTS(wx.Panel):
     def __init__(self, parent):
         super().__init__(parent=parent, id=wx.ID_ANY)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -12,19 +12,15 @@ class M3U8TSDownload(wx.Panel):
         # base uri
         uriSizer = wx.BoxSizer(wx.HORIZONTAL)
         lblUri = wx.StaticText(self, -1, label="Base URI:", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        # lbl.SetBackgroundColour(wx.RED)
         self.tcURI = wx.TextCtrl(self)
-        uriSizer.Add(lblUri, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
-        uriSizer.Add(self.tcURI, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, border=5)
+        uriSizer.Add(lblUri, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=5) 
+        uriSizer.Add(self.tcURI, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.BOTTOM|wx.LEFT, border=5)
 
         pathSizer = wx.BoxSizer(wx.HORIZONTAL)
         lblPath = wx.StaticText(self, -1, label="Base Path:", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        # lblUri.SetBackgroundColour(wx.RED)
         self.tcPath = wx.TextCtrl(self)
-        # btnM3U8 = wx.Button(self, label="获取 M3U8")
-        pathSizer.Add(lblPath, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
-        pathSizer.Add(self.tcPath, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, border=5)
-        # pathSizer.Add(btnM3U8, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
+        pathSizer.Add(lblPath, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5) 
+        pathSizer.Add(self.tcPath, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.TOP|wx.BOTTOM|wx.LEFT, border=5)
 
         # ts start and end
         lblPlay = wx.StaticText(self, -1, label="播放时长:", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
@@ -39,7 +35,7 @@ class M3U8TSDownload(wx.Panel):
         self.tcEnd = wx.TextCtrl(self)        
         btnAppend = wx.Button(self, label="添加 TS")
 
-        tsSizer.Add(lblPlay, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
+        tsSizer.Add(lblPlay, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
         tsSizer.Add(self.tcPlay, proportion=40, flag=wx.EXPAND|wx.ALL, border=5)
         tsSizer.AddStretchSpacer(prop=2)
         tsSizer.Add(lblReg, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
@@ -51,35 +47,17 @@ class M3U8TSDownload(wx.Panel):
         tsSizer.Add(lblEnd, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
         tsSizer.Add(self.tcEnd, proportion=10, flag=wx.EXPAND|wx.ALL, border=5)
         tsSizer.AddStretchSpacer(prop=2)
-        tsSizer.Add(btnAppend, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
+        tsSizer.Add(btnAppend, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.LEFT, border=5)
 
         # m3u8 file
         listSizer = wx.BoxSizer(wx.HORIZONTAL)
         self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_RICH2)
-        listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.ALL, border=5)
-
-        # sbtcList = wx.StaticBox(self, label="m3u8文件")
-        # # listSizer = wx.BoxSizer(sbtcList, wx.VERTICAL)
-        # listSizer = wx.StaticBoxSizer(sbtcList, wx.VERTICAL)
-        # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_RICH2)
-        # listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND, border=5)
-
-        # # Download
-        # btnSizer = wx.BoxSizer(wx.HORIZONTAL)
-        # self.lblStatus = wx.StaticText(self, -1, label="", size=(200, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        # # self.lblStatus.SetBackgroundColour(wx.GREEN)
-        # btnDown = wx.Button(self, label="下载")
-        
-        # btnSizer.Add(self.lblStatus, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
-        # btnSizer.AddStretchSpacer(prop=100)
-        # btnSizer.Add(btnDown, proportion=1, flag=wx.ALIGN_LEFT|wx.ALL, border=5)
+        listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
 
         sizer.Add(uriSizer, border=0)
         sizer.Add(pathSizer, border=0)
         sizer.Add(tsSizer, border=0)
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND, border=0)
-        # sizer.Add(sbtcList, proportion=10, flag=wx.EXPAND, border=5)
-        # sizer.Add(btnSizer, border=0)
 
         self.SetSizer(sizer)
         
@@ -106,16 +84,6 @@ class M3U8TSDownload(wx.Panel):
 
         self.tsList.SetValue("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD")
 
-    # def _SpiltText(self, text: str):
-    #     '''分割ts前的前缀和数字'''
-    #     import re
-    #     # \d+ 匹配 1个或多个连续数字
-    #     # \D+ 匹配 1个或多个连续字符
-    #     strs = re.findall(r'(\d+|\D+)', text)
-    #     # print(strs)
-    #     prefix = "".join(strs[:-1])
-    #     number = int(strs[-1])
-    #     return prefix, number
     
     def GetBaseURI(self):
         return self.tcURI.GetValue().strip()
@@ -125,30 +93,6 @@ class M3U8TSDownload(wx.Panel):
 
     def GetContent(self):
         return self.tsList.GetValue().strip()
-
-    # def CreateSeedFile(self):
-    #     m3u8Uri = self.uriBase.GetValue()
-    #     content = self.tsList.GetValue()
-    #     if not m3u8Uri:
-    #         wx.MessageBox("请输入正确的M3U8下载地址！", "警告", wx.OK|wx.ICON_WARNING)
-    #         return False
-    #     if not content:
-    #         wx.MessageBox("请点击“获取 M3U8”按钮，下载M3U8内容！", "警告", wx.OK|wx.ICON_WARNING)
-    #         return False
-
-    #     # 解析 m3u8 内容是否合法
-    #     try:
-    #         parser = M3U8Parser(content=content, m3u8_uri=m3u8Uri)
-    #         isAbs, tsList = parser.parse_media()
-    #         # print(tsList)
-    #         if len(tsList) <= 0:
-    #             wx.MessageBox("M3U8内容解析错误！未找到TS文件", "警告", wx.OK|wx.ICON_WARNING)
-    #             return False
-    #     except Exception as ex:
-    #         print(f"M3U8TSDownload.CreateSeedFile except:{str(ex)}")
-    #         return False
-
-    #     return FileManager().CreateSeedFile(baseUri=m3u8Uri, content=content.encode())
 
     def OnTCStartChanged(self, event):
         txt = self.tcStart.GetValue()
@@ -225,26 +169,3 @@ class M3U8TSDownload(wx.Panel):
         # print(self.autoAdds)
 
         event.Skip()
-    
-    # def OnTsListTxtChanged(self, event):
-    #     # nLine = self.tsList.GetNumberOfLines()
-    #     nLine = len(self._GetTCList())
-
-    #     # # self.lblStatus.Freeze()
-    #     # self.lblStatus.SetLabelText(f"共有{nLine}个TS文件")
-    #     # # self.lblStatus.SetLabel(f"共有")
-    #     # # self.lblStatus.SetLabel("新内容")
-    #     # # self.lblStatus.Thaw()
-
-    #     # # event.Skip()
-    #     # # 强制刷新布局
-    #     # # self.lblStatus.GetParent().Layout()
-    #     # # # self.Layout()
-    #     # # self.static_text.Refresh()
-    #     # # self.static_text.Update()
-
-    # def OnBtnDownClicked(self, event):
-    #     """按钮点击事件处理函数"""
-    #     nLine = len(self._GetTCList())
-
-    #     wx.MessageBox(f"即将下载{nLine}个TS文件！", "提示", wx.OK|wx.ICON_INFORMATION)

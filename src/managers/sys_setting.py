@@ -14,6 +14,10 @@ class SysSetting(object):
         return 10
     
     @classmethod
+    def GetMaxWorkers(cls):
+        return 3
+    
+    @classmethod
     def GetAbsolutePath(cls, fileName: str):
         if not os.path.isabs(fileName):
             workPath = cls.GetWorkPath()
