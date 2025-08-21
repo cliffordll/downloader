@@ -89,7 +89,7 @@ class FileManager():
                 if idx > 0:
                     tsNames += "\n"
                 # 因为要用 ffmpeg 进程，所以指定了绝对路径
-                tsName = SysSetting.GetPath(playDir, ts.name)
+                tsName = PathManager.JoinPath(playDir, ts.name)
                 tsNames += f"file '{tsName}'"
 
             # with open(playFile, 'wb') as f:     # 不存在则创建

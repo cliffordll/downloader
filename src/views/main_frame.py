@@ -337,10 +337,11 @@ class MainFrame(wx.Frame):
                 childs = []
                 self.model.GetChildren(item, childs)
                 for idxj, child in enumerate(childs):
-                    # tsName = self.model.GetValue(child, 1)
-                    # self._DownloadFile(tsSeed, idxj, child)
                     tasks.append((idxj, child))
                 self._DownloadFiles(tsSeed, tasks)
+
+                # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.ICON_QUESTION)
+                wx.MessageBox(f"共需提交{len(tasks)}个下载任务。", "提示", style=wx.OK|wx.ICON_INFORMATION)
         elif len(objs) == 2:    # 子节点
             parent = self.model.GetParent(item)
             if parent.IsOk():
@@ -372,7 +373,6 @@ class MainFrame(wx.Frame):
             pass
         return
 
-
     def _DownloadFiles(self, tsSeed: str, tasks: list):
         '''下载文件并修改视图状态'''
         absSeed = PathManager.GetAbsPath(tsSeed)
@@ -394,23 +394,6 @@ class MainFrame(wx.Frame):
             PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
 
             Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
-        return
-
-    def _DownloadFile(self, tsSeed: str, index: int, item):
-        '''下载文件并修改视图状态'''
-        absSeed = PathManager.GetAbsPath(tsSeed)
-        absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
-
-        tsName, absUri = FileManager.GetUriByIdx(absSeed, index) # 下载文件URI
-        if not tsName or not absUri:
-            return
-        absFile = PathManager.JoinPath(absDir, tsName)
-        # 文件已经存在，返回
-        if PathManager.IsExists(absFile):
-            return
-        PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
-
-        Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
         return
     
     def _CreatePlaylist(self, tsSeed: str):

@@ -112,9 +112,9 @@ class TabIndex(wx.Panel):
             child, cookie = self.model.GetNextChild(parent, cookie)
         return dv.NullDataViewItem
 
-    def _DownloadCall(self, flag: bool, message: str, item):
+    def _DownloadCall(self, flag: bool, fileName: str, item):
         if flag:
-            flag, fileItem = FileManager.GetFileItem(message)
+            flag, fileItem = FileManager.GetFileItem(fileName)
 
             # # 方法一，更新所有数据，并展开
             # self.OnRefresh(None)
@@ -123,33 +123,40 @@ class TabIndex(wx.Panel):
             self.model.SetValue(variant=fileItem, item=item, col=0)
             self.model.ValueChanged(item, 0)
         else:
-            wx.MessageBox(f"错误信息：{message}", "提示")
+            # wx.MessageBox(f"错误信息：{fileName}", "提示")
+            pass
         return
 
-    def _DownloadFile(self, tsSeed: str, index: int, tsName: str, item):
+    def _DownloadFiles(self, tsSeed: str, tasks: list):
         '''下载文件并修改视图状态'''
         absSeed = PathManager.GetAbsPath(tsSeed)
-        absFile = PathManager.GetAbsPath(tsName)
-        # 文件已经存在，返回
-        if PathManager.IsExists(absFile):
-            return
-        
-        tsName, absUri = FileManager.GetUriByIdx(absSeed, index)
-        if not absUri:
-            return
-        
-        PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
-        Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
+        absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
+
+        tsList = FileManager.GetSegmentList(absSeed=absSeed)
+        for task in tasks:
+            idx = task[0]
+            item = task[1]
+            tsName = tsList[idx].name
+            absUri = tsList[idx].absUri
+
+            if not tsName or not absUri:
+                continue
+            absFile = PathManager.JoinPath(absDir, tsName)
+            # 文件已经存在，返回
+            if PathManager.IsExists(absFile):
+                continue
+            PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
+
+            Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
         return
     
     def _CreatePlaylist(self, tsSeed: str):
         absSeed = PathManager.GetAbsPath(tsSeed)
+        absDir = PathManager.GetAbsDir(absSeed)
 
-        # 写palylist文件
-        playDir = PathManager.GetAbsDir(absSeed)
         # # 2. 确保下载文件一定存在
-        playlist = PathManager.JoinPath(playDir, "playlist.txt")
-        outputFile = PathManager.JoinPath(playDir, "output.mp4")
+        playlist = PathManager.JoinPath(absDir, "playlist.txt")
+        outputFile = PathManager.JoinPath(absDir, "output.mp4")
 
         # 文件已经存在，返回
         if PathManager.IsExists(outputFile):
@@ -157,9 +164,10 @@ class TabIndex(wx.Panel):
             return
 
         print("absSeed", absSeed)
-        print("playDir", playDir)
+        print("absDir", absDir)
         print("playlist", playlist)
-        absFile = FileManager.CreatePlaylist(absSeed=absSeed, playDir=playDir, playlist=playlist)
+        # 写palylist文件
+        absFile = FileManager.CreatePlaylist(absSeed=absSeed, playDir=absDir, playlist=playlist)
 
         Converter.ConvertTSFile(playlist, outputFile)
      
@@ -228,22 +236,26 @@ class TabIndex(wx.Panel):
                 # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.OK|wx.ICON_INFORMATION)
                 # if dlg != wx.ID_OK:
                 #     return
+                tasks = []
                 childs = []
                 self.model.GetChildren(item, childs)
                 for idxj, child in enumerate(childs):
-                    tsName = self.model.GetValue(child, 1)
-                    self._DownloadFile(tsSeed, idxj, tsName, child)
+                    tasks.append((idxj, child))
+                self._DownloadFiles(tsSeed, tasks)
+
+                # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.ICON_QUESTION)
+                wx.MessageBox(f"共需提交{len(tasks)}个下载任务。", "提示", style=wx.OK|wx.ICON_INFORMATION)
         elif len(objs) == 2:    # 子节点
-            idxj = objs[1]
-            tsName = self.model.GetValue(item, 1)
             parent = self.model.GetParent(item)
             if parent.IsOk():
+                idxj = objs[1]
+                # tsName = self.model.GetValue(item, 1)
                 tsSeed = self.model.GetValue(parent, 1)
                 # # dlg = wx.MessageBox(f"是否下载{tsName}文件。", "提示", style=wx.ICON_QUESTION)
                 # dlg = wx.MessageBox(f"是否下载{tsName}文件。", "提示", style=wx.OK|wx.ICON_QUESTION)
                 # if dlg != wx.ID_OK:
                 #     return
 
-                self._DownloadFile(tsSeed, idxj, tsName, item)
+                self._DownloadFiles(tsSeed, [(idxj, item)])
         else:
             pass
