@@ -5,7 +5,7 @@ from src.models.tree_model import MultiColumnTreeModel
 from src.managers.file_manager import FileManager
 from src.managers.downloader import Downloader
 from src.managers.converter import Converter
-from src.managers.sys_setting import SysSetting
+from src.managers.path_manager import PathManager
 
 class TabIndex(wx.Panel):
     """
@@ -121,38 +121,38 @@ class TabIndex(wx.Panel):
             # self.OnExpandAll(None)
             # 方法二，更新 item 的低0列数据 （不用刷新整个页面，还能保证上一次是否展开）
             self.model.SetValue(variant=fileItem, item=item, col=0)
+            self.model.ValueChanged(item, 0)
         else:
             wx.MessageBox(f"错误信息：{message}", "提示")
         return
 
     def _DownloadFile(self, tsSeed: str, index: int, tsName: str, item):
         '''下载文件并修改视图状态'''
-        absSeed = SysSetting.GetAbsolutePath(tsSeed)
-        absFile = SysSetting.GetAbsolutePath(tsName)
+        absSeed = PathManager.GetAbsPath(tsSeed)
+        absFile = PathManager.GetAbsPath(tsName)
         # 文件已经存在，返回
-        if SysSetting.IsExists(absFile):
+        if PathManager.IsExists(absFile):
             return
         
-        absUri = FileManager.GetUriByIdx(absSeed, index)
+        tsName, absUri = FileManager.GetUriByIdx(absSeed, index)
         if not absUri:
             return
         
-        SysSetting.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
+        PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
         Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
         return
     
     def _CreatePlaylist(self, tsSeed: str):
-        absSeed = SysSetting.GetAbsolutePath(tsSeed)
+        absSeed = PathManager.GetAbsPath(tsSeed)
 
         # 写palylist文件
-        playDir = SysSetting.GetAbsoluteDir(absSeed)
+        playDir = PathManager.GetAbsDir(absSeed)
         # # 2. 确保下载文件一定存在
-        # SysSetting.MakeDirsByPath(playDir)
-        playlist = SysSetting.GetPath(playDir, "playlist.txt")
-        outputFile = SysSetting.GetPath(playDir, "output.mp4")
+        playlist = PathManager.JoinPath(playDir, "playlist.txt")
+        outputFile = PathManager.JoinPath(playDir, "output.mp4")
 
         # 文件已经存在，返回
-        if SysSetting.IsExists(outputFile):
+        if PathManager.IsExists(outputFile):
             wx.MessageBox(f"视频文件已经存在。", "提示")
             return
 

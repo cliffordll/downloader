@@ -138,7 +138,7 @@ class Downloader(object):
                 task = cls.threadQueue.get()
                 tasks.append(task)
             else:
-                print(f"Downloader._MasterThread count:{count} qsize:{cls.threadQueue.qsize()}")
+                print(f"Downloader._MasterThread maxWorkers:{count} qsize:{cls.threadQueue.qsize()}")
         return tasks    
 
     @classmethod

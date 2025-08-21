@@ -1,6 +1,7 @@
 import wx
 from src.managers.sys_setting import SysSetting
 from src.managers.file_manager import FileManager
+from src.managers.path_manager import PathManager
 
 class DownloadPath(wx.Panel):
     def __init__(self, parent, workPath):
@@ -28,7 +29,7 @@ class DownloadPath(wx.Panel):
         self.SetSizer(sizer)
 
     def SetDownPath(self, baseUri):
-        filePath, fileName, absName = FileManager.GetPathFromURI(baseUri)
+        filePath, fileName, absName = PathManager.GetPathFromURI(baseUri)
         self.tcDown.SetValue(filePath)
 
     def _GetDownPath(self):

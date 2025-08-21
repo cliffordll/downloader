@@ -3,6 +3,7 @@ import wx
 from src.views.downloads.edit_mu import DownloadEditMU
 from src.views.downloads.download_path import DownloadPath
 from src.managers.file_manager import FileManager
+from src.managers.path_manager import PathManager
 
 class DownloadDialogMU(wx.Dialog):
     def __init__(self, parent, title, workPath):

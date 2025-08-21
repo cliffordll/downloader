@@ -10,6 +10,7 @@ from src.managers.file_manager import FileManager
 from src.managers.downloader import Downloader
 from src.managers.converter import Converter
 from src.managers.sys_setting import SysSetting
+from src.managers.path_manager import PathManager
 
 class MainFrame(wx.Frame):
     def __init__(self, parent, title):
@@ -49,6 +50,7 @@ class MainFrame(wx.Frame):
         collapseItem = fileMenu.Append(wx.ID_ANY, "折叠全部")
         refeshItem  = fileMenu.Append(wx.ID_REFRESH, "刷新")
         fileMenu.AppendSeparator()
+        settingItem  = fileMenu.Append(wx.ID_ANY, "设置\tCtrl-,")
         exitItem    = fileMenu.Append(wx.ID_EXIT, "&退出")
         # 绑定事件
         self.Bind(wx.EVT_MENU, self.OnOpen, openItem)
@@ -57,6 +59,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnExpandAll, expandItem)
         self.Bind(wx.EVT_MENU, self.OnCollapseAll, collapseItem)
         self.Bind(wx.EVT_MENU, self.OnRefresh, refeshItem)
+        self.Bind(wx.EVT_MENU, self.OnSetting, settingItem)
         self.Bind(wx.EVT_MENU, self.OnExit, exitItem)
 		
         # 创建编辑菜单
@@ -246,7 +249,10 @@ class MainFrame(wx.Frame):
             # 创建新任务成功，自动刷新页面
             self.OnRefresh(None)
         dlg.Destroy()
-        
+    
+    def OnSetting(self, event):
+        print("OnSetting")
+
     def OnExit(self, event):
         self.Close()
 
@@ -327,30 +333,33 @@ class MainFrame(wx.Frame):
                 # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.OK|wx.ICON_INFORMATION)
                 # if dlg != wx.ID_OK:
                 #     return
+                tasks = []
                 childs = []
                 self.model.GetChildren(item, childs)
                 for idxj, child in enumerate(childs):
-                    tsName = self.model.GetValue(child, 1)
-                    self._DownloadFile(tsSeed, idxj, tsName, child)
+                    # tsName = self.model.GetValue(child, 1)
+                    # self._DownloadFile(tsSeed, idxj, child)
+                    tasks.append((idxj, child))
+                self._DownloadFiles(tsSeed, tasks)
         elif len(objs) == 2:    # 子节点
             parent = self.model.GetParent(item)
             if parent.IsOk():
                 idxj = objs[1]
-                tsName = self.model.GetValue(item, 1)
+                # tsName = self.model.GetValue(item, 1)
                 tsSeed = self.model.GetValue(parent, 1)
                 # # dlg = wx.MessageBox(f"是否下载{tsName}文件。", "提示", style=wx.ICON_QUESTION)
                 # dlg = wx.MessageBox(f"是否下载{tsName}文件。", "提示", style=wx.OK|wx.ICON_QUESTION)
                 # if dlg != wx.ID_OK:
                 #     return
 
-                self._DownloadFile(tsSeed, idxj, tsName, item)
+                self._DownloadFiles(tsSeed, [(idxj, item)])
         else:
             pass
 
     
-    def _DownloadCall(self, flag: bool, message: str, item):
+    def _DownloadCall(self, flag: bool, fileName: str, item):
         if flag:
-            flag, fileItem = FileManager.GetFileItem(message)
+            flag, fileItem = FileManager.GetFileItem(fileName)
 
             # # 方法一，更新所有数据，并展开
             # self.OnRefresh(None)
@@ -359,44 +368,68 @@ class MainFrame(wx.Frame):
             self.model.SetValue(variant=fileItem, item=item, col=0)
             self.model.ValueChanged(item, 0)
         else:
-            # wx.MessageBox(f"错误信息：{message}", "提示")
+            # wx.MessageBox(f"错误信息：{fileName}", "提示")
             pass
         return
 
-    def _DownloadFile(self, tsSeed: str, index: int, tsName: str, item):
+
+    def _DownloadFiles(self, tsSeed: str, tasks: list):
         '''下载文件并修改视图状态'''
-        absSeed = SysSetting.GetAbsolutePath(tsSeed)    
-        absFile = SysSetting.GetAbsolutePath(tsName)    # 下载文件路径
+        absSeed = PathManager.GetAbsPath(tsSeed)
+        absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
+
+        tsList = FileManager.GetSegmentList(absSeed=absSeed)
+        for task in tasks:
+            idx = task[0]
+            item = task[1]
+            tsName = tsList[idx].name
+            absUri = tsList[idx].absUri
+
+            if not tsName or not absUri:
+                continue
+            absFile = PathManager.JoinPath(absDir, tsName)
+            # 文件已经存在，返回
+            if PathManager.IsExists(absFile):
+                continue
+            PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
+
+            Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
+        return
+
+    def _DownloadFile(self, tsSeed: str, index: int, item):
+        '''下载文件并修改视图状态'''
+        absSeed = PathManager.GetAbsPath(tsSeed)
+        absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
+
+        tsName, absUri = FileManager.GetUriByIdx(absSeed, index) # 下载文件URI
+        if not tsName or not absUri:
+            return
+        absFile = PathManager.JoinPath(absDir, tsName)
         # 文件已经存在，返回
-        if SysSetting.IsExists(absFile):
+        if PathManager.IsExists(absFile):
             return
-        
-        absUri = FileManager.GetUriByIdx(absSeed, index) # 下载文件URI
-        if not absUri:
-            return
-        
-        SysSetting.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
+        PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
+
         Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
         return
     
     def _CreatePlaylist(self, tsSeed: str):
-        absSeed = SysSetting.GetAbsolutePath(tsSeed)
+        absSeed = PathManager.GetAbsPath(tsSeed)
+        absDir = PathManager.GetAbsDir(absSeed)
 
-        # 写palylist文件
-        playDir = SysSetting.GetAbsoluteDir(absSeed)
         # # 2. 确保下载文件一定存在
-        # SysSetting.MakeDirsByPath(playDir)
-        playlist = SysSetting.GetPath(playDir, "playlist.txt")
-        outputFile = SysSetting.GetPath(playDir, "output.mp4")
+        playlist = PathManager.JoinPath(absDir, "playlist.txt")
+        outputFile = PathManager.JoinPath(absDir, "output.mp4")
 
         # 文件已经存在，返回
-        if SysSetting.IsExists(outputFile):
+        if PathManager.IsExists(outputFile):
             wx.MessageBox(f"视频文件已经存在。", "提示")
             return
 
         print("absSeed", absSeed)
-        print("playDir", playDir)
+        print("absDir", absDir)
         print("playlist", playlist)
-        absFile = FileManager.CreatePlaylist(absSeed=absSeed, playDir=playDir, playlist=playlist)
+        # 写palylist文件
+        absFile = FileManager.CreatePlaylist(absSeed=absSeed, playDir=absDir, playlist=playlist)
 
         Converter.ConvertTSFile(playlist, outputFile)

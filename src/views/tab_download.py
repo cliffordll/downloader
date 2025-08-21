@@ -3,6 +3,7 @@ from src.views.downloads.edit_mu import DownloadEditMU
 from src.views.downloads.edit_ts import DownloadEditTS
 from src.managers.sys_setting import SysSetting
 from src.managers.file_manager import FileManager
+from src.managers.path_manager import PathManager
 
 class TabDownload(wx.Panel):
     """
@@ -71,7 +72,7 @@ class TabDownload(wx.Panel):
         '''提供默认下载路径'''
         baseUri = self.books.GetCurrentPage().GetBaseURI()
 
-        filePath, fileName, absName = FileManager.GetPathFromURI(baseUri=baseUri)
+        filePath, fileName, absName = PathManager.GetPathFromURI(baseUri=baseUri)
         # print("TabDownload.OnBtnDownClicked", filePath)
         # print("TabDownload.OnBtnDownClicked", fileName)
         # print("TabDownload.OnBtnDownClicked", absName)
