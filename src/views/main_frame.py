@@ -225,7 +225,47 @@ class MainFrame(wx.Frame):
             else:
                 self._RecursiveExpand(child, expand)
             child, cookie = self.model.GetNextChild(item, cookie)
-    
+
+    def _RefreshWithState(self):
+        """保存当前所有展开状态, 并刷新视图"""
+        expandeds = set()
+        root = dv.NullDataViewItem  # 关键点：使用虚拟根节点
+        # 保存所有展开状态
+        self._SaveExpandState(root, expandeds)
+
+        # 刷新视图（默认折叠）
+        self.model.Cleared()
+
+        # 恢复所有展开状态
+        self._RestoreExpandState(root, expandeds)
+
+    def _SaveExpandState(self, parent, expandeds):
+        """递归保存展开状态"""
+        child, cookie = self.model.GetFirstChild(parent)
+        while child.IsOk():            
+            if self.model.IsContainer(child):
+                if self.mcTree.IsExpanded(child):
+                    obj = self.model.ItemToObject(child)
+                    expandeds.add(obj)
+            else:
+                self._SaveExpandState(child, expandeds)
+            child, cookie = self.model.GetNextChild(parent, cookie)
+
+    def _RestoreExpandState(self, parent, expandeds):
+        """根据上一次展开折叠状态，递归展开或折叠"""
+        child, cookie = self.model.GetFirstChild(parent)
+        while child.IsOk():            
+            if self.model.IsContainer(child):
+                obj = self.model.ItemToObject(child)
+                if obj in expandeds:
+                    self.mcTree.Expand(child) 
+                # else:
+                #     self.mcTree.Collapse(child)
+            else:
+                self._RestoreExpandState(child)
+            child, cookie = self.model.GetNextChild(parent, cookie)
+
+
     ###################################
     ### 操作菜单的事件
     ################################### 
@@ -296,18 +336,16 @@ class MainFrame(wx.Frame):
         self._RecursiveExpand(root, False)
 
     def OnRefresh(self, event):
-        # print("OnRefresh")
-        # self.model.Cleared()  # 清空并重新加载
-        # self.model.Resort()    # 重置模型
-
         # 完全重置数据
         self.model.fileTree = FileManager.GetFileInfos()
-        # self.model.Reset()  # 完全重置模型
-        # self.model.Refresh()
 
-        # 不需要调用 ValueChanged()
-        # 因为 Cleared() 已经通知视图重新加载数据
-        self.model.Cleared()
+        # 方法1：刷新全部，默认折叠
+        # # 不需要调用 ValueChanged()
+        # # 因为 Cleared() 已经通知视图重新加载数据
+        # self.model.Cleared()
+
+        # 方法2：记录上一次的展开折叠状态
+        self._RefreshWithState()
 
     def OnActivatedChanged(self, event):
         """选中项变化事件"""
@@ -326,7 +364,7 @@ class MainFrame(wx.Frame):
                 tsSeed = self.model.GetValue(item, 1)
                 if value == "转MP4":
                     # wx.MessageBox(f"将要合并多少个文件。", "提示")
-                    self._CreatePlaylist(tsSeed)
+                    self._CreateMP4File(tsSeed, item)
                     return
 
                 # # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.ICON_QUESTION)
@@ -396,7 +434,17 @@ class MainFrame(wx.Frame):
             Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
         return
     
-    def _CreatePlaylist(self, tsSeed: str):
+    def _CreateMP4Call(self, flag: bool, fileName: str, item):
+        if flag:
+            code, newFile = FileManager.GetFileItem(fileName)
+            # 插入数据
+            self.model.InsertChildData(item, newFile)
+            # 刷新视图
+            self._RefreshWithState()
+        else:
+            wx.MessageBox(f"视频文件合并失败", "提示")
+
+    def _CreateMP4File(self, tsSeed: str, item):
         absSeed = PathManager.GetAbsPath(tsSeed)
         absDir = PathManager.GetAbsDir(absSeed)
 
@@ -415,4 +463,4 @@ class MainFrame(wx.Frame):
         # 写palylist文件
         absFile = FileManager.CreatePlaylist(absSeed=absSeed, playDir=absDir, playlist=playlist)
 
-        Converter.ConvertTSFile(playlist, outputFile)
+        Converter.ConvertTSFile(playlist, outputFile, self._CreateMP4Call, item)

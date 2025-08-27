@@ -47,6 +47,17 @@ class Downloader(object):
     maxWorkers = SysSetting().GetMaxWorkers()
     threadPool = ThreadPoolManager(maxWorkers=maxWorkers)
 
+    _instance = None
+    _lock = threading.Lock()
+    # 单例模式（只开启一个主下载线程）
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                # 再次检查,因为可能有多个线程同时通过了第一次检查
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
         pass
 
@@ -154,14 +165,15 @@ class Downloader(object):
             if cls.isStop:
                 print("Downloader.Master Thread Stop!!!!!!!!!!")
                 break
-            # print(cls.threadPool.maxWorkers)
 
             tasks = cls._GetTasks(cls.threadPool.maxWorkers)
             if len(tasks) > 0:
-                # 提交任务到线程池
                 futures = []
+                # 提交任务到线程池
                 for task in tasks:
                     # (absUri, absFile, callback, item)
+                    # task[0] absUri
+                    # task[1] absFile
                     future = cls.threadPool.submit(cls._DownLoadFile, task[0], task[1])
 
                     # task[2] 页面回调

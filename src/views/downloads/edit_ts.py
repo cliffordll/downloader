@@ -79,9 +79,9 @@ class DownloadEditTS(wx.Panel):
 
         # self.tcPlay.SetValue(f"{9:.6f}")
         self.tcPlay.SetValue(f"#EXTINF:{5:.6f},")
-        self.tcReg.SetValue("segment_{idx}_a1_v1.ts")
-        self.tcStart.SetValue(f"10")
-        self.tcEnd.SetValue(f"15")
+        self.tcReg.SetValue("seg-{idx}-v1-a1.ts")
+        self.tcStart.SetValue(f"1")
+        self.tcEnd.SetValue(f"10")
 
         self.tsList.SetValue("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD")
 

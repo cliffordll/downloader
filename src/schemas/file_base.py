@@ -34,6 +34,7 @@ class FileItem(BaseModel):
 
 class TreeItem(BaseModel):
     parent: Optional[FileItem]  = None
+    outputs: List[FileItem]     = []    # 输出文件，mp4，支持多个
     childs: List[FileItem]      = []
     download: int               = 0     # 已下载个数
 

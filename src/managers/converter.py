@@ -1,12 +1,14 @@
 from threading import Thread
 import subprocess
+
+from src.managers.path_manager import PathManager
  
 class Converter():
     def __init__(self):
         pass
         
     @classmethod
-    def _ConvertTSFile(cls, playlist: str, outputFile: str="output.mp4", callback=None):
+    def _ConvertTSFile(cls, playlist: str, outputFile: str="output.mp4", callback=None, item=None):
         # ffmpeg -f concat -safe 0 -i playlist.txt -c copy output.mp4
         cmd = [
             'ffmpeg',
@@ -24,17 +26,23 @@ class Converter():
             if 'out_time_ms' in line:
                 time_ms = int(line.split('=')[1])
                 print(f"Converter.ConvertTSFile Progress: {time_ms/1000000:.2f} seconds")
-        print(f"Converter.ConvertTSFile Progress: END")
+
+        if PathManager.IsExists(outputFile):
+            callback(True, outputFile, item)
+            print(f"Converter.ConvertTSFile Progress: SUCCESS")
+        else:
+            callback(False, outputFile, item)
+            print(f"Converter.ConvertTSFile Progress: FAILURE")
         process.wait()
 
     @classmethod
-    def ConvertTSFile(cls, playlist: str, outputFile: str, callback=None):
+    def ConvertTSFile(cls, playlist: str, outputFile: str, callback=None, item=None):
         try:
             print(f"Converter.ConvertTSFile playlist:{playlist}")
             print(f"Converter.ConvertTSFile outputFile:{outputFile}")
 
             # 使用线程控制下载
-            t1 = Thread(target=cls._ConvertTSFile, args=(playlist, outputFile, callback))
+            t1 = Thread(target=cls._ConvertTSFile, args=(playlist, outputFile, callback, item))
             # 如果有参数
             # t2 = threading.Thread(target=consumer_task_queue, args=(taskqueue, db, ds, tokenizer, evaltool))
             # def consumer_task_queue(taskqueue, db, ds, tokenizer, evaltool):

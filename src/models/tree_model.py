@@ -64,10 +64,20 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         # print("GetChildren parent:", keys)
         if len(objs) == 1:
             idxi = objs[0]
-            for idxj, fl in enumerate(self.fileTree.items[idxi].childs):
+            # 处理 MP4　文件
+            idxj = 0
+            for _ in self.fileTree.items[idxi].outputs:
                 _key = self._BuildKey((idxi, idxj))
                 children.append(self.ObjectToItem(_key))
-            return len(self.fileTree.items[idxi].childs)
+                idxj += 1
+
+            # 处理 ts 文件
+            for _ in self.fileTree.items[idxi].childs:
+                _key = self._BuildKey((idxi, idxj))
+                children.append(self.ObjectToItem(_key))
+                idxj += 1
+            # return len(self.fileTree.items[idxi].outputs)+len(self.fileTree.items[idxi].childs)
+            return idxj
         elif len(objs) == 2:
             pass
         else:
@@ -100,6 +110,23 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         elif len(objs) == 2:
             idxi = objs[0]
             idxj = objs[1]
+            # 处理 Mp4 
+            coutputs = len(self.fileTree.items[idxi].outputs)
+            if coutputs > 0:
+                if idxj < coutputs:
+                    if col == 0:
+                        return f"{idxi+1}.{idxj}"
+                    elif col == 1:
+                        # print("#############33", objs, self.fileTree.items[idxi].outputs[idxj])
+                        return self.fileTree.items[idxi].outputs[idxj].fileName
+                    elif col == 2:
+                        return self.fileTree.items[idxi].outputs[idxj].fileSize
+                    elif col == 3:
+                        return self.fileTree.items[idxi].outputs[idxj].modifyAt
+                else:
+                    idxj -= coutputs
+
+            # 处理 TS
             if col == 0:
                 return f"{idxi+1}.{idxj+1}"
             elif col == 1:
@@ -138,6 +165,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             return self.ObjectToItem(_key)
         return dv.NullDataViewItem          # 部门的父节点是根
     
+    # 修改TS文件大小，此时没有MP4文件
     def SetValue(self, variant, item, col):
         '''设置item项col列的值为variant'''
         keys = self.ItemToObject(item)
@@ -172,52 +200,28 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         return False
 
     # 动态插入数据的方法
-    def AddData(self, data: list):
-        '''添加数据'''
-        pass
+    def InsertChildData(self, parent, newFile):
+        if not parent.IsOk():
+            return
+        
+        keys = self.ItemToObject(parent)
+        objs = self.ParseKey(keys)
+        if len(objs) == 1:
+            idxi = objs[0]
+            self.fileTree.items[idxi].outputs.append(newFile)
 
-        # '''定义树形结构的父子关系'''
-        # if not parent.IsOk():  # 根节点
-        #     for idx, mu in enumerate(self.fileTree.items):
-        #         _key = self._BuildKey((idx,))
-        #         children.append(self.ObjectToItem(_key))
-        #     return len(self.fileTree.items)
+            # idxj = len(self.fileTree.items[idxi].outputs)+len(self.fileTree.items[idxi].childs)            
+            # # 通知视图数据已更改
+            # _key = self._BuildKey((idxi, idxj))
+            # item = self.ObjectToItem(_key)
+            # if item.IsOk():
+            #     # self.ItemAdded(parent=parent, item=item)
+            #     # self.ItemChanged(item)  # 更新显示状态
+            #     self.Cleared()
 
-        # keys = self.ItemToObject(parent)
-        # objs = self.ParseKey(keys)
-        # # print("GetChildren parent:", keys)
-        # if len(objs) == 1:
-        #     idxi = objs[0]
-        #     for idxj, fl in enumerate(self.fileTree.items[idxi].childs):
-        #         _key = self._BuildKey((idxi, idxj))
-        #         children.append(self.ObjectToItem(_key))
-        #     return len(self.fileTree.items[idxi].childs)
-        # elif len(objs) == 2:
-        #     pass
-        # else:
-        #     pass
-        # return 0
-
-
-        # for item in data:
-        #     idxi = len(self.data)
-        #     self.data.append(item)
-        #     _key = self._BuildKey((idxi,))
-        #     parent = self.ObjectToItem(_key)
-        #     self.ItemAdded(dv.NullDataViewItem, parent)
-        #     # self.ItemAdded(dv.NullDataViewItem, self.ObjectToItem(_key))
-
-        #     for child in item["childs"]:
-        #         self.ItemAdded(parent, self.ObjectToItem(child))
-
-    # def AddChildData(self, key, data: list):
-    #     for idx, item in enumerate(self.data):
-    #         if item["category"] == key:
-    #             _key = self._BuildKey((idx, ))
-    #             parent = self.ObjectToItem(_key)
-
-    #             for child in item["childs"]:
-    #                 self.ItemAdded(parent, self.ObjectToItem(child))
+            #     # # 该方法适合尾部追加
+            #     # self.ItemAdded(parent=parent, item=self.ObjectToItem(_key))
+            # # self.ItemAdded(parent=parent, item=self.ObjectToItem(newFile))
 
     # 展开使用
     def GetFirstChild(self, parent):
@@ -258,6 +262,15 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 # attr.SetColour(wx.RED)  # 文件大小列右对齐
                 return True
         elif len(objs) == 2:
+            idxi = objs[0]
+            idxj = objs[1]
+            coutputs = len(self.fileTree.items[idxi].outputs)
+            # 设置 MP4 样式
+            if coutputs > 0 and idxj < coutputs:
+                attr.SetBold(True)
+                attr.SetColour(wx.GREEN)
+
+            # 设置 TS 样式
             if col == 0:
                 attr.SetBold(True)
                 return True

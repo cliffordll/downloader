@@ -28,26 +28,29 @@ class FileManager():
         treeData = TreeData()
 
         for root, dirs, files in os.walk(workPath):
-            for file in files:
-                absSeed = os.path.join(root, file)
+            treeItem = TreeItem()
+            hasItem = False
+            for fil in files:
+                absSeed = os.path.join(root, fil)
 
-                if file.endswith("seed"):
-                    treeItem = TreeItem()
+                if fil.endswith("seed"):
                     flag, fileItem = cls.GetFileItem(absSeed)
                     treeItem.parent = fileItem
+                    hasItem = True
                     
-                    # basePath, baseUri, content = cls.ParseSeedFile(absPath)
-                    # for ts in cls._CheckM3U8File(basePath, baseUri, content):
                     for ts in cls.GetSegmentList(absSeed):
                         tsAbs = PathManager.JoinPath(root, ts.name)
                         flag, fileItme = cls.GetFileItem(tsAbs, ts.absUri)
                         if flag:    # 统计下载个数
                             treeItem.download += 1
                         treeItem.childs.append(fileItme)
-
-                    treeData.items.append(treeItem)
+                elif fil.endswith("mp4"):
+                    flag, fileItem = cls.GetFileItem(absSeed)
+                    treeItem.outputs.append(fileItem)
                 else:
                     pass
+            if hasItem:
+                treeData.items.append(treeItem)
         return treeData
     
     # @classmethod
@@ -82,8 +85,6 @@ class FileManager():
         try:
             # 读取路径
             tsNames = ""
-            # basePath, baseUri, content = cls.ParseSeedFile(absSeed)
-            # tsList = cls._CheckM3U8File(basePath, baseUri, content)
             tsList = cls.GetSegmentList(absSeed)
             for idx, ts in enumerate(tsList):
                 if idx > 0:
