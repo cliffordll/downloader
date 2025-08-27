@@ -376,10 +376,10 @@ class MainFrame(wx.Frame):
                 self.model.GetChildren(item, childs)
                 for idxj, child in enumerate(childs):
                     tasks.append((idxj, child))
-                self._DownloadFiles(tsSeed, tasks)
+                count = self._DownloadFiles(tsSeed, tasks)
 
                 # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.ICON_QUESTION)
-                wx.MessageBox(f"共需提交{len(tasks)}个下载任务。", "提示", style=wx.OK|wx.ICON_INFORMATION)
+                wx.MessageBox(f"共需提交{count}个下载任务。", "提示", style=wx.OK|wx.ICON_INFORMATION)
         elif len(objs) == 2:    # 子节点
             parent = self.model.GetParent(item)
             if parent.IsOk():
@@ -391,7 +391,8 @@ class MainFrame(wx.Frame):
                 # if dlg != wx.ID_OK:
                 #     return
 
-                self._DownloadFiles(tsSeed, [(idxj, item)])
+                count = self._DownloadFiles(tsSeed, [(idxj, item)])
+                # wx.MessageBox(f"共需提交{count}个下载任务。", "提示", style=wx.OK|wx.ICON_INFORMATION)
         else:
             pass
 
@@ -417,6 +418,7 @@ class MainFrame(wx.Frame):
         absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
 
         tsList = FileManager.GetSegmentList(absSeed=absSeed)
+        count = 0
         for task in tasks:
             idx = task[0]
             item = task[1]
@@ -432,7 +434,8 @@ class MainFrame(wx.Frame):
             PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
 
             Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
-        return
+            count += 1
+        return count
     
     def _CreateMP4Call(self, flag: bool, fileName: str, item):
         if flag:
