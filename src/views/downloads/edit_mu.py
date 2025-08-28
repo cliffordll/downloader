@@ -42,7 +42,7 @@ class DownloadEditMU(wx.Panel):
     def _SetDefaultValue(self):
         '''测试提供个默认值'''
         m3u8_url = "https://yzzy.play-cdn10.com/20230104/21337_a024ad0f/1000k/hls/mixed.m3u8"
-        # m3u8_url = "http://127.0.0.1:8000/videos/2025/test2/index.m3u8"
+        m3u8_url = "http://127.0.0.1:8000/videos/2025/test2/index.m3u8"
         # m3u8_url = "https://test-streams.mux.dev/x36xhzz/url_2/193039199_mp4_h264_aac_ld_7.m3u8"
         self.tcURI.SetValue(m3u8_url)
 

@@ -132,7 +132,7 @@ class TabIndex(wx.Panel):
         absSeed = PathManager.GetAbsPath(tsSeed)
         absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
 
-        tsList = FileManager.GetSegmentList(absSeed=absSeed)
+        tsList = FileManager.GetSegsBySeed(absSeed=absSeed)
         for task in tasks:
             idx = task[0]
             item = task[1]

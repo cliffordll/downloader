@@ -38,7 +38,7 @@ class FileManager():
                     treeItem.parent = fileItem
                     hasItem = True
                     
-                    for ts in cls.GetSegmentList(absSeed):
+                    for ts in cls.GetSegsBySeed(absSeed):
                         tsAbs = PathManager.JoinPath(root, ts.name)
                         flag, fileItme = cls.GetFileItem(tsAbs, ts.absUri)
                         if flag:    # 统计下载个数
@@ -70,14 +70,25 @@ class FileManager():
     #         print(f"FileManager.GetUriByIdx except {str(ex)}")  
     #     return "", ""
     @classmethod
-    def GetSegmentList(cls, absSeed: str):
+    def GetSegsBySeed(cls, absSeed: str):
         # 读取 m3u8 内容获取下载地址
         tsList = []
         try:
             basePath, baseUri, content = cls._ParseSeedFile(absSeed)
             return cls._CheckM3U8File(basePath, baseUri, content)
         except Exception as ex:
-            print(f"FileManager.GetSegmentList except {str(ex)}")  
+            print(f"FileManager.GetSegsBySeed except {str(ex)}")  
+        return tsList
+    
+    @classmethod
+    def GetSegsByM3U8(cls, absM3U8: str):
+        # 读取 m3u8 内容获取下载地址
+        tsList = []
+        try:
+            content = cls._ParseM3U8File(absM3U8)
+            return cls._CheckM3U8File("", "", content)
+        except Exception as ex:
+            print(f"FileManager.GetSegsByM3U8 except {str(ex)}")  
         return tsList
 
     @classmethod
@@ -85,7 +96,7 @@ class FileManager():
         try:
             # 读取路径
             tsNames = ""
-            tsList = cls.GetSegmentList(absSeed)
+            tsList = cls.GetSegsBySeed(absSeed)
             for idx, ts in enumerate(tsList):
                 if idx > 0:
                     tsNames += "\n"
@@ -100,13 +111,37 @@ class FileManager():
         except Exception as ex:
             print(f"FileManager.GetPlaylist except {str(ex)}")
 
-    '''
-    basePath: 下载路径
-    baseUri: 下载连接地址
-    content: 下载内容
-    '''
     @classmethod
-    def _CheckM3U8File(cls, basePath: str, baseUri, content: str):
+    def CreateM3U8File(cls, downPath: str, absSeed: str, m3u8Name: str="download.m3u8"):
+        basePath, baseUri, content = cls._ParseSeedFile(absSeed)
+
+        # 1.检查种子内容是否合法
+        tsList = cls._CheckM3U8File(basePath, baseUri, content)
+        if len(tsList) <= 0:
+            print(f"FileManager.CreateM3U8File CheckM3U8File Error")
+            return False
+        
+        # 2. 确保下载文件一定存在
+        PathManager.MakeDirsByPath(downPath)
+
+        # 3. 写M3U8文件
+        try:
+            absSeed = PathManager.JoinPath(downPath, m3u8Name)
+            with open(absSeed, 'w') as f:     # 不存在则创建
+                f.write(content)       # 可写入初始内容
+            return True
+        except Exception as ex:
+            print(f"FileManager.CreateM3U8File except:{str(ex)}")
+        # return cls.AddFileInfo(filePath, seedFile)
+        return False
+
+    @classmethod
+    def _CheckM3U8File(cls, basePath: str, baseUri: str, content: str):
+        '''
+        basePath: 下载路径
+        baseUri: 下载连接地址
+        content: 下载内容
+        '''
         tsList = []
         try:
             parser = M3U8Parser(content=content, base_path=basePath, m3u8_uri=baseUri)
@@ -156,16 +191,36 @@ class FileManager():
             print(f"文件 {absSeed} 不存在")
             return basePath, baseUri, content
         try:
-            with open(absSeed, 'rb') as f:     # 不存在则创建
-                basePath = f.readline().decode().strip()
-                baseUri = f.readline().decode().strip()
-                # print("basePath", basePath)
-                # print("baseUri", baseUri)
-                content = f.read().decode()
-                # print("content", content)
+            with open(absSeed, 'r') as f:     # 不存在则创建
+                # basePath = f.readline().decode().strip()
+                # baseUri = f.readline().decode().strip()
+                # # print("basePath", basePath)
+                # # print("baseUri", baseUri)
+                # content = f.read().decode()
+                # # print("content", content)
+
+                basePath = f.readline().strip()
+                baseUri = f.readline().strip()
+                content = f.read()
         except Exception as ex:
             print(f"ParseSeedFile Error:{str(ex)}")
         return basePath, baseUri, content
+    
+    @classmethod
+    def _ParseM3U8File(cls, absM3U8: str):
+        content = ""
+        # absFile = SysSetting.GetAbsolutePath(seedFile)
+
+        if not os.path.exists(absM3U8):    # 检查文件是否存在
+            print(f"文件 {absM3U8} 不存在")
+            return content
+        try:
+            with open(absM3U8, 'r') as f:     # 不存在则创建
+                content = f.read()
+                # print("content", content)
+        except Exception as ex:
+            print(f"ParseM3U8File Error:{str(ex)}")
+        return content
 
 # 拽拽写的代码
 # # vfffffffffffnngnglgnkvvkjkmkgkgk lg jkf,gvklkmgkefklmmfnknfmfnfmnmfmffknj kmg[]

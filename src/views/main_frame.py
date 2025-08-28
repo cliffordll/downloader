@@ -1,6 +1,6 @@
 import wx 
 import wx.dataview as dv
-from src.models.tree_model import MultiColumnTreeModel
+from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD
 
 from src.views.downloads.dialog_mu import DownloadDialogMU
 from src.views.downloads.dialog_ts import DownloadDialogTS
@@ -154,7 +154,7 @@ class MainFrame(wx.Frame):
         # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_READONLY|wx.TE_RICH2)
         listSizer = wx.BoxSizer(wx.HORIZONTAL)
         # 创建并关联模型
-        self.model = MultiColumnTreeModel()
+        self.model = MultiColumnTreeModel(self)
         # 创建DataViewCtrl
         self.mcTree = dv.DataViewCtrl(panel, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
         self.mcTree.AssociateModel(self.model)
@@ -180,6 +180,7 @@ class MainFrame(wx.Frame):
         # self.mcTree.Bind(dv.EVT_DATAVIEW_SELECTION_CHANGED, self.OnSelectionChanged)
         # 双击下载
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_ACTIVATED, self.OnActivatedChanged)
+        self.Bind(EVT_ALL_DOWNLOAD, self.OnAllTSDownload)
 
         sizer.Add(uriSizer, flag=wx.ALL, border=0)
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND|wx.ALL, border=0)
@@ -366,6 +367,11 @@ class MainFrame(wx.Frame):
                     # wx.MessageBox(f"将要合并多少个文件。", "提示")
                     self._CreateMP4File(tsSeed, item)
                     return
+                elif value == "下载全部":
+                    pass
+                else:
+                    wx.MessageBox(f"【{value}】操作暂不支持。", "提示")
+                    return
 
                 # # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.ICON_QUESTION)
                 # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.OK|wx.ICON_INFORMATION)
@@ -397,6 +403,19 @@ class MainFrame(wx.Frame):
             pass
 
     
+    def OnAllTSDownload(self, event):
+        '''所有TS文件都已经下载完毕，修改操作文本'''
+        print("OnAllTSDownload", event.GetData())
+        payload = event.GetData()
+        if not payload:
+            return
+        fileName = payload.get("fileName", "")
+        # print("OnAllTSDownload", fileName)
+        self._CreateM3U8File(tsSeed=fileName)
+
+        # 方法2：记录上一次的展开折叠状态
+        self._RefreshWithState()
+
     def _DownloadCall(self, flag: bool, fileName: str, item):
         if flag:
             flag, fileItem = FileManager.GetFileItem(fileName)
@@ -404,6 +423,7 @@ class MainFrame(wx.Frame):
             # # 方法一，更新所有数据，并展开
             # self.OnRefresh(None)
             # self.OnExpandAll(None)
+
             # 方法二，更新 item 的低0列数据 （不用刷新整个页面，还能保证上一次是否展开）
             self.model.SetValue(variant=fileItem, item=item, col=0)
             self.model.ValueChanged(item, 0)
@@ -417,7 +437,7 @@ class MainFrame(wx.Frame):
         absSeed = PathManager.GetAbsPath(tsSeed)
         absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
 
-        tsList = FileManager.GetSegmentList(absSeed=absSeed)
+        tsList = FileManager.GetSegsBySeed(absSeed=absSeed)
         count = 0
         for task in tasks:
             idx = task[0]
@@ -437,6 +457,13 @@ class MainFrame(wx.Frame):
             count += 1
         return count
     
+    def _CreateM3U8File(self, tsSeed):
+        '''创建M3U8文件'''
+        absSeed = PathManager.GetAbsPath(tsSeed)
+        absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
+
+        FileManager.CreateM3U8File(absDir, absSeed)
+
     def _CreateMP4Call(self, flag: bool, fileName: str, item):
         if flag:
             code, newFile = FileManager.GetFileItem(fileName)

@@ -3,13 +3,52 @@ import wx
 import wx.dataview as dv
 from src.managers.file_manager import FileManager
 
+# 定义自定义事件类型
+ALL_DOWNLOAD_EVENT = wx.NewEventType()
+# 创建事件绑定器
+EVT_ALL_DOWNLOAD = wx.PyEventBinder(ALL_DOWNLOAD_EVENT, 1)
+class AllDownloadEvent(wx.PyCommandEvent):
+    """自定义事件类"""
+    def __init__(self, event_type, id):
+        super().__init__(event_type, id)
+        self.data = None
+    
+    def SetData(self, data):
+        self.data = data
+    
+    def GetData(self):
+        return self.data
+
 class MultiColumnTreeModel(dv.PyDataViewModel):
-    def __init__(self):
+    def __init__(self, parent=None):
         super().__init__()
         self.fileTree = FileManager.GetFileInfos()
         # 因为 ObjectToItem(obj) 在库内部维护一张map，key 为 id(obj)，所以 obj 对象不能变
         # id(obj) 函数返回对象的"标识值"
         self.keyMap = dict()
+
+        self.parent = parent
+
+    def _SendEvent(self, payload=None):
+        """发送自定义事件的方法"""
+        if not self.parent:
+            return False
+        
+        event = AllDownloadEvent(ALL_DOWNLOAD_EVENT, -1)
+        event.SetData(payload)
+        
+        # # 不可用，报错
+        # # 获取事件处理器并处理事件
+        # # 发送事件
+        # owner = self.GetOwner()
+        # if owner and hasattr(owner, 'GetEventHandler'):
+        #     owner.GetEventHandler().ProcessEvent(event)
+        #     return True
+        # return False
+
+        # 直接发送到父窗口
+        wx.PostEvent(self.parent, event)
+        return True
 
     # 自定义函数
     def _BuildKey(self, keys: tuple):
@@ -102,8 +141,12 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 return self.fileTree.items[idxi].parent.modifyAt
             else:
                 # return f"{idxi+1}"
+                # 判断已下载个数 和 总TS文件格式是否相等
                 if self.fileTree.items[idxi].download == len(self.fileTree.items[idxi].childs):
-                    return "转MP4"
+                    if len(self.fileTree.items[idxi].outputs) > 0:
+                        return "播放"
+                    else:
+                        return "转MP4"
                 return "下载全部"
             # else:
             #     return self.fileTree.items[idxi].parent.absUri
@@ -196,6 +239,12 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             # self.fileTree.items[idxi].childs[idxj].modifyAt = "----:--:-- --:--"
             self.fileTree.items[idxi].childs[idxj].fileSize = variant.fileSize
             self.fileTree.items[idxi].childs[idxj].modifyAt = variant.modifyAt
+
+            # 下载成功一个文件
+            self.fileTree.items[idxi].download += 1
+            if self.fileTree.items[idxi].download == len(self.fileTree.items[idxi].childs):
+                # return "转MP4"
+                self._SendEvent(payload={"fileName": self.fileTree.items[idxi].parent.fileName})
             return True
         return False
 
