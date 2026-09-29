@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import wx 
 import wx.dataview as dv
 from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD
@@ -12,6 +14,40 @@ from src.managers.converter import Converter
 from src.managers.sys_setting import SysSetting
 from src.managers.path_manager import PathManager
 
+ICON_ROOT = Path(__file__).resolve().parents[2] / "icons"
+ICON_FILES = {
+    "open": "tools/open.png",
+    "playlist": "files/m3u8.png",
+    "segment": "files/ts.png",
+    "expand": "tools/expand.png",
+    "collapse": "tools/collapse.png",
+    "refresh": "tools/refresh.png",
+    "help": "tools/help.png",
+    "about": "tools/about.png",
+}
+ICON_SIZES = (24, 30, 36, 48)
+
+
+def icon_image(filename, size):
+    """Load an exact-size PNG, or scale the shared source for other sizes."""
+    path = ICON_ROOT / str(size) / filename
+    if not path.is_file():
+        path = ICON_ROOT / "source" / filename
+    image = wx.Image(str(path), wx.BITMAP_TYPE_PNG)
+    if not image.IsOk():
+        raise ValueError(f"Cannot load icon: {path}")
+    if image.GetSize() != wx.Size(size, size):
+        image = image.Scale(size, size, wx.IMAGE_QUALITY_HIGH)
+    return image
+
+
+def toolbar_icon(name):
+    filename = ICON_FILES[name]
+    return wx.BitmapBundle.FromBitmaps([
+        wx.Bitmap(icon_image(filename, size)) for size in ICON_SIZES
+    ])
+
+
 class MainFrame(wx.Frame):
     def __init__(self, parent, title):
         # super(MyFrame, self).__init__(parent, title=title)
@@ -19,7 +55,7 @@ class MainFrame(wx.Frame):
         self.SetSize(width=1024, height=700)
         
         # 先加载 PNG/JPG，再转为 ICO， 调整尺寸（建议32x32或16x16）
-        image = wx.Image("icons/logo.png", wx.BITMAP_TYPE_PNG).Rescale(32, 32)
+        image = icon_image("app/logo.png", 32)
         icon = wx.Icon(wx.Bitmap(image))
         # icon = wx.Icon()
         # icon.CopyFromBitmap(wx.Bitmap(image))
@@ -82,27 +118,26 @@ class MainFrame(wx.Frame):
         self.SetMenuBar(self.menuBar)
 
     def _createToolBar(self):
-        # 创建工具栏
-        self.toolBar = self.CreateToolBar()
-        # 设置图标大小
-        # self.toolBar.SetToolBitmapSize((40, 40))
-        self.toolBar.SetToolBitmapSize((20, 20))
+        self.toolBar = self.CreateToolBar(style=wx.TB_DEFAULT_STYLE)
+        self.toolBar.SetToolBitmapSize(self.toolBar.FromDIP(wx.Size(24, 24)))
+        self.toolBar.SetToolPacking(self.toolBar.FromDIP(4))
+        self.toolBar.SetToolSeparation(self.toolBar.FromDIP(8))
+        self.toolBar.SetMargins(self.toolBar.FromDIP(wx.Size(4, 3)))
 
-        # 添加工具栏按钮，并绑定事件
-        # newButton = self.toolBar.AddTool(wx.ID_NEW, "New", wx.Bitmap("icons/tools/new.png"))
-        openButton      = self.toolBar.AddTool(wx.ID_OPEN, "打开", wx.Bitmap("icons/tools/open.png"))
+        def add_tool(tool_id, label, icon):
+            bundle = toolbar_icon(icon)
+            return self.toolBar.AddTool(tool_id, label, bundle, shortHelp=label)
 
-        # m3u8image = wx.Image("icons//tools/mp4.png", wx.BITMAP_TYPE_PNG).Rescale(32, 32)
-        # refreshimage = wx.Image("icons//tools/refresh.png", wx.BITMAP_TYPE_PNG).Rescale(32, 32)
-        muButton        = self.toolBar.AddTool(wx.ID_ANY, "下载M3U8", wx.Bitmap("icons/files/m3u8.png"))
-        # m3u8Button      = self.toolBar.AddTool(wx.ID_ANY, "下载M3U8", wx.Bitmap(m3u8image))
-        tsButton        = self.toolBar.AddTool(wx.ID_ANY, "下载TS", wx.Bitmap("icons/files/ts-2.png"))
-        expandButton    = self.toolBar.AddTool(wx.ID_ANY, "展开全部", wx.Bitmap("icons/tools/expand.png"))
-        collapseButton  = self.toolBar.AddTool(wx.ID_ANY, "折叠全部", wx.Bitmap("icons/tools/collap.png"))
-        refreshButton   = self.toolBar.AddTool(wx.ID_ANY, "刷新", wx.Bitmap("icons/tools/refresh.png"))
-        # refreshButton   = self.toolBar.AddTool(wx.ID_ANY, "刷新", wx.Bitmap(refreshimage))
-        helpButton      = self.toolBar.AddTool(wx.ID_ANY, "帮助", wx.Bitmap("icons/tools/help.png"))
-        aboutButton     = self.toolBar.AddTool(wx.ID_ANY, "关于", wx.Bitmap("icons/tools/about.png"))
+        openButton = add_tool(wx.ID_OPEN, "打开", "open")
+        muButton = add_tool(wx.ID_ANY, "下载M3U8", "playlist")
+        tsButton = add_tool(wx.ID_ANY, "下载TS", "segment")
+        self.toolBar.AddSeparator()
+        expandButton = add_tool(wx.ID_ANY, "展开全部", "expand")
+        collapseButton = add_tool(wx.ID_ANY, "折叠全部", "collapse")
+        refreshButton = add_tool(wx.ID_ANY, "刷新", "refresh")
+        self.toolBar.AddSeparator()
+        helpButton = add_tool(wx.ID_ANY, "帮助", "help")
+        aboutButton = add_tool(wx.ID_ANY, "关于", "about")
 
         # self.toolBar.Bind(wx.EVT_TOOL, self.OnNew, newButton)
         # self.toolBar.Bind(wx.EVT_TOOL, self.OnOpen, openButton)
@@ -112,8 +147,7 @@ class MainFrame(wx.Frame):
         self.toolBar.Bind(wx.EVT_TOOL, self.OnCollapseAll, collapseButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnRefresh, refreshButton)
         # 启用工具栏
-        self.toolBar.Realize()# 添加分隔线
-        self.toolBar.AddSeparator()
+        self.toolBar.Realize()
 
     def _createStatusBar(self):
       # 创建状态栏

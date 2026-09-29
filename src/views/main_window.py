@@ -1,5 +1,6 @@
 
 import wx
+from src.views.main_frame import icon_image
 from src.views.tab_index import TabIndex
 from src.views.tab_download import TabDownload
 from src.views.tab_setting import TabSetting
@@ -13,7 +14,7 @@ class MainWindow(wx.Frame):
         self.SetSize(width=1024, height=700)
 
         # 先加载 PNG/JPG，再转为 ICO， 调整尺寸（建议32x32或16x16）
-        image = wx.Image("icons/logo.png", wx.BITMAP_TYPE_PNG).Rescale(32, 32)
+        image = icon_image("app/logo.png", 32)
         icon = wx.Icon(wx.Bitmap(image))
         # icon = wx.Icon()
         # icon.CopyFromBitmap(wx.Bitmap(image))
@@ -26,9 +27,9 @@ class MainWindow(wx.Frame):
         # Choicebook 控件
         self.books = wx.Listbook(panel)
         img_list= wx.ImageList(20, 20)
-        img_list.Add(wx.Bitmap(wx.Image("icons/index.png", wx.BITMAP_TYPE_ANY).Scale(20, 20)))
-        img_list.Add(wx.Bitmap(wx.Image("icons/download.png", wx.BITMAP_TYPE_ANY).Scale(20, 20)))
-        img_list.Add(wx.Bitmap(wx.Image("icons/setting.png", wx.BITMAP_TYPE_ANY).Scale(20, 20)))
+        img_list.Add(wx.Bitmap(icon_image("app/index.png", 20)))
+        img_list.Add(wx.Bitmap(icon_image("app/download.png", 20)))
+        img_list.Add(wx.Bitmap(icon_image("app/setting.png", 20)))
         self.books.AssignImageList(img_list)
 
         # 创建第一个页面
