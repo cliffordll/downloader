@@ -29,6 +29,7 @@ class TabSetting(wx.Panel):
         row('ffmpeg_path', 'FFmpeg 路径（留空自动检测）', wx.FilePickerCtrl(
             self, wildcard='可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*',
             style=wx.FLP_OPEN | wx.FLP_USE_TEXTCTRL))
+        self.controls['ffmpeg_path'].SetToolTip('留空时优先使用项目 scripts 目录中的 FFmpeg，找不到再查找系统 PATH。')
         row('auto_merge', '下载完成后', wx.CheckBox(self, label='自动合并为 MP4'))
         layout.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 12)
         note = wx.StaticText(self, label=(

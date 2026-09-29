@@ -81,6 +81,26 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(SysSetting.GetWorkPath(), os.path.join(expected, ''))
         self.assertFalse(self.config.exists())
 
+    def test_ffmpeg_detection_prefers_project_scripts_over_system_path(self):
+        local = self.root / 'scripts' / ('ffmpeg.exe' if os.name == 'nt' else 'ffmpeg')
+        local.parent.mkdir()
+        local.touch()
+        module = str(self.root / 'src' / 'managers' / 'sys_setting.py')
+        with patch('src.managers.sys_setting.__file__', module), \
+             patch('src.managers.sys_setting.shutil.which', return_value='system-ffmpeg') as which:
+            self.assertEqual(SysSetting.GetFFmpeg(), str(local))
+            which.assert_not_called()
+            local.unlink()
+            self.assertEqual(SysSetting.GetFFmpeg(), 'system-ffmpeg')
+
+    def test_explicit_ffmpeg_path_overrides_automatic_detection(self):
+        custom = self.root / 'custom-ffmpeg.exe'
+        custom.touch()
+        SysSetting.Save(self.values(ffmpeg_path=str(custom)))
+        with patch('src.managers.sys_setting.shutil.which') as which:
+            self.assertEqual(SysSetting.GetFFmpeg(), str(custom))
+            which.assert_not_called()
+
 
 class DownloadSettingsTests(unittest.TestCase):
     def setUp(self):

@@ -120,4 +120,11 @@ class SysSetting:
 
     @classmethod
     def GetFFmpeg(cls):
-        return cls.GetAll()['ffmpeg_path'] or shutil.which('ffmpeg') or 'ffmpeg'
+        configured = cls.GetAll()['ffmpeg_path']
+        if configured:
+            return configured
+        executable = 'ffmpeg.exe' if os.name == 'nt' else 'ffmpeg'
+        bundled = Path(__file__).resolve().parents[2] / 'scripts' / executable
+        if bundled.is_file():
+            return str(bundled)
+        return shutil.which('ffmpeg') or 'ffmpeg'
