@@ -14,6 +14,7 @@ class FileManager():
     @classmethod
     def GetFileItem(cls, absFile: str, absUri: str='-'):
         '''组装FileItem'''
+        absUri = absUri or ""
         rltPath = PathManager.GetRltPath(absFile)          # 截取相对路径，不然太长了
 
         if os.path.exists(absFile):
@@ -31,24 +32,34 @@ class FileManager():
             treeItem = TreeItem()
             hasItem = False
             for fil in files:
-                absSeed = os.path.join(root, fil)
+                absFile = os.path.join(root, fil)
 
-                if fil.endswith("seed"):
-                    flag, fileItem = cls.GetFileItem(absSeed)
+                suffix = os.path.splitext(fil)[1].lower()
+                if suffix in (".seed", ".m3u8"):
+                    if suffix == ".seed" and treeItem.parent:
+                        continue
+                    segments = cls.GetSegments(absFile)
+                    # Validate before replacing an existing task or its children.
+                    if not segments:
+                        continue
+                    flag, fileItem = cls.GetFileItem(absFile)
                     treeItem.parent = fileItem
                     hasItem = True
-                    
-                    for ts in cls.GetSegsBySeed(absSeed):
+
+                    treeItem.childs.clear()
+                    treeItem.download = 0
+                    for ts in segments:
                         tsAbs = PathManager.JoinPath(root, ts.name)
                         flag, fileItme = cls.GetFileItem(tsAbs, ts.absUri)
                         if flag:    # 统计下载个数
                             treeItem.download += 1
                         treeItem.childs.append(fileItme)
-                elif fil.endswith("mp4"):
-                    flag, fileItem = cls.GetFileItem(absSeed)
+                elif suffix == ".mp4":
+                    flag, fileItem = cls.GetFileItem(absFile)
                     treeItem.outputs.append(fileItem)
                 else:
                     pass
+
             if hasItem:
                 treeData.items.append(treeItem)
         return treeData
@@ -70,6 +81,16 @@ class FileManager():
     #         print(f"FileManager.GetUriByIdx except {str(ex)}")  
     #     return "", ""
     @classmethod
+    def GetSegments(cls, absFile: str):
+        """Use the same format-aware reader for scanning, downloading and merging."""
+        suffix = os.path.splitext(absFile)[1].lower()
+        if suffix == ".seed":
+            return cls.GetSegsBySeed(absFile)
+        if suffix == ".m3u8":
+            return cls.GetSegsByM3U8(absFile)
+        return []
+
+    @classmethod
     def GetSegsBySeed(cls, absSeed: str):
         # 读取 m3u8 内容获取下载地址
         tsList = []
@@ -86,7 +107,18 @@ class FileManager():
         tsList = []
         try:
             content = cls._ParseM3U8File(absM3U8)
-            return cls._CheckM3U8File("", "", content)
+            if not content.strip() or content.lstrip('\ufeff').strip().splitlines()[0] != "#EXTM3U":
+                return []
+            segments = cls._CheckM3U8File("", "", content.lstrip('\ufeff'))
+            # Only recover URLs from a same-name seed; never borrow another task's URL.
+            seed = os.path.splitext(absM3U8)[0] + ".seed"
+            if segments and os.path.isfile(seed):
+                seedSegments = cls.GetSegsBySeed(seed)
+                urls = {ts.name: ts.absUri for ts in seedSegments if ts.absUri}
+                for ts in segments:
+                    if not ts.absUri:
+                        ts.absUri = urls.get(ts.name, "")
+            return segments
         except Exception as ex:
             print(f"FileManager.GetSegsByM3U8 except {str(ex)}")  
         return tsList
@@ -96,7 +128,9 @@ class FileManager():
         try:
             # 读取路径
             tsNames = ""
-            tsList = cls.GetSegsBySeed(absSeed)
+            tsList = cls.GetSegments(absSeed)
+            if not tsList:
+                return False
             for idx, ts in enumerate(tsList):
                 if idx > 0:
                     tsNames += "\n"
@@ -108,11 +142,16 @@ class FileManager():
             #     f.write(tsNames.encode())       # 可写入初始内容
             with open(playlist, 'w') as f:     # 不存在则创建
                 f.write(tsNames)       # 可写入初始内容
+            return True
         except Exception as ex:
             print(f"FileManager.GetPlaylist except {str(ex)}")
+            return False
 
     @classmethod
     def CreateM3U8File(cls, downPath: str, absSeed: str, m3u8Name: str="download.m3u8"):
+        # Completion of an existing M3U8 must not parse or overwrite it as a seed.
+        if os.path.splitext(absSeed)[1].lower() == ".m3u8":
+            return bool(cls.GetSegments(absSeed))
         basePath, baseUri, content = cls._ParseSeedFile(absSeed)
 
         # 1.检查种子内容是否合法

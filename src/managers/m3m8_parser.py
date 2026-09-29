@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlsplit
 import m3u8
 from m3u8 import M3U8, Segment, SegmentList
 
@@ -14,10 +15,10 @@ class M3U8Parser(M3U8):
         prefix_path = None
         if base_path:
             prefix_path = base_path
-        prefix_uri = None
+        self.prefix_uri = None
         if m3u8_uri:
-            prefix_uri = m3u8_uri.rsplit('/', 1)[0]
-        super().__init__(content, base_path=prefix_path, base_uri=prefix_uri, strict=strict, custom_tags_parser=custom_tags_parser)
+            self.prefix_uri = m3u8_uri.rsplit('/', 1)[0]
+        super().__init__(content, base_path=prefix_path, base_uri=self.prefix_uri, strict=strict, custom_tags_parser=custom_tags_parser)
 
     def parse_media(self):
         ts_list = []
@@ -48,7 +49,14 @@ class M3U8Parser(M3U8):
             # else:
             #     ts_list.append((tsName, segment.uri,))
 
-            tsItem = SegmentItem(name=tsName, uri=segment.uri, absUri=segment.absolute_uri)
+            uri = urlsplit(segment.uri)
+            if uri.scheme.lower() in ("http", "https") and uri.netloc:
+                absUri = segment.uri
+            elif self.prefix_uri:
+                absUri = segment.absolute_uri
+            else:
+                absUri = ""
+            tsItem = SegmentItem(name=tsName, uri=segment.uri, absUri=absUri)
             ts_list.append(tsItem)
         
         return ts_list

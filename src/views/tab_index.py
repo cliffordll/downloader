@@ -132,22 +132,31 @@ class TabIndex(wx.Panel):
         absSeed = PathManager.GetAbsPath(tsSeed)
         absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
 
-        tsList = FileManager.GetSegsBySeed(absSeed=absSeed)
+        tsList = FileManager.GetSegments(absSeed)
+        if not tsList or any(idx < 0 or idx >= len(tsList) for idx, _ in tasks):
+            wx.MessageBox("播放列表无效或已发生变化，请刷新后重试。", "提示")
+            return 0
+        missing_source = False
         for task in tasks:
             idx = task[0]
             item = task[1]
             tsName = tsList[idx].name
             absUri = tsList[idx].absUri
 
-            if not tsName or not absUri:
+            if not tsName:
                 continue
             absFile = PathManager.JoinPath(absDir, tsName)
             # 文件已经存在，返回
             if PathManager.IsExists(absFile):
                 continue
+            if not absUri:
+                missing_source = True
+                continue
             PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
 
             Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
+        if missing_source:
+            wx.MessageBox("部分分片缺少下载地址，请提供完整网址或配套的 seed 文件。", "提示")
         return
     
     def _CreatePlaylist(self, tsSeed: str):
@@ -167,7 +176,9 @@ class TabIndex(wx.Panel):
         print("absDir", absDir)
         print("playlist", playlist)
         # 写palylist文件
-        absFile = FileManager.CreatePlaylist(absSeed=absSeed, playDir=absDir, playlist=playlist)
+        if not FileManager.CreatePlaylist(absSeed=absSeed, playDir=absDir, playlist=playlist):
+            wx.MessageBox("播放列表无效，无法生成合并清单。", "提示")
+            return
 
         Converter.ConvertTSFile(playlist, outputFile)
      
