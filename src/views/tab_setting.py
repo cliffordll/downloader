@@ -1,48 +1,99 @@
 import wx
 
+from src.managers.sys_setting import SysSetting
 
-class CustomStaticBox(wx.StaticBox):
-    def __init__(self, parent, label=""):
-        super().__init__(parent, label=label)
-
-        # self.SetBackgroundColour(wx.WHITE)
-        self.SetFont(wx.Font(1, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-    #     self.Bind(wx.EVT_PAINT, self.on_paint)
-
-    # def on_paint(self, event):
-    #     # 自定义绘制逻辑（隐藏或重定位标签）
-    #     dc = wx.PaintDC(self)
-    #     dc.Clear()
-    #     # 跳过默认标签绘制
-    #     event.Skip()
 
 class TabSetting(wx.Panel):
-    """
-    This will be the third notebook tab
-    """
+    """Reusable settings form for the tab and the main window's dialog."""
+
     def __init__(self, parent):
-        super().__init__(parent=parent, id=wx.ID_ANY)
-        # 主布局
-        sizer = wx.BoxSizer(wx.VERTICAL)
+        super().__init__(parent)
+        layout = wx.BoxSizer(wx.VERTICAL)
+        layout.Add(wx.StaticText(self, label='下载设置'), 0, wx.ALL, 12)
+        grid = wx.FlexGridSizer(cols=2, vgap=10, hgap=12)
+        grid.AddGrowableCol(1, 1)
+        self.controls = {}
 
-        # sbox = wx.StaticBox(self, label="系统设置", size=(240, 90))
-        sbSetting = wx.StaticBox(self, label="系统设置")
-        # sbSetting.SetFont(wx.Font(1, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        def row(key, label, control):
+            grid.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+            grid.Add(control, 1, wx.EXPAND)
+            self.controls[key] = control
 
-        # sbox.Enable(False)ss
-        # 内部布局
-        inner = wx.StaticBoxSizer(sbSetting, wx.VERTICAL)
+        row('download_dir', '下载目录', wx.DirPickerCtrl(self, style=wx.DIRP_USE_TEXTCTRL))
+        row('max_workers', '最大并发数（1～16）', wx.SpinCtrl(self, min=1, max=16))
+        row('request_interval', '请求启动间隔（秒）', wx.SpinCtrlDouble(self, min=0, max=60, inc=0.1))
+        self.controls['request_interval'].SetDigits(1)
+        row('max_retries', '失败后重试次数（0～10）', wx.SpinCtrl(self, min=0, max=10))
+        row('connect_timeout', '连接超时（秒）', wx.SpinCtrl(self, min=1, max=300))
+        row('read_timeout', '读取超时（秒）', wx.SpinCtrl(self, min=1, max=600))
+        row('ffmpeg_path', 'FFmpeg 路径（留空自动检测）', wx.FilePickerCtrl(
+            self, wildcard='可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*',
+            style=wx.FLP_OPEN | wx.FLP_USE_TEXTCTRL))
+        row('auto_merge', '下载完成后', wx.CheckBox(self, label='自动合并为 MP4'))
+        layout.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 12)
+        note = wx.StaticText(self, label=(
+            '设置对后续请求生效，正在进行的请求正常完成。\n'
+            '下载或转换进行中不能切换下载目录。\n'
+            '遇到 429 自动等待；403 不自动重试。自动合并默认关闭。'))
+        layout.Add(note, 0, wx.ALL, 12)
+        self.status = wx.StaticText(self)
+        layout.Add(self.status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 12)
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        reset = wx.Button(self, label='恢复默认值')
+        reset.Bind(wx.EVT_BUTTON, lambda event: self.LoadValues(SysSetting.Defaults()))
+        buttons.Add(reset, 0)
+        buttons.AddStretchSpacer()
+        save = wx.Button(self, wx.ID_SAVE, '保存')
+        save.Bind(wx.EVT_BUTTON, self.OnSave)
+        buttons.Add(save, 0)
+        if isinstance(parent, wx.Dialog):
+            cancel = wx.Button(self, wx.ID_CANCEL, '取消')
+            cancel.Bind(wx.EVT_BUTTON, lambda event: parent.EndModal(wx.ID_CANCEL))
+            buttons.Add(cancel, 0, wx.LEFT, 8)
+            save.SetDefault()
+        layout.Add(buttons, 0, wx.EXPAND | wx.ALL, 12)
+        self.SetSizer(layout)
+        self.LoadValues(SysSetting.GetAll())
+        self.status.SetLabel(SysSetting._load_error)
 
-        sizerDir = wx.BoxSizer(wx.HORIZONTAL)
-        lblDir = wx.StaticText(self, -1, label="下载目录:", size=(80, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        # lbl.SetBackgroundColour(wx.RED)
-        self.uriBase = wx.TextCtrl(self)
-        sizerDir.Add(lblDir, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL, border=5) 
-        sizerDir.Add(self.uriBase, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, border=5)
-        # sizerDir.Add(self.dir_ctrl, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, border=5)
-        inner.Add(sizerDir, 0, flag=wx.EXPAND|wx.ALL, border=5)
+    def LoadValues(self, values):
+        for key, control in self.controls.items():
+            if key in ('download_dir', 'ffmpeg_path'):
+                control.SetPath(values[key])
+            elif key in ('max_workers', 'max_retries', 'connect_timeout', 'read_timeout'):
+                control.SetValue(int(values[key]))
+            else:
+                control.SetValue(values[key])
+        self.status.SetLabel('')
+
+    def OnSave(self, event):
+        from src.managers.downloader import Downloader
+        from src.managers.converter import Converter
+        values = {key: control.GetPath() if key in ('download_dir', 'ffmpeg_path') else control.GetValue()
+                  for key, control in self.controls.items()}
+        try:
+            values = SysSetting.Validate(values)
+            if values['download_dir'] != SysSetting.GetAll()['download_dir'] and (Downloader.IsBusy() or Converter.IsBusy()):
+                raise ValueError('下载或转换正在进行，请完成后再切换下载目录。')
+            SysSetting.Save(values)
+        except (ValueError, OSError) as error:
+            wx.MessageBox(str(error), '设置未保存', wx.OK | wx.ICON_WARNING, self)
+            return
+        if isinstance(self.GetParent(), wx.Dialog):
+            self.GetParent().EndModal(wx.ID_OK)
+        else:
+            self.status.SetLabel('设置已保存。')
+            window = self.GetTopLevelParent()
+            if hasattr(window, 'tabIndex') and not Downloader.IsBusy():
+                window.tabIndex.OnRefresh(None)
 
 
-        sizer.Add(inner, proportion=1, flag=wx.EXPAND|wx.ALL, border=0)
-
-        self.SetSizer(sizer)
+class SettingsDialog(wx.Dialog):
+    def __init__(self, parent):
+        super().__init__(parent, title='设置', style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        layout = wx.BoxSizer(wx.VERTICAL)
+        self.form = TabSetting(self)
+        layout.Add(self.form, 1, wx.EXPAND)
+        self.SetSizerAndFit(layout)
+        self.SetMinSize(self.GetSize())
+        self.CenterOnParent()

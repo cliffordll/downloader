@@ -12,4 +12,4 @@ if __name__ == "__main__":
     sample = MainFrame(None, "视频下载")
     sample.Show()
     app.MainLoop()
-    Downloader.isStop = True
+    Downloader.Shutdown()

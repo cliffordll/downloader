@@ -1,54 +1,63 @@
-from threading import Thread
+from threading import Thread, Lock
+import os
 import subprocess
+import wx
 
-from src.managers.path_manager import PathManager
- 
-class Converter():
-    def __init__(self):
-        pass
-        
-    @classmethod
-    def _ConvertTSFile(cls, playlist: str, outputFile: str="output.mp4", callback=None, item=None):
-        # ffmpeg -f concat -safe 0 -i playlist.txt -c copy output.mp4
-        cmd = [
-            'ffmpeg',
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', playlist,
-            '-c', 'copy',
-            outputFile,
-            '-progress', 'pipe:1'     # 输出进度信息
-        ]
-        
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        for line in process.stdout:
-            # print(f"Converter.ConvertTSFile Progress: {line.strip()}")
-            if 'out_time_ms' in line:
-                time_ms = int(line.split('=')[1])
-                print(f"Converter.ConvertTSFile Progress: {time_ms/1000000:.2f} seconds")
+from src.managers.sys_setting import SysSetting
 
-        if PathManager.IsExists(outputFile):
-            callback(True, outputFile, item)
-            print(f"Converter.ConvertTSFile Progress: SUCCESS")
-        else:
-            callback(False, outputFile, item)
-            print(f"Converter.ConvertTSFile Progress: FAILURE")
-        process.wait()
+
+class Converter:
+    _lock = Lock()
+    _outputs = set()
 
     @classmethod
-    def ConvertTSFile(cls, playlist: str, outputFile: str, callback=None, item=None):
+    def IsBusy(cls):
+        with cls._lock:
+            return bool(cls._outputs)
+
+    @classmethod
+    def _ConvertTSFile(cls, playlist, outputFile='output.mp4', callback=None, item=None):
+        success = False
         try:
-            print(f"Converter.ConvertTSFile playlist:{playlist}")
-            print(f"Converter.ConvertTSFile outputFile:{outputFile}")
+            cmd = [SysSetting.GetFFmpeg(), '-nostdin', '-n', '-f', 'concat', '-safe', '0',
+                   '-i', playlist, '-c', 'copy', '-progress', 'pipe:1', outputFile]
+            options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                       errors='replace', **options)
+            for line in process.stdout:
+                if line.startswith('out_time_ms='):
+                    print(line.strip())
+            success = process.wait() == 0 and os.path.isfile(outputFile)
+        except (OSError, subprocess.SubprocessError) as error:
+            print(f'转换失败：{error}')
+        finally:
+            if callback:
+                wx.CallAfter(cls._Deliver, success, outputFile, callback, item)
+            else:
+                with cls._lock:
+                    cls._outputs.discard(os.path.abspath(outputFile))
 
-            # 使用线程控制下载
-            t1 = Thread(target=cls._ConvertTSFile, args=(playlist, outputFile, callback, item))
-            # 如果有参数
-            # t2 = threading.Thread(target=consumer_task_queue, args=(taskqueue, db, ds, tokenizer, evaltool))
-            # def consumer_task_queue(taskqueue, db, ds, tokenizer, evaltool):
-            # 启动
-            t1.start()
-            print(f"Converter.ConvertTSFile thread start......")
-        except Exception as ex:
-            print(f"Converter.ConvertTSFile except:{str(ex)}")
-        return
+    @classmethod
+    def _Deliver(cls, success, outputFile, callback, item):
+        try:
+            owner = getattr(callback, '__self__', None)
+            if not (isinstance(owner, wx.Window) and not owner):
+                callback(success, outputFile, item)
+        finally:
+            with cls._lock:
+                cls._outputs.discard(os.path.abspath(outputFile))
+
+    @classmethod
+    def ConvertTSFile(cls, playlist, outputFile, callback=None, item=None):
+        key = os.path.abspath(outputFile)
+        with cls._lock:
+            if key in cls._outputs:
+                return
+            cls._outputs.add(key)
+        try:
+            Thread(target=cls._ConvertTSFile, args=(playlist, outputFile, callback, item),
+                   name='mp4-converter').start()
+        except Exception:
+            with cls._lock:
+                cls._outputs.discard(key)
+            raise

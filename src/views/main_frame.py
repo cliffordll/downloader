@@ -326,7 +326,16 @@ class MainFrame(wx.Frame):
         dlg.Destroy()
     
     def OnSetting(self, event):
-        print("OnSetting")
+        from src.views.tab_setting import SettingsDialog
+        previous = SysSetting.GetWorkPath()
+        dlg = SettingsDialog(self)
+        try:
+            if dlg.ShowModal() == wx.ID_OK and previous != SysSetting.GetWorkPath():
+                self.model.fileTree = FileManager.GetFileInfos()
+                self.model.Cleared()
+                self.OnExpandAll(None)
+        finally:
+            dlg.Destroy()
 
     def OnExit(self, event):
         self.Close()
@@ -446,6 +455,13 @@ class MainFrame(wx.Frame):
         fileName = payload.get("fileName", "")
         # print("OnAllTSDownload", fileName)
         self._CreateM3U8File(tsSeed=fileName)
+
+        if SysSetting.GetAll()['auto_merge']:
+            for index, task in enumerate(self.model.fileTree.items):
+                if task.parent.fileName == fileName and not task.outputs:
+                    item = self.model.ObjectToItem(self.model._BuildKey((index,)))
+                    self._CreateMP4File(fileName, item)
+                    break
 
         # 方法2：记录上一次的展开折叠状态
         self._RefreshWithState()

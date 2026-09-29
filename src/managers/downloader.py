@@ -1,199 +1,177 @@
-from threading import Thread
-import requests
-from requests.exceptions import (ConnectionError, ConnectTimeout, ReadTimeout, SSLError, TooManyRedirects)
-from src.managers.sys_setting import SysSetting
-from queue import Queue
-from functools import partial
-
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+import os
+from pathlib import Path
+from queue import Queue, Empty
 import threading
+import time
 
-class ThreadPoolManager:
-    _instance = None
-    _lock = threading.Lock()
+import requests
+import wx
 
-    # 单例模式
-    def __new__(cls, maxWorkers=3):
-        if cls._instance is None:
-            with cls._lock:
-                # 再次检查,因为可能有多个线程同时通过了第一次检查
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
+from src.managers.sys_setting import SysSetting
 
-    def __init__(self, maxWorkers=3):
-        self.executor = ThreadPoolExecutor(max_workers=maxWorkers)
-        self.maxWorkers = maxWorkers
- 
-    def submit(self, func, *args, **kwargs):
-        """提交一个任务到线程池执行"""
-        future = self.executor.submit(func, *args, **kwargs)
-        return future
- 
-    def map(self, func, iterable):
-        """将一个函数应用于可迭代对象的每个元素，返回一个迭代器"""
-        return self.executor.map(func, iterable)
- 
-    def shutdown(self, wait=True):
-        """关闭线程池"""
-        self.executor.shutdown(wait=wait)
 
-class Downloader(object):
+class Downloader:
     isStop = True
-    threadLock = threading.Lock()
     threadQueue = Queue()
+    threadLock = threading.Lock()
+    _pending = set()
+    _master = None
+    _shutdown = threading.Event()
+    _rate_lock = threading.Lock()
+    _next_request = 0.0
+    _paused_until = 0.0
 
-    maxWorkers = SysSetting().GetMaxWorkers()
-    threadPool = ThreadPoolManager(maxWorkers=maxWorkers)
+    @classmethod
+    def IsBusy(cls):
+        with cls.threadLock:
+            return bool(cls._pending)
 
-    _instance = None
-    _lock = threading.Lock()
-    # 单例模式（只开启一个主下载线程）
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                # 再次检查,因为可能有多个线程同时通过了第一次检查
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
+    @classmethod
+    def _WaitForRequest(cls):
+        while not cls._shutdown.is_set():
+            with cls._rate_lock:
+                now = time.monotonic()
+                delay = max(cls._next_request, cls._paused_until) - now
+                if delay <= 0:
+                    cls._next_request = now + SysSetting.GetAll()['request_interval']
+                    return True
+            cls._shutdown.wait(min(delay, 0.2))
+        return False
 
-    def __init__(self):
-        pass
+    @classmethod
+    def _RetryAfter(cls, value, fallback):
+        try:
+            return max(0, float(value))
+        except (TypeError, ValueError):
+            try:
+                date = parsedate_to_datetime(value)
+                if date.tzinfo is None:
+                    date = date.replace(tzinfo=timezone.utc)
+                return max(0, (date - datetime.now(timezone.utc)).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                return fallback
 
     @classmethod
     def DownloadContent(cls, baseUrl):
-        try:
-            timeout = SysSetting.GetTimeout()
-            response = requests.get(baseUrl, timeout=timeout)
-            # response.raise_for_status()
-            if response.status_code == 200:
-                return True, response.content
-            else:
-                return False, response.content
-        except ConnectionError as ex:
-            print(f'Downloader.ConnectionError Exception: {ex}')
-            return False, "无法建立连接，可能是网络问题或服务器不可用"
-        except ConnectTimeout as ex:
-            print(f'Downloader.ConnectTimeout Exception: {ex}')
-            return False, "连接服务器超时"
-        except ReadTimeout as ex:
-            print(f'Downloader.ReadTimeout Exception: {ex}')
-            return False, "服务器响应超时"
-        except SSLError as ex:
-            print(f'Downloader.SSLError Exception: {ex}')
-            return False, "SSL证书验证失败"
-            # 可以选择忽略证书验证(不推荐用于生产环境)
-            # response = requests.get(url, verify=False)   
-        except TooManyRedirects as ex:
-            print(f'Downloader.TooManyRedirects Exception: {ex}')
-            return False, "重定向次数过多"
-        except requests.exceptions.HTTPError as ex:
-            print(f'Downloader.HTTPError Exception: {ex}')
-            return False, f"HTTP错误: {str(ex)}"
-        except Exception as ex:
-            print(f'Downloader.Exception Exception: {ex}')
-            return False, f"其他错误: {str(ex)}"
-        # return False, "Download Error"
+        retries = SysSetting.GetAll()['max_retries']
+        error = '下载已停止'
+        for attempt in range(retries + 1):
+            if not cls._WaitForRequest():
+                return False, '下载已停止'
+            backoff = min(2 ** attempt, 60)
+            try:
+                response = requests.get(baseUrl, timeout=SysSetting.GetTimeout())
+                try:
+                    status = response.status_code
+                    if status == 200:
+                        return True, response.content
+                    if status == 403:
+                        return False, 'HTTP 403：服务器拒绝访问，请检查权限或链接有效期；未自动重试。'
+                    error = f'HTTP {status}'
+                    if status == 429:
+                        delay = cls._RetryAfter(response.headers.get('Retry-After'), backoff)
+                        with cls._rate_lock:
+                            cls._paused_until = max(cls._paused_until, time.monotonic() + delay)
+                    elif status < 500:
+                        return False, error
+                finally:
+                    response.close()
+            except (requests.exceptions.SSLError, requests.exceptions.TooManyRedirects) as exc:
+                return False, str(exc)
+            except requests.RequestException as exc:
+                error = str(exc)
+            if attempt < retries and cls._shutdown.wait(backoff):
+                return False, '下载已停止'
+        return False, error
 
     @classmethod
-    def _DownLoadFile(cls, baseUrl: str, fileName: str):
-        print(f'Downloader.Downloading {baseUrl}')
+    def _DownLoadFile(cls, baseUrl, fileName):
+        partial = str(fileName) + '.part'
         try:
-            flag, content = cls.DownloadContent(baseUrl)
-            if flag:
-                with open(fileName, 'wb') as f:
-                    f.write(content)
-                print(f'Downloader.Downloaded {fileName}')
+            if Path(fileName).is_file():
                 return True, fileName
-            else:
-                print(f'Downloader._DownLoadFile Error: {content}')
-        except requests.RequestException as ex:
-            print(f'Downloader._DownLoadFile Exception: {ex}')
-        return False, fileName
+            success, content = cls.DownloadContent(baseUrl)
+            if not success:
+                print(f'下载失败：{fileName}：{content}')
+                return False, fileName
+            Path(fileName).parent.mkdir(parents=True, exist_ok=True)
+            with open(partial, 'wb') as output:
+                output.write(content)
+            os.replace(partial, fileName)
+            return True, fileName
+        except OSError as exc:
+            print(f'保存失败：{fileName}：{exc}')
+            return False, fileName
+        finally:
+            if os.path.isfile(partial):
+                try:
+                    os.unlink(partial)
+                except OSError:
+                    pass
 
-
-    ###################################
-    ### 添加TS下载任务
-    ###################################
     @classmethod
-    def DownloadTSFile(cls, absUri:str, absFile: str, callback, item):
-        try:
-            # print(f"Downloader.DownloadFile absUri:{absUri}")
-            # print(f"Downloader.DownloadFile absFile:{absFile}")
-            cls._AddTask((absUri, absFile, callback, item))
-
-            # 如果下载主线程未开启，则开启主线程
+    def DownloadTSFile(cls, absUri, absFile, callback, item):
+        key = os.path.normcase(os.path.abspath(absFile))
+        with cls.threadLock:
+            if cls._shutdown.is_set() or key in cls._pending:
+                return
+            cls._pending.add(key)
+            cls.threadQueue.put((absUri, absFile, callback, item, key))
             if cls.isStop:
-                cls._StartMasterThread()
-        except Exception as ex:
-            print(f"Downloader.DownloadFile except:{str(ex)}")
-        return
-    
-    ###################################
-    ### 下载任务管理部分
-    ###################################
-    @classmethod
-    def _AddTask(cls, args):
-        # print(f"Downloader.DownloadFile absUri:{absUri}")
-        # print(f"Downloader.DownloadFile absFile:{absFile}")
-        with cls.threadLock:
-            cls.threadQueue.put(args)
-            print(f"Downloader.DownloadFile addTask total:{cls.threadQueue.qsize()}")
-    
-    @classmethod
-    def _GetTasks(cls, count: int=2):
-        tasks = []
-        with cls.threadLock:
-            while not cls.threadQueue.empty() and len(tasks) < count:
-                task = cls.threadQueue.get()
-                tasks.append(task)
-            else:
-                print(f"Downloader._MasterThread maxWorkers:{count} qsize:{cls.threadQueue.qsize()}")
-        return tasks    
+                cls.isStop = False
+                cls._master = threading.Thread(target=cls._MasterThreadRun, name='download-scheduler')
+                cls._master.start()
 
     @classmethod
-    def _TaskCallback(cls, callback, item, future):
-        flag, fileName = future.result()
-        callback(flag, fileName, item)
-    
+    def _Deliver(cls, task, success):
+        _, filename, callback, item, key = task
+        try:
+            owner = getattr(callback, '__self__', None)
+            if not cls._shutdown.is_set() and not (isinstance(owner, wx.Window) and not owner):
+                callback(success, filename, item)
+        finally:
+            with cls.threadLock:
+                cls._pending.discard(key)
+
     @classmethod
     def _MasterThreadRun(cls):
-        '''有任务执行则执行，无任务执行则退出'''
-        count = 0
-        while True:
-            if cls.isStop:
-                print("Downloader.Master Thread Stop!!!!!!!!!!")
-                break
-
-            tasks = cls._GetTasks(cls.threadPool.maxWorkers)
-            if len(tasks) > 0:
-                futures = []
-                # 提交任务到线程池
-                for task in tasks:
-                    # (absUri, absFile, callback, item)
-                    # task[0] absUri
-                    # task[1] absFile
-                    future = cls.threadPool.submit(cls._DownLoadFile, task[0], task[1])
-
-                    # task[2] 页面回调
-                    # task[3] 多列树项
-                    callback_with_args = partial(cls._TaskCallback, task[2], task[3])
-                    future.add_done_callback(callback_with_args)
-                    futures.append(future)
-                
-                # 等待所有任务完成并获取结果
-                for future in as_completed(futures):
-                    future.result()
-            else:
-                cls.isStop = True
-                
-            count+=1
-            time.sleep(1)
+        active = {}
+        # The dispatcher limits active jobs; the fixed ceiling allows live limit changes.
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            while True:
+                with cls.threadLock:
+                    if not cls._shutdown.is_set():
+                        while len(active) < SysSetting.GetMaxWorkers():
+                            try:
+                                task = cls.threadQueue.get_nowait()
+                            except Empty:
+                                break
+                            active[pool.submit(cls._DownLoadFile, task[0], task[1])] = task
+                    if not active and (cls.threadQueue.empty() or cls._shutdown.is_set()):
+                        cls.isStop = True
+                        break
+                if active:
+                    done, _ = wait(active, timeout=0.1, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        task = active.pop(future)
+                        try:
+                            success, _ = future.result()
+                        except Exception as exc:
+                            print(f'下载任务异常：{exc}')
+                            success = False
+                        if cls._shutdown.is_set():
+                            with cls.threadLock:
+                                cls._pending.discard(task[4])
+                        else:
+                            wx.CallAfter(cls._Deliver, task, success)
 
     @classmethod
-    def _StartMasterThread(cls):
-        cls.isStop = False
-        # 创建并启动子线程
-        thread = threading.Thread(target=cls._MasterThreadRun)
-        thread.start()
+    def Shutdown(cls):
+        cls._shutdown.set()
+        with cls.threadLock:
+            while not cls.threadQueue.empty():
+                task = cls.threadQueue.get_nowait()
+                cls._pending.discard(task[4])

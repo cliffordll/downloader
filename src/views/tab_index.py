@@ -1,6 +1,7 @@
 import wx
 import wx.dataview as dv
-from src.models.tree_model import MultiColumnTreeModel
+from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD
+from src.managers.sys_setting import SysSetting
 
 from src.managers.file_manager import FileManager
 from src.managers.downloader import Downloader
@@ -42,7 +43,8 @@ class TabIndex(wx.Panel):
         # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_READONLY|wx.TE_RICH2)
         listSizer = wx.BoxSizer(wx.HORIZONTAL)
         # 创建并关联模型
-        self.model = MultiColumnTreeModel()
+        self.model = MultiColumnTreeModel(self)
+        self.Bind(EVT_ALL_DOWNLOAD, self.OnAllTSDownload)
         # 创建DataViewCtrl
         self.mcTree = dv.DataViewCtrl(self, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
         self.mcTree.AssociateModel(self.model)
@@ -159,6 +161,17 @@ class TabIndex(wx.Panel):
             wx.MessageBox("部分分片缺少下载地址，请提供完整网址或配套的 seed 文件。", "提示")
         return
     
+    def OnAllTSDownload(self, event):
+        fileName = (event.GetData() or {}).get('fileName')
+        if not fileName:
+            return
+        path = PathManager.GetAbsPath(fileName)
+        FileManager.CreateM3U8File(PathManager.GetAbsDir(path), path)
+        if SysSetting.GetAll()['auto_merge']:
+            output = PathManager.JoinPath(PathManager.GetAbsDir(path), 'output.mp4')
+            if not PathManager.IsExists(output):
+                self._CreatePlaylist(fileName)
+
     def _CreatePlaylist(self, tsSeed: str):
         absSeed = PathManager.GetAbsPath(tsSeed)
         absDir = PathManager.GetAbsDir(absSeed)
