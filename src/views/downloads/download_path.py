@@ -3,12 +3,20 @@ from src.managers.sys_setting import SysSetting
 from src.managers.file_manager import FileManager
 from src.managers.path_manager import PathManager
 
+class DownloadHelpDialog(wx.MessageDialog):
+    def __init__(self, parent, title, text):
+        super().__init__(parent, "", title, wx.OK | wx.ICON_INFORMATION)
+        # Keep the native dialog, using body text instead of a large main instruction.
+        self.SetExtendedMessage(text)
+        self.SetOKLabel("关闭")
+
+
 class DownloadPath(wx.Panel):
     def __init__(self, parent, workPath):
         super().__init__(parent=parent, id=wx.ID_ANY)
         # 主布局
         sizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblName = wx.StaticText(self, -1, label="下载地址：", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblName = wx.StaticText(self, -1, label="保存目录：", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         
         # 根据内容自动调整宽度
         # workPath = SysSetting.GetWorkPath()
@@ -17,6 +25,8 @@ class DownloadPath(wx.Panel):
         self.lblPath = wx.StaticText(self, -1, label=workPath, size=(width, height), style=wx.ALIGN_LEFT|wx.VERTICAL|wx.ST_NO_AUTORESIZE)
         self.lblPath.SetBackgroundColour(wx.LIGHT_GREY)
         self.tcDown = wx.TextCtrl(self)
+        self.tcDown.SetHint("任务子目录，例如 video01")
+        self.tcDown.SetToolTip("文件保存在左侧下载根目录与此任务子目录组合的位置。")
 
         btnDown = wx.Button(self, label="下载")
         btnDown.Bind(wx.EVT_BUTTON, self.OnBtnDownClicked)
@@ -47,6 +57,6 @@ class DownloadPath(wx.Panel):
         """按钮点击事件处理函数"""
         downPath = self._GetDownPath()
         if not downPath:
-            wx.MessageBox(f"请输入下载地址，或编辑种子文件后自动获取。", "警告", wx.ICON_WARNING)
+            wx.MessageBox(f"请输入保存子目录，或获取播放列表后自动生成。", "警告", wx.ICON_WARNING)
         else:
             event.Skip()

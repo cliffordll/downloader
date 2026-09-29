@@ -1,2 +1,4 @@
 # 忽略所有子目录下的特定文件
 **/__pycache__
+/downloads/
+.vscode/
