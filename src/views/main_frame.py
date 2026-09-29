@@ -63,7 +63,7 @@ class MainFrame(wx.Frame):
 
         self._createMenuBar()
         self._createToolBar()
-        # self._createStatusBar()
+        self._createStatusBar()
 
         self._createMainPanel()
 
@@ -109,6 +109,8 @@ class MainFrame(wx.Frame):
         aboutMenu = wx.Menu()
         helpItem    = aboutMenu.Append(wx.ID_ANY, "帮助")
         aboutItem   = aboutMenu.Append(wx.ID_ANY, "关于")
+        self.Bind(wx.EVT_MENU, self.OnHelp, helpItem)
+        self.Bind(wx.EVT_MENU, self.OnAbout, aboutItem)
 
         # 将文件菜单添加到菜单栏
         self.menuBar.Append(fileMenu, "&文件")
@@ -146,21 +148,19 @@ class MainFrame(wx.Frame):
         self.toolBar.Bind(wx.EVT_TOOL, self.OnExpandAll, expandButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnCollapseAll, collapseButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnRefresh, refreshButton)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnHelp, helpButton)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnAbout, aboutButton)
         # 启用工具栏
         self.toolBar.Realize()
+        self.showToolItem.Check(self.toolBar.IsShown())
 
     def _createStatusBar(self):
-      # 创建状态栏
         self.statusBar = self.CreateStatusBar()
-        # 设置状态栏字段数量（多个字段可用分隔符分隔）
-        self.statusBar.SetFieldsCount(3)
-        # 字段占比
-        self.statusBar.SetStatusWidths([-2, -1, -1])
-        self.statusBar.SetStatusStyles([wx.SB_RAISED, wx.SB_RAISED, wx.SB_RAISED])
-        # 设置字段的 显示内同
-        self.statusBar.SetStatusText(u'状态信息0', 0)
-        self.statusBar.SetStatusText(u'', 1)
-        self.statusBar.SetStatusText(u'状态信息2', 2)
+        self.statusBar.SetFieldsCount(2)
+        self.statusBar.SetStatusWidths([-1, -3])
+        self.statusBar.SetStatusText('就绪', 0)
+        self.statusBar.SetStatusText('双击任务或分片行执行“操作”列中的操作', 1)
+        self.showStatusItem.Check(self.statusBar.IsShown())
 
     def _createMainPanel(self):
         """创建主面板和布局"""
@@ -342,17 +342,44 @@ class MainFrame(wx.Frame):
 
     def OnToggleToolBar(self, event):
         '''隐藏展示工具栏'''
-        if self.showToolItem.IsChecked():
-            self.toolBar.Show()
-        else:
-            self.toolBar.Hide()
+        self.toolBar.Show(self.showToolItem.IsChecked())
+        self.SendSizeEvent()
 
     def OnToggleStatusBar(self, event):
         '''隐藏展示状态栏'''
-        if self.showStatusItem.IsChecked():
-            self.statusBar.Show()
-        else:
-            self.statusBar.Hide()
+        self.statusBar.Show(self.showStatusItem.IsChecked())
+        self.SendSizeEvent()
+
+    def _ShowInformation(self, title, text):
+        dlg = wx.MessageDialog(self, '', title, wx.OK | wx.ICON_INFORMATION)
+        dlg.SetExtendedMessage(text)
+        dlg.SetOKLabel('关闭')
+        try:
+            dlg.ShowModal()
+        finally:
+            dlg.Destroy()
+
+    def OnHelp(self, event):
+        self._ShowInformation('使用帮助', (
+            '1. 添加任务\n'
+            '通过“文件 → 下载M3U8”输入播放列表网址，或通过“下载TS”按分片命名规则创建任务。\n\n'
+            '2. 下载与合并\n'
+            '双击列表中的任务行下载全部分片，也可双击未下载的分片行单独下载。'
+            '全部下载完成后，任务的操作变为“转MP4”，双击即可合并。\n\n'
+            '3. 下载设置\n'
+            '通过“文件 → 设置”（Ctrl+,）调整保存目录、并发、请求间隔、重试、超时及自动合并。'
+            '合并需要 FFmpeg，路径留空时先查找 scripts 目录，再查找系统 PATH。\n\n'
+            '4. 界面显示\n'
+            '通过“查看”菜单显示或隐藏工具栏、状态栏。'
+            '下载窗口内的“？”可查看对应输入框的说明。'
+        ))
+
+    def OnAbout(self, event):
+        self._ShowInformation('关于视频下载', (
+            '视频下载\n\n'
+            '支持 M3U8 播放列表、TS 分片下载及 FFmpeg 合并 MP4。\n\n'
+            '项目地址：\nhttps://github.com/cliffordll/downloader'
+        ))
 
     ###################################
     ### 操作树得事件
