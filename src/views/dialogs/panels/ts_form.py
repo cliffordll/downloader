@@ -83,6 +83,7 @@ class DownloadEditTS(wx.Panel):
         # m3u8 file
         listSizer = wx.BoxSizer(wx.HORIZONTAL)
         # 与 M3U8 窗口共用带行号的编辑器，行号不混入生成或复制的正文。
+        # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_RICH2)
         self.tsList = PlaylistEditor(self)
         listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
 

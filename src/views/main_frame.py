@@ -320,8 +320,22 @@ class MainFrame(wx.Frame):
         # CallAfter 执行时窗口可能已经关闭，此时不能再访问原生控件。
         if not self or not self.mcTree:
             return
-        # 宽度及 DPI 缩放未变化就直接返回，避免重复设置列宽导致表头闪烁。
-        size_key = (self.mcTree.GetSize().width, self.FromDIP(100))
+        # 按最宽编号预留文字、两级树缩进和留白；不遍历所有分片文本。
+        font = wx.Font(self.mcTree.GetFont())
+        font.SetWeight(wx.FONTWEIGHT_BOLD)
+        dc = wx.ClientDC(self.mcTree)
+        dc.SetFont(font)
+        root_digits = len(str(max(1, len(self.model.fileTree.items))))
+        child_count = max((max(len(task.childs), len(task.outputs))
+                           for task in self.model.fileTree.items), default=0)
+        label = '9' * root_digits
+        if child_count:
+            label += '.' + '9' * len(str(child_count))
+        indent = max(self.mcTree.GetIndent(), self.FromDIP(16))
+        sequence_width = max(self.FromDIP(50), dc.GetTextExtent(label)[0]
+                             + indent * (2 if child_count else 1) + self.FromDIP(12))
+        # 编号位数也参与缓存，新增任务或刷新后即使窗口尺寸不变也能重新适配。
+        size_key = (self.mcTree.GetSize().width, self.FromDIP(100), sequence_width)
         if getattr(self, '_columnSizeKey', None) == size_key:
             return
         # 预留垂直滚动条和边框空间，避免滚动条出现后把最后一列挤出可视区域。
@@ -335,6 +349,7 @@ class MainFrame(wx.Frame):
         # 按界面显示顺序：序列、文件名、下载进度、状态、文件大小、修改时间、操作。
         # 数字是 DIP，由 FromDIP 按系统缩放换算；文件名的 0 是占位，下面补入剩余宽度。
         widths = [self.FromDIP(value) for value in (50, 0, 180, 80, 85, 125, 200)]
+        widths[0] = sequence_width
         # 默认窗口的可用宽度是比例分配的基准，不随最大化/还原反复改变。
         baseline = (self._defaultTaskWidth
                     - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
@@ -519,6 +534,8 @@ class MainFrame(wx.Frame):
                 self.mcTree.Thaw()
         self._UpdateFilterCount()
         self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
+        if hasattr(self, '_defaultTaskWidth'):
+            self._FitTaskColumns()
 
     def _RecursiveExpand(self, item, expand):
         """递归展开/折叠"""

@@ -479,6 +479,27 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
+    def test_sequence_column_grows_for_long_child_indices_without_resize(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test')
+        try:
+            initial = frame.mcTree.GetColumn(0).GetWidth()
+            self.task.childs = [FileItem(fileName=f'task/{i}.ts') for i in range(1000)]
+            frame._RefreshWithState()
+            width = frame.mcTree.GetColumn(0).GetWidth()
+            self.assertGreater(width, initial)
+            dc = wx.ClientDC(frame.mcTree)
+            font = wx.Font(frame.mcTree.GetFont())
+            font.SetWeight(wx.FONTWEIGHT_BOLD)
+            dc.SetFont(font)
+            required = dc.GetTextExtent('1.1000')[0] + 2 * frame.mcTree.GetIndent()
+            self.assertGreaterEqual(width, required)
+            self.assertLessEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(7)),
+                                 frame.mcTree.GetClientSize().width)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_columns_fit_available_width_when_resizing(self):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test')
