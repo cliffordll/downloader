@@ -1,0 +1,5 @@
+# Versions used for the v0.1.0 Windows / Python 3.10 verification.
+m3u8==6.0.0
+requests==2.33.1
+wxPython==4.2.3
+pydantic==2.13.3

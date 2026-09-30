@@ -1,6 +1,45 @@
-# 实现下载视频功能
+# 视频下载器
 
-pip install wx -i https://pypi.tuna.tsinghua.edu.cn/simple
+基于 Python 和 wxPython 的桌面下载器，支持 M3U8 播放列表、按命名规则添加 TS 分片，以及使用 FFmpeg 合并 MP4。
+
+当前源码版本：**v0.1.0**。任务仍从下载目录中的播放列表读取；尚不支持 MP4 直链下载、RTMP 直播录制或 SQLite 任务库。
+
+## 安装与运行
+
+已验证环境：Windows、Python 3.10.11。建议使用 Python 3.10 创建独立环境，在项目根目录执行：
+
+```powershell
+py -3.10 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe main.py
+```
+
+源码包不包含 Python、Windows 可执行程序或 FFmpeg。仅下载分片无需 FFmpeg；合并 MP4 时需要自行安装 FFmpeg，并按下面的设置说明配置。
+
+## 使用
+
+1. 在“文件 → 设置”中选择下载目录。
+2. 使用“下载 M3U8”添加播放列表，或使用“下载 TS”按分片命名规则添加任务。输入框旁的“？”提供说明。
+3. 在操作列开始下载、暂停、继续、失败重试或删除任务。“更多”中提供转 MP4、打开文件夹和播放视频。
+4. 双击任务仅展开或折叠。关键词匹配任务、MP4 和分片的文件名或路径，并可与状态组合筛选；隐藏任务仍正常下载。
+
+“任务”菜单提供全部暂停、全部继续；后者也恢复单独暂停的任务，但不会启动尚未排队的任务。已发出的请求允许完成，暂停只阻止后续请求。
+
+“查看 → 默认展开任务”保存新任务的展示偏好；“全部展开/折叠”只改变当前列表。删除操作会确认后删除任务所在文件夹及其中的文件，请注意确认框中的路径。
+
+## 快捷键
+
+| 操作 | 快捷键 |
+| --- | --- |
+| 打开下载文件夹 | Ctrl+O |
+| 添加 M3U8 / TS | Ctrl+M / Ctrl+T |
+| 设置 | Ctrl+, |
+| 刷新 / 查找筛选框 | F5 / Ctrl+F |
+| 全部暂停 / 继续 | Ctrl+Shift+P / Ctrl+Shift+R |
+| 全部展开 / 折叠 | Ctrl+Shift+E / Ctrl+Shift+C |
+| 使用说明 | F1 |
+| 清空关键词（筛选框内） | Esc |
+
 ## 下载设置
 
 在“文件 → 设置”（Ctrl+,）中调整下载目录、最大并发数、请求启动间隔、失败重试次数、连接/读取超时、FFmpeg 路径和自动合并。
@@ -12,4 +51,18 @@ pip install wx -i https://pypi.tuna.tsinghua.edu.cn/simple
 - 请求间隔约束全局请求启动频率，包含重试。429 会暂停新请求并遵守 `Retry-After`；403 不自动重试；网络错误和 5xx 使用有次数上限的退避重试。
 - 自动合并会在任务的全部分片下载完成后调用 FFmpeg，已有 `output.mp4` 时不自动覆盖。
 
-回归测试：`python -m unittest discover -s tests -v`。测试使用临时配置和模拟 HTTP/FFmpeg，不修改个人设置、不发起真实下载。
+## 已知限制
+
+- 当前任务列表依赖下载目录，切换目录后显示新目录中的任务；尚未实现跨目录的独立任务管理。
+- 合并使用 FFmpeg 流复制，无法保证修复原始分片的时间戳或编码问题。
+- 部分 Windows 环境首次启动时可能仍出现操作列短暂闪烁；已减少无效刷新，但尚未确认完全消除。
+
+## 测试
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+v0.1.0 发布前通过 57 项测试。测试使用临时配置和模拟 HTTP/FFmpeg，不发起真实下载；界面相关测试需要可用的桌面环境。
+
+版本变更见 [CHANGELOG.md](CHANGELOG.md)。
