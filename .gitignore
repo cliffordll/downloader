@@ -4,3 +4,5 @@
 .vscode/
 /scripts/ffmpeg.exe
 /scripts/ffmpeg
+/scripts/ffprobe.exe
+/scripts/ffprobe

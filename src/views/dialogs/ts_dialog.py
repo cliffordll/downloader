@@ -6,6 +6,7 @@ import sqlite3
 from src.core.task_service import TaskService
 from src.storage.task_repository import TaskDataError
 from src.schemas.task import SourceType
+from src.config.sys_setting import SysSetting
 
 class DownloadDialogTS(wx.Dialog):
     def __init__(self, parent, title, workPath, task_service=None):
@@ -20,8 +21,9 @@ class DownloadDialogTS(wx.Dialog):
         self.downEdit.Bind(wx.EVT_BUTTON, self.OnEditBtnClicked)
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
 
-        sizer.Add(self.downEdit, proportion=100, flag=wx.ALIGN_CENTER|wx.ALL, border=5)
-        sizer.Add(self.downPath, proportion=1, flag=wx.ALIGN_CENTER|wx.ALL, border=5)
+        # 两块之间只保留保存目录行的顶部边距，避免多层底部边距叠加。
+        sizer.Add(self.downEdit, proportion=1, flag=wx.EXPAND|wx.TOP|wx.LEFT|wx.RIGHT, border=5)
+        sizer.Add(self.downPath, proportion=0, flag=wx.EXPAND|wx.ALL, border=5)
  
         self.SetSizer(sizer)
         # self.SetSize(width=728, height=450)
@@ -46,10 +48,15 @@ class DownloadDialogTS(wx.Dialog):
         content = self.downEdit.GetContent()
 
         try:
+            detect_duration = self.downEdit.detectDuration.GetValue()
+            if detect_duration and not SysSetting.GetFFprobe():
+                raise ValueError('找不到 ffprobe，请放入 scripts 或 FFmpeg 所在目录，或取消检测时长。')
             downPath = self.downPath.GetDownPath()
             self.tasks.create_m3u8(downPath, baseUri, content, basePath,
                                    source_type=SourceType.TS_PATTERN,
-                                   ts_pattern=self.downEdit.tcReg.GetValue().strip() or None)
+                                   ts_pattern=self.downEdit.tcReg.GetValue().strip() or None,
+                                   detect_duration=detect_duration,
+                                   request_headers=self.downEdit.GetRequestHeaders())
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f"下载任务创建失败：{error}", "提示", wx.ICON_WARNING, parent=self)
             return

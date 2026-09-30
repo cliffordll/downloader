@@ -100,6 +100,8 @@ class TaskSegment(TaskModel):
     relative_path: RelativeFile
     source_url: HttpUrl = None
     duration: NonNegativeFloat | None = None
+    duration_status: Literal['pending', 'detected', 'failed'] = 'pending'
+    duration_error: str | None = None
     status: FileStatus = FileStatus.PENDING
     size_bytes: NonNegativeInt | None = None
     last_error: str | None = None
@@ -114,12 +116,22 @@ class TaskOutput(TaskModel):
 
 
 class M3U8Details(TaskModel):
+    request_headers: dict[str, str] = Field(default_factory=dict)
+    detect_duration: bool = False
     playlist_path: RelativeFile | None = None
     ts_pattern: str | None = None
     segments: list[TaskSegment] = Field(default_factory=list)
 
     @model_validator(mode='after')
     def unique_sequences(self):
+        # 只接受表单支持的请求头，禁止换行，避免生成无效 HTTP 请求。
+        for name, value in self.request_headers.items():
+            if name not in ('Referer', 'Cookie') or any(c in value for c in '\r\n\x00'):
+                raise ValueError('请求头仅支持 Referer、Cookie，且不能包含换行')
+            try:
+                value.encode('latin-1')
+            except UnicodeEncodeError:
+                raise ValueError('请求头请使用浏览器中的原始值；网址中的中文需进行 URL 编码')
         sequences = [segment.sequence for segment in self.segments]
         if len(sequences) != len(set(sequences)):
             raise ValueError('同一任务内分片序号不能重复；网址允许重复')

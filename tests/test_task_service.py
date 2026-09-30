@@ -217,6 +217,28 @@ class TaskServiceTests(unittest.TestCase):
         message.assert_called_once()
         self.assertEqual(self.repository.get(task.id).status.value, 'waiting_merge')
 
+    def test_ts_duration_checkbox_preserves_input_and_requires_ffprobe(self):
+        service = Mock()
+        dialog = DownloadDialogTS(None, 'test', str(self.root), task_service=service)
+        try:
+            original = dialog.downEdit.tcPlay.GetValue()
+            self.assertFalse(dialog.downEdit.detectDuration.GetValue())
+            dialog.downEdit.detectDuration.SetValue(True)
+            self.assertEqual(dialog.downEdit.tcPlay.GetValue(), original)
+            dialog.downPath.tcDown.SetValue('new-task')
+            dialog.downEdit.tsList.SetValue(CONTENT)
+            with patch.object(SysSetting, 'GetFFprobe', return_value=None), \
+                    patch('wx.MessageBox'), patch.object(dialog, 'EndModal') as end:
+                dialog.OnDownBtnClicked(None)
+                end.assert_not_called()
+                service.create_m3u8.assert_not_called()
+            with patch.object(SysSetting, 'GetFFprobe', return_value='ffprobe'), patch.object(dialog, 'EndModal'):
+                dialog.OnDownBtnClicked(None)
+            self.assertTrue(service.create_m3u8.call_args.kwargs['detect_duration'])
+        finally:
+            dialog.Destroy()
+        self.app.ProcessPendingEvents()
+
     def test_missing_segment_url_does_not_enqueue_request(self):
         task = self.create()
         self.repository.mutate(task.id, lambda record: setattr(record.details.segments[0], 'source_url', None))

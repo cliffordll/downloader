@@ -4,6 +4,8 @@ from pathlib import Path
 import math
 import os
 import tempfile
+import subprocess
+from src.core.duration_probe import probe_duration
 
 from src.core.parsers.m3u8_parser import M3U8Parser
 from src.storage.task_repository import TaskRepository
@@ -23,7 +25,7 @@ class TaskService:
         return self._repository
 
     def create_m3u8(self, save_dir, source_url, content, base_path='', *,
-                    source_type=SourceType.M3U8, ts_pattern=None):
+                    source_type=SourceType.M3U8, ts_pattern=None, detect_duration=False, request_headers=None):
         """两种添加入口统一入库。目录必须是新目录，避免同名任务覆盖文件。
 
         分片按序号保存，不把带查询参数的 URL 当作文件名；重复 URL 或不同
@@ -52,6 +54,8 @@ class TaskService:
         task = M3U8Task(name=directory.name, save_dir=directory, source_type=source_type,
                         source_url=source_url or None,
                         details=M3U8Details(playlist_path='download.m3u8', ts_pattern=ts_pattern,
+                                            detect_duration=detect_duration,
+                                            request_headers=request_headers or {},
                                             segments=segments),
                         progress=TaskProgress(total_segments=len(segments)),
                         outputs=[TaskOutput(relative_path='output.mp4', kind='merged')])
@@ -146,6 +150,7 @@ class TaskService:
                 segment.status, segment.size_bytes, segment.last_error = FileStatus.COMPLETED, path.stat().st_size, None
             elif segment.status == FileStatus.COMPLETED:
                 segment.status, segment.size_bytes, segment.last_error = FileStatus.MISSING, None, '已下载分片不存在'
+                segment.duration_status, segment.duration_error = 'pending', None
                 missing = True
         for output in task.outputs:
             path = task.save_dir / output.relative_path
@@ -182,6 +187,7 @@ class TaskService:
             for segment in task.details.segments:
                 if segment.sequence in selected and segment.status != FileStatus.COMPLETED:
                     segment.status, segment.last_error, segment.size_bytes = FileStatus.PENDING, None, None
+                    segment.duration_status, segment.duration_error = 'pending', None
             task.status, task.last_error = TaskStatus.QUEUED, None
             self._progress(task)
         return self.repository.mutate(task_id, change)
@@ -213,6 +219,8 @@ class TaskService:
         def change(task):
             self._require_m3u8(task)
             self._reconcile(task, False)
+            if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.segments):
+                raise ValueError('分片时长尚未检测完成，请稍后合并。')
             if not task.details.segments or task.progress.completed_segments != task.progress.total_segments:
                 raise ValueError('分片尚未全部下载，不能合并。')
             if any(output.status == FileStatus.COMPLETED for output in task.outputs):
@@ -237,6 +245,47 @@ class TaskService:
                 output.status, output.size_bytes = FileStatus.FAILED, None
                 task.status, task.last_error = TaskStatus.FAILED, 'FFmpeg 合并失败，请检查分片或重新合并。'
         return self.repository.mutate(task_id, change)
+
+    def detect_durations(self, task_id, stop=None):
+        """后台逐片检测，逐片入库；重启仅补做 pending，失败保留原时长。"""
+        task = self.repository.get(task_id)
+        if not isinstance(task, M3U8Task) or not task.details.detect_duration:
+            return task
+        for segment in task.details.segments:
+            if stop is not None and stop.is_set():
+                return None
+            if segment.status != FileStatus.COMPLETED or segment.duration_status != 'pending':
+                continue
+            path = task.save_dir / segment.relative_path
+            duration, error = None, None
+            try:
+                before = path.stat()
+                duration = probe_duration(path)
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                error = str(exc)
+            if stop is not None and stop.is_set():
+                return None  # 退出后保留 pending，下次启动继续检测。
+            def change(current):
+                self._require_m3u8(current)
+                target = next((s for s in current.details.segments if s.sequence == segment.sequence), None)
+                if (target is None or target.status != FileStatus.COMPLETED
+                        or target.duration_status != 'pending' or target.relative_path != segment.relative_path):
+                    return
+                # 检测期间文件可能被删除或重新下载，不把旧结果写到新文件上。
+                if duration is not None:
+                    try:
+                        after = path.stat()
+                    except OSError:
+                        return
+                    if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
+                        return
+                if duration is not None:
+                    target.duration = duration
+                target.duration_status = 'failed' if error else 'detected'
+                target.duration_error = error
+            if self.repository.mutate(task_id, change) is None:
+                return None  # 用户删除的任务不会被检测结果重新创建。
+        return self.repository.get(task_id)
 
     @staticmethod
     def _require_m3u8(task):

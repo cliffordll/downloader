@@ -1,5 +1,7 @@
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from pathlib import Path
 
 import wx 
@@ -50,6 +52,10 @@ class MainFrame(wx.Frame):
         self._task_display = {}
         self._storage_error = ''
         self._completion_notified = set()
+        self._duration_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='duration-probe')
+        self._duration_jobs = set()
+        self._duration_blocked = set()
+        self._duration_stop = Event()
         # 显示前完成布局、列宽和状态缓存，避免先画初始列宽再跳到适配后的宽度。
         self.Layout()
         self.mcTree.GetParent().Layout()
@@ -197,7 +203,7 @@ class MainFrame(wx.Frame):
         self.searchCtrl.ShowCancelButton(True)
         self.statusFilter = wx.Choice(panel, choices=[
             '全部状态', '未开始', '等待下载', '下载中', '暂停中', '已暂停', '已中断', '录制中', '停止中', '录制失败',
-            '待继续', '下载失败', '待合并', '合并中', '合并失败', '已完成'])
+            '待继续', '下载失败', '检测时长', '待合并', '合并中', '合并失败', '已完成'])
         self.statusFilter.SetSelection(0)
         self.filterCount = wx.StaticText(panel, label='')
         self.filterCount.SetMinSize(self.FromDIP(wx.Size(140, -1)))
@@ -386,6 +392,8 @@ class MainFrame(wx.Frame):
 
     def OnDestroy(self, event):
         if event.GetEventObject() is self:
+            self._duration_stop.set()
+            self._duration_pool.shutdown(wait=False, cancel_futures=True)
             self._progressTimer.Stop()
             self._searchTimer.Stop()
             for task in self.model.fileTree.items:
@@ -403,6 +411,7 @@ class MainFrame(wx.Frame):
         self._SyncTaskRuntime()
         display = {}
         for index, task in enumerate(self.model.fileTree.items):
+            self._QueueDurationCheck(task)
             info = self.model.TaskInfo(index)
             state = (info['progress'], info['status'], json.dumps(self.model.TaskActions(index), ensure_ascii=False))
             display[task.parent.fileName] = state
@@ -780,6 +789,7 @@ class MainFrame(wx.Frame):
         self._RecursiveExpand(root, False)
 
     def OnRefresh(self, event):
+        self._duration_blocked.clear()
         # 只从数据库恢复任务；读取失败保留当前列表，不退回扫描目录。
         try:
             tree = load_tree(self.model.tasks)
@@ -997,6 +1007,10 @@ class MainFrame(wx.Frame):
             if task is None:
                 return  # 任务已删除，不处理之前排入 wx 队列的完成事件。
             fileName = task.parent.fileName
+            if task.duration_pending:
+                self._completion_notified.discard(task.task_id)
+                self._QueueDurationCheck(task)
+                return  # 实际时长入库后再重建清单，并执行自动合并。
         # print("OnAllTSDownload", fileName)
         self._CreateM3U8File(tsSeed=fileName)
 
@@ -1009,6 +1023,58 @@ class MainFrame(wx.Frame):
 
         # 方法2：记录上一次的展开折叠状态
         self._RefreshWithState()
+
+    def _QueueDurationCheck(self, task):
+        """串行检测已下载分片；启动恢复和普通进度更新均可补做未完成的检测。"""
+        if (not task.duration_pending or not task.task_id or self._duration_stop.is_set()
+                or task.task_id in self._duration_jobs or task.task_id in self._duration_blocked):
+            return
+        self._duration_jobs.add(task.task_id)
+        future = self._duration_pool.submit(self.model.tasks.detect_durations, task.task_id, self._duration_stop)
+        def finished(result):
+            if result.cancelled() or self._duration_stop.is_set():
+                return
+            try:
+                record, error = result.result(), None
+            except Exception as exc:
+                record, error = None, str(exc)
+            wx.CallAfter(self._DurationChecked, task.task_id, record, error)
+        future.add_done_callback(finished)
+
+    def _DurationChecked(self, task_id, record, error):
+        if not self or self.IsBeingDeleted() or self._duration_stop.is_set():
+            return
+        self._duration_jobs.discard(task_id)
+        if error:
+            self._duration_blocked.add(task_id)
+            wx.MessageBox(f'时长检测结果保存失败：{error}\n请刷新后重试。', '检测失败', parent=self)
+            return
+        # 后台快照可能早于其他分片的下载回调，必须重新读取最新记录再更新列表。
+        try:
+            record = self.model.tasks.repository.get(task_id)
+        except (ValueError, OSError, sqlite3.Error, TaskDataError) as exc:
+            self._DurationChecked(task_id, None, str(exc))
+            return
+        if record is None:
+            return
+        index = self.model.ApplyTaskRecord(record)
+        if index is None:
+            return
+        task = self.model.fileTree.items[index]
+        if task.duration_pending:
+            self._QueueDurationCheck(task)
+            return
+        self._CreateM3U8File(task.parent.fileName)
+        failures = sum(s.duration_status == 'failed' for s in record.details.segments)
+        if failures:
+            self.statusBar.SetStatusText(f'{task.parent.displayName}：{failures} 个分片时长检测失败，保留原时长。', 0)
+        pending = Downloader.Snapshot()['pending']
+        if (task.childs and task.download == len(task.childs) and not task.outputs
+                and task_id not in self._completion_notified
+                and not any(Downloader.FileKey(child.fileName) in pending for child in task.childs)):
+            self._completion_notified.add(task_id)
+            self.model._SendEvent({'task_id': task_id, 'fileName': task.parent.fileName})
+        self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
 
     def _DownloadCall(self, flag: bool, fileName: str, context):
         """下载回调携带 UUID 和序号；持久化失败时保留文件，供下次恢复核对。"""
@@ -1033,6 +1099,9 @@ class MainFrame(wx.Frame):
             if (flag and task.childs and task.download == len(task.childs)
                     and task_id not in self._completion_notified
                     and not any(Downloader.FileKey(child.fileName) in pending for child in task.childs)):
+                if task.duration_pending:
+                    self._QueueDurationCheck(task)
+                    break  # 检测回调负责发送完成事件，避免自动合并早于时长入库。
                 self._completion_notified.add(task_id)
                 self.model._SendEvent({'task_id': task_id, 'fileName': task.parent.fileName})
             break
@@ -1061,7 +1130,8 @@ class MainFrame(wx.Frame):
                                   child.fileName, False, '分片缺少下载地址。')
                 continue
             try:
-                if Downloader.DownloadTSFile(child.absUri, child.fileName, self._DownloadCall, context):
+                options = {'headers': record.details.request_headers} if record.details.request_headers else {}
+                if Downloader.DownloadTSFile(child.absUri, child.fileName, self._DownloadCall, context, **options):
                     # 接受新一轮缺失分片后，允许再次发送完成通知；同轮重复回调仍去重。
                     self._completion_notified.discard(task.task_id)
                     count += 1

@@ -39,6 +39,7 @@ class FileItem(BaseModel):
         return v
 
 class TreeItem(BaseModel):
+    duration_pending: bool = False
     task_type: TaskType = TaskType.M3U8
     save_dir: Optional[Path] = None
     progress: TaskProgress = Field(default_factory=TaskProgress)

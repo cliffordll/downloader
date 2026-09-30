@@ -154,7 +154,7 @@ class Downloader:
                 return fallback
 
     @classmethod
-    def DownloadContent(cls, baseUrl, respect_pause=False, request_key=None):
+    def DownloadContent(cls, baseUrl, respect_pause=False, request_key=None, headers=None):
         """同步读取 URL，返回 (True, 内容字节) 或 (False, 错误文字)。
 
         调用方决定在哪个线程执行；此方法本身不新建线程。
@@ -168,7 +168,8 @@ class Downloader:
                 return False, '下载已停止'
             backoff = min(2 ** attempt, 60)
             try:
-                response = requests.get(baseUrl, timeout=SysSetting.GetTimeout())
+                options = {'headers': dict(headers)} if headers else {}
+                response = requests.get(baseUrl, timeout=SysSetting.GetTimeout(), **options)
                 try:
                     status = response.status_code
                     if status == 200:
@@ -200,7 +201,7 @@ class Downloader:
         return False, error
 
     @classmethod
-    def _DownLoadFile(cls, baseUrl, fileName):
+    def _DownLoadFile(cls, baseUrl, fileName, headers=None):
         """线程池执行的单文件任务：跳过已有文件，下载完整内容后再写盘。
 
         先写同目录 .part 临时文件，再用 os.replace 替换目标，避免未写完的文件
@@ -211,7 +212,8 @@ class Downloader:
             if Path(fileName).is_file():
                 return True, fileName
             success, content = cls.DownloadContent(baseUrl, respect_pause=True,
-                                                   request_key=cls.FileKey(fileName))
+                                                   request_key=cls.FileKey(fileName),
+                                                   **({'headers': headers} if headers else {}))
             if not success:
                 print(f'下载失败：{fileName}：{content}')
                 with cls.threadLock:
@@ -235,7 +237,7 @@ class Downloader:
                     pass
 
     @classmethod
-    def DownloadTSFile(cls, absUri, absFile, callback, item):
+    def DownloadTSFile(cls, absUri, absFile, callback, item, headers=None):
         """界面提交一个分片：只负责去重入队，不在调用线程中等待网络请求。
 
         返回 True 表示接受入队，不代表下载成功；重复任务或程序退出时返回 False。
@@ -248,7 +250,9 @@ class Downloader:
             cls._pending.add(key)
             cls._failed.discard(key)
             cls._errors.pop(key, None)
-            cls.threadQueue.put((absUri, absFile, callback, item, key))
+            # 请求头随分片快照入队；不同任务不共享 Session 或可变字典。
+            task = (absUri, absFile, callback, item, key)
+            cls.threadQueue.put(task + (dict(headers),) if headers else task)
             if cls.isStop:
                 cls.isStop = False
                 cls._master = threading.Thread(target=cls._MasterThreadRun, name='download-scheduler')
@@ -262,7 +266,7 @@ class Downloader:
         先清理队列状态再通知，使回调保存的状态不包含刚完成的请求。
         已销毁的窗口不再接收回调，启动恢复会核对已经原子写入的文件。
         """
-        _, filename, callback, item, key = task
+        _, filename, callback, item, key = task[:5]
         with cls.threadLock:
             cls._pending.discard(key)
             cls._paused_files.discard(key)
@@ -298,7 +302,8 @@ class Downloader:
                             if task[4] in cls._paused_files:
                                 cls.threadQueue.put(task)
                                 continue
-                            active[pool.submit(cls._DownLoadFile, task[0], task[1])] = task
+                            options = {'headers': task[5]} if len(task) > 5 else {}
+                            active[pool.submit(cls._DownLoadFile, task[0], task[1], **options)] = task
                     if not active and (cls.threadQueue.empty() or cls._shutdown.is_set()):
                         cls.isStop = True
                         break

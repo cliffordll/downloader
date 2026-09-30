@@ -50,6 +50,9 @@ def to_tree_item(task, previous=None):
                for output in task.outputs if output.status == FileStatus.COMPLETED
                and (task.save_dir / output.relative_path).is_file()]
     return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                    duration_pending=task.details.detect_duration and any(
+                        s.status == FileStatus.COMPLETED and s.duration_status == 'pending'
+                        for s in task.details.segments),
                     progress=task.progress, task_status=task.status, last_error=task.last_error,
                     parent=parent, childs=children, outputs=outputs,
                     download=sum(child.fileSize != '-' for child in children))
@@ -134,7 +137,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         paused = snapshot['paused'] or bool(pending and pending <= snapshot['paused_files'])
         output = os.path.join(os.path.dirname(PathManager.GetAbsPath(task.parent.fileName)), 'output.mp4')
         merging = Converter.IsConverting(output)
-        if merging:
+        if task.duration_pending and total and done == total:
+            status = '检测时长'
+            merging = True  # 检测结束前暂不可合并或删除，避免与后台检测交叉。
+        elif merging:
             status = '合并中'
         elif task.parent.fileName in self.merge_failed or (
                 task.task_status == TaskStatus.FAILED and total and done == total and not task.outputs):
@@ -557,6 +563,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             # 使用饱和度较高的颜色区分运行、暂停、待处理和完成状态。
             # 保留状态文字，颜色只是辅助提示，不作为唯一的识别方式。
             colours = {
+                '检测时长': '#6A35E8',  # 分片已下载，后台正在读取媒体时长。
                 '下载中': '#0055FF',  # 鲜蓝：正在下载
                 '录制中': '#8800FF',
                 '停止中': '#FF6600',

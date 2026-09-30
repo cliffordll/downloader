@@ -379,6 +379,33 @@ class TaskRuntimeTests(unittest.TestCase):
             event.assert_called_once()
             self.assertEqual(event.call_args.args[0]['task_id'], task.id)
 
+    def test_duration_detection_defers_completion_and_notifies_once(self):
+        task = self.create(count=1)
+        task = self.repository.mutate(task.id, lambda current: setattr(current.details, 'detect_duration', True))
+        frame = self.frame()
+        path = self.write_segment(task, 0)
+        with patch.object(frame, '_QueueDurationCheck') as queue, patch.object(frame.model, '_SendEvent') as event:
+            frame._DownloadCall(True, str(path), (task.id, 0))
+            queue.assert_called_once()
+            event.assert_not_called()
+            self.assertEqual(frame.model.TaskInfo(0)['status'], '检测时长')
+            with patch('src.core.task_service.probe_duration', return_value=3.5):
+                record = self.service.detect_durations(task.id)
+            frame._DurationChecked(task.id, record, None)
+            frame._DurationChecked(task.id, record, None)
+            event.assert_called_once()
+            self.assertEqual(frame.model.TaskInfo(0)['status'], '待合并')
+            self.assertIn('#EXTINF:3.5,', (task.save_dir / 'download.m3u8').read_text())
+
+    def test_restored_task_passes_saved_headers_to_segment_queue(self):
+        task = self.create(count=1)
+        headers = {'Referer': 'https://example.com/watch', 'Cookie': 'session=test'}
+        self.repository.mutate(task.id, lambda record: setattr(record.details, 'request_headers', headers))
+        frame = self.frame()
+        with patch.object(Downloader, 'DownloadTSFile', return_value=True) as enqueue:
+            frame._DownloadFiles(frame.model.fileTree.items[0].parent.fileName, [(0, None)])
+        self.assertEqual(enqueue.call_args.kwargs['headers'], headers)
+
     def test_missing_completed_segment_downgrades_saved_progress(self):
         task = self.create()
         path = self.write_segment(task, 0)

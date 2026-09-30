@@ -133,3 +133,17 @@ class SysSetting:
         if bundled.is_file():
             return str(bundled)
         return shutil.which('ffmpeg') or 'ffmpeg'
+
+    @classmethod
+    def GetFFprobe(cls):
+        """优先使用配置的 FFmpeg 同目录工具，再查 scripts 和系统 PATH。"""
+        executable = 'ffprobe.exe' if os.name == 'nt' else 'ffprobe'
+        configured = cls.GetAll()['ffmpeg_path']
+        if configured:
+            sibling = Path(configured).with_name(executable)
+            if sibling.is_file():
+                return str(sibling)
+        bundled = Path(__file__).resolve().parents[2] / 'scripts' / executable
+        if bundled.is_file():
+            return str(bundled)
+        return shutil.which('ffprobe')

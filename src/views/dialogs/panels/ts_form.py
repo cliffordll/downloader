@@ -60,25 +60,42 @@ class DownloadEditTS(wx.Panel):
         tsSizer = wx.BoxSizer(wx.HORIZONTAL)
         lblReg = wx.StaticText(self, -1, label="段名规则:", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcReg = wx.TextCtrl(self)
+        self.tcReg.SetToolTip('使用 {idx} 表示编号；{idx:03d} 表示至少三位，例如 001、002、010。')
         lblStart = wx.StaticText(self, -1, label="开始:", size=(30, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcStart = wx.TextCtrl(self)
         lblEnd = wx.StaticText(self, -1, label="结束:", size=(30, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcEnd = wx.TextCtrl(self)        
         btnAppend = wx.Button(self, label="添加 TS")
+        self.detectDuration = wx.CheckBox(self, label='')
+        self.detectDuration.SetName('检测时长')
+        detectLabel = wx.StaticText(self, label='检测时长', style=wx.ST_NO_AUTORESIZE)
+        for control in (self.detectDuration, detectLabel):
+            control.SetToolTip('下载后用 ffprobe 检测实际时长；失败保留填写值，不影响下载。')
+        # 文字仍可点击切换，键盘焦点交给原生复选框，保留空格键切换能力。
+        def toggleDuration(event):
+            self.detectDuration.SetValue(not self.detectDuration.GetValue())
+            self.detectDuration.SetFocus()
+        detectLabel.Bind(wx.EVT_LEFT_UP, toggleDuration)
 
         tsSizer.Add(lblPlay, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
-        tsSizer.Add(self.tcPlay, proportion=40, flag=wx.EXPAND|wx.ALL, border=5)
+        # 横向分配宽度，纵向保留控件默认高度并居中，避免输入框被按钮撑高。
+        tsSizer.Add(self.tcPlay, proportion=40, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
+        # 与本行其他标签使用相同的 StaticText 绘制文字，不再靠平台像素偏移补偿。
+        detectSizer = wx.BoxSizer(wx.HORIZONTAL)
+        detectSizer.Add(self.detectDuration, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(2))
+        detectSizer.Add(detectLabel, flag=wx.ALIGN_CENTER_VERTICAL)
+        tsSizer.Add(detectSizer, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.RIGHT, border=5)
         tsSizer.AddStretchSpacer(prop=2)
         tsSizer.Add(lblReg, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
-        tsSizer.Add(self.tcReg, proportion=40, flag=wx.EXPAND|wx.ALL, border=5)
+        tsSizer.Add(self.tcReg, proportion=40, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
         tsSizer.AddStretchSpacer(prop=2)
         tsSizer.Add(lblStart, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
-        tsSizer.Add(self.tcStart, proportion=10, flag=wx.EXPAND|wx.ALL, border=5)
+        tsSizer.Add(self.tcStart, proportion=10, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
         tsSizer.AddStretchSpacer(prop=2)
         tsSizer.Add(lblEnd, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
-        tsSizer.Add(self.tcEnd, proportion=10, flag=wx.EXPAND|wx.ALL, border=5)
+        tsSizer.Add(self.tcEnd, proportion=10, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
         tsSizer.AddStretchSpacer(prop=2)
-        tsSizer.Add(btnAppend, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.LEFT, border=5)
+        tsSizer.Add(btnAppend, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.LEFT, border=5)
 
         # m3u8 file
         listSizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -87,10 +104,39 @@ class DownloadEditTS(wx.Panel):
         self.tsList = PlaylistEditor(self)
         listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
 
-        sizer.Add(uriSizer, border=0)
-        sizer.Add(pathSizer, border=0)
-        sizer.Add(tsSizer, border=0)
+        sizer.Add(uriSizer, flag=wx.EXPAND, border=0)
+        sizer.Add(pathSizer, flag=wx.EXPAND, border=0)
+        sizer.Add(tsSizer, flag=wx.EXPAND, border=0)
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND, border=0)
+
+        # 请求头是任务选项；默认收起，给清单编辑区保留空间。
+        self.advanced = wx.CollapsiblePane(self, label='高级选项：请求头', style=wx.CP_DEFAULT_STYLE|wx.CP_NO_TLW_RESIZE)
+        pane = self.advanced.GetPane()
+        headersSizer = wx.FlexGridSizer(cols=3, vgap=5, hgap=8)
+        headersSizer.AddGrowableCol(1)
+        self.tcReferer = wx.TextCtrl(pane)
+        self.tcReferer.SetHint('选填，视频所在的网页网址')
+        self.tcCookie = wx.TextCtrl(pane, style=wx.TE_PASSWORD)
+        self.tcCookie.SetHint('选填，例如 session=xxx; token=yyy')
+        self.tcCookie.SetToolTip('填写 Cookie 的值，不含 Cookie: 前缀；随任务保存在本机数据库。')
+        for label, control in [('Referer', self.tcReferer), ('Cookie', self.tcCookie)]:
+            headersSizer.Add(wx.StaticText(pane, label=label), flag=wx.ALIGN_CENTER_VERTICAL)
+            headersSizer.Add(control, flag=wx.EXPAND)
+            helpLink = wx.adv.HyperlinkCtrl(pane, label='?', url='', size=self.FromDIP((24, -1)),
+                                          style=wx.adv.HL_ALIGN_CENTRE)
+            helpLink.SetNormalColour(wx.Colour('#666666'))
+            helpLink.SetVisitedColour(wx.Colour('#666666'))
+            helpLink.SetHoverColour(wx.Colour('#333333'))
+            helpFont = helpLink.GetFont()
+            helpFont.SetUnderlined(False)
+            helpLink.SetFont(helpFont)
+            helpLink.SetName(f'{label} 说明')
+            helpLink.SetToolTip('点击查看完整说明')
+            helpLink.Bind(wx.adv.EVT_HYPERLINK, lambda event, name=label: self.OnHeaderHelp(name))
+            headersSizer.Add(helpLink, flag=wx.ALIGN_CENTER_VERTICAL)
+        pane.SetSizer(headersSizer)
+        sizer.Add(self.advanced, flag=wx.EXPAND)
+        self.advanced.Bind(wx.EVT_COLLAPSIBLEPANE_CHANGED, self.OnAdvancedChanged)
 
         self.SetSizer(sizer)
         
@@ -103,6 +149,29 @@ class DownloadEditTS(wx.Panel):
 
         self._SetDefaultValue()
         self.autoAdds = []
+
+    def OnHeaderHelp(self, name):
+        """点击后使用持久弹窗，仅说明当前字段，不显示已填写的 Cookie。"""
+        descriptions = {
+            'Referer': (
+                '选填。用于向服务器说明下载请求来自哪个网页。\n'
+                '需要时，填写浏览器中该 TS 请求实际携带的 Referer 值。\n\n'
+                '获取方式：浏览器按 F12 → 网络（Network）→ 选择 TS 请求 → '
+                '请求标头（Request Headers）→ Referer。\n'
+                '只复制网址，不包含 Referer: 前缀；原请求没有此项时通常留空。'),
+            'Cookie': (
+                '选填。用于携带网站的登录会话等信息。\n'
+                '需要时，填写浏览器中该 TS 请求实际携带的 Cookie 值。\n\n'
+                '获取方式：浏览器按 F12 → 网络（Network）→ 选择 TS 请求 → '
+                '请求标头（Request Headers）→ Cookie。\n'
+                '只复制值，不包含 Cookie: 前缀，例如 session=xxx; token=yyy。\n\n'
+                'Cookie 会随任务保存在本机数据库中，输入框以掩码显示。')
+        }
+        dialog = DownloadHelpDialog(self, f'{name} 说明', descriptions[name])
+        try:
+            dialog.ShowModal()
+        finally:
+            dialog.Destroy()
 
     def OnURIHelp(self, event):
         address = self.GetBaseURI()
@@ -179,6 +248,24 @@ class DownloadEditTS(wx.Panel):
     def GetContent(self):
         return self.tsList.GetValue().strip()
 
+    def GetRequestHeaders(self):
+        return {name: control.GetValue().strip() for name, control in
+                [('Referer', self.tcReferer), ('Cookie', self.tcCookie)] if control.GetValue().strip()}
+
+    def OnAdvancedChanged(self, event):
+        self.Layout()
+        self.GetParent().Layout()  # 展开时压缩编辑区，不改变对话框大小。
+
+    @staticmethod
+    def FormatSegmentName(pattern, index):
+        """仅支持编号占位符，不执行任意 format 属性访问或格式表达式。"""
+        token = r'\{idx(?::0([1-9][0-9]?)d)?\}'
+        matches = list(re.finditer(token, pattern))
+        remainder = re.sub(token, '', pattern)
+        if not matches or '{' in remainder or '}' in remainder:
+            raise ValueError('段名规则需包含 {idx} 或 {idx:03d}，例如 seg-{idx:03d}.ts')
+        return re.sub(token, lambda match: str(index).zfill(int(match.group(1) or 0)), pattern)
+
     def OnTCStartChanged(self, event):
         txt = self.tcStart.GetValue()
         self.tcEnd.SetValue(txt)
@@ -193,15 +280,17 @@ class DownloadEditTS(wx.Panel):
             wx.MessageBox("请输入播放时长！", "提示", wx.OK|wx.ICON_WARNING)
             return
         txtReg = self.tcReg.GetValue().strip()
-        if not txtReg or not re.findall(r"{.+}", txtReg):
-            wx.MessageBox("请输入段名规则！正则匹配'{数字}'", "提示", wx.OK|wx.ICON_WARNING)
+        try:
+            self.FormatSegmentName(txtReg, 1)
+        except ValueError as error:
+            wx.MessageBox(str(error), "提示", wx.OK|wx.ICON_WARNING)
             return
         txtStart = self.tcStart.GetValue().strip()
-        if not txtStart or not txtStart[-1].isdigit():  # 检查最后一个字符是否是数字
+        if not re.fullmatch(r'[0-9]+', txtStart):
             wx.MessageBox("开始字段必须是数字！", "警告", wx.OK|wx.ICON_WARNING)
             return
         txtEnd = self.tcEnd.GetValue().strip()
-        if not txtEnd or not txtEnd[-1].isdigit():  # 检查最后一个字符是否是数字
+        if not re.fullmatch(r'[0-9]+', txtEnd):
             wx.MessageBox("结束字段需必须是数字！", "警告", wx.OK|wx.ICON_WARNING)
             return
         
@@ -236,13 +325,12 @@ class DownloadEditTS(wx.Panel):
                 continue
             lines.append(line)
 
-        strReg = re.findall(r"{.+}", txtReg)[0]
         
         endTs = f"#EXT-X-ENDLIST"
         self.autoAdds.clear()
         # lines = [line for line in txtTs.splitlines() if line.strip() != ""]
         for nIdx in range(numStart, numEnd+1):
-            baseTs = txtReg.replace(strReg, f"{nIdx}")
+            baseTs = self.FormatSegmentName(txtReg, nIdx)
 
             lines.append(txtPaly)
             lines.append(baseTs)
