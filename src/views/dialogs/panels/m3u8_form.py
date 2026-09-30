@@ -1,5 +1,6 @@
 import wx
 import wx.adv
+from threading import Thread
 from urllib.parse import urljoin, urlsplit
 
 from src.views.dialogs.panels.path_picker import DownloadHelpDialog
@@ -53,6 +54,8 @@ class DownloadEditMU(wx.Panel):
 
         btnSizer = wx.BoxSizer(wx.HORIZONTAL)
         btnM3U8 = wx.Button(self, label="获取 M3U8")
+        self.fetchButton = btnM3U8
+        self._fetching = False
         btnSizer.AddStretchSpacer(prop=84)
         btnSizer.Add(btnM3U8, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=5)
 
@@ -136,15 +139,50 @@ class DownloadEditMU(wx.Panel):
         # text = """第一行文本\n第二行文本
         #     第三行文本...
         #     可以显示大量文本内容，支持滚动查看"""
-        m3u8Url = self.tcURI.GetValue()
+        if self._fetching:
+            return
+        m3u8Url = self.GetBaseURI()
         if not m3u8Url:
             wx.MessageBox("请输入正确的M3U8下载地址！", "警告", wx.OK|wx.ICON_WARNING)
             return
 
-        flag, content = Downloader.DownloadContent(m3u8Url)
+        self._fetching = True
+        self.fetchButton.Disable()
+        self.fetchButton.SetLabel('获取中…')
+        # 网络请求和限流等待放在后台；工作线程不访问 wx 控件。
+        def fetch():
+            try:
+                flag, content = Downloader.DownloadContent(m3u8Url)
+                if flag and isinstance(content, bytes):
+                    content = content.decode('utf-8-sig', errors='replace')
+            except Exception as error:
+                flag, content = False, str(error)
+            try:
+                wx.CallAfter(self._OnFetched, m3u8Url, flag, content)
+            except RuntimeError:
+                pass  # 应用已经退出，不能再投递界面回调。
+        try:
+            Thread(target=fetch, name='playlist-fetch', daemon=True).start()
+        except RuntimeError as error:
+            self._OnFetched(m3u8Url, False, str(error))
+
+    def _OnFetched(self, address, flag, content):
+        """主线程更新表单；关闭弹窗或更改网址后不再应用旧请求的结果。"""
+        if not self or self.IsBeingDeleted():
+            return
+        window = self.GetTopLevelParent()
+        if not window or window.IsBeingDeleted():
+            return  # 父弹窗可能正在延迟销毁，子控件此时仍然存在。
+        self._fetching = False
+        self.fetchButton.Enable()
+        self.fetchButton.SetLabel('获取 M3U8')
+        if address != self.GetBaseURI():
+            return
         if flag:
             self.tsList.SetValue(content)
-            # 传递事件，通知下载页修改下载路径
-            event.Skip()
+            # 原始点击事件已结束；成功后重新通知父弹窗生成保存路径。
+            event = wx.CommandEvent(wx.EVT_BUTTON.typeId, self.fetchButton.GetId())
+            event.SetEventObject(self.fetchButton)
+            wx.PostEvent(self, event)
         else:
-            wx.MessageBox(content, "警告", wx.OK|wx.ICON_WARNING)
+            wx.MessageBox(content, "警告", wx.OK|wx.ICON_WARNING, parent=self)

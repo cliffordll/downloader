@@ -347,6 +347,24 @@ class TaskRuntimeTests(unittest.TestCase):
         restored = load_tree(TaskService(TaskRepository(self.repository.path))).items[0]
         self.assertEqual(restored.task_status, TaskStatus.INTERRUPTED)
 
+    def test_redownload_starts_new_completion_cycle_and_auto_merge(self):
+        task = self.create(count=1)
+        frame = self.frame()
+        item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+        SysSetting._values['auto_merge'] = True
+        with patch.object(frame, '_CreateMP4File') as merge:
+            for cycle in range(2):
+                with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue):
+                    frame.OnTaskAction(item, 'start')
+                path = self.write_segment(task, 0)
+                Downloader._pending.clear()
+                frame._DownloadCall(True, str(path), (task.id, 0))
+                frame._DownloadCall(True, str(path), (task.id, 0))
+                self.app.ProcessPendingEvents()
+                self.assertEqual(merge.call_count, cycle + 1)
+                path.unlink()
+                frame.OnRefresh(None)
+
     def test_completion_waits_for_all_callbacks_and_only_notifies_once(self):
         task = self.create()
         frame = self.frame()

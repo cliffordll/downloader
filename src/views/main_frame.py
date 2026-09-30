@@ -1045,6 +1045,8 @@ class MainFrame(wx.Frame):
                 continue
             try:
                 if Downloader.DownloadTSFile(child.absUri, child.fileName, self._DownloadCall, context):
+                    # 接受新一轮缺失分片后，允许再次发送完成通知；同轮重复回调仍去重。
+                    self._completion_notified.discard(task.task_id)
                     count += 1
             except Exception as error:
                 self._PersistTask(self.model.tasks.finish_segment, task.task_id, child.sequence,
