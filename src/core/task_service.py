@@ -226,12 +226,14 @@ class TaskService:
             self._progress(task)
         return self.repository.mutate(task_id, change)
 
-    def runtime_status(self, task_id, status):
+    def runtime_status(self, task_id, status, *, preserve_terminal=False):
         def change(task):
+            if preserve_terminal and task.status in (TaskStatus.MERGING, TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):
+                return  # 后台排队快照不能覆盖已开始的合并或已完成任务。
             task.status = status
         return self.repository.mutate(task_id, change)
 
-    def finish_segment(self, task_id, sequence, filename, success, error=None):
+    def finish_segment(self, task_id, sequence, filename, success, error=None, *, runtime_status=None):
         """回调身份是任务 UUID + 分片序号，并校验文件路径，绝不按旧行号定位。"""
         def change(task):
             self._require_m3u8(task)
@@ -247,6 +249,10 @@ class TaskService:
                 task.last_error = segment.last_error
             self._progress(task)
             self._settle(task)
+            # 后台在同一事务中保存剩余队列状态，避免单片结束让整项任务短暂变成失败/中断。
+            if runtime_status is not None and task.status not in (
+                    TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE, TaskStatus.MERGING):
+                task.status = runtime_status
         return self.repository.mutate(task_id, change)
 
     def begin_merge(self, task_id):

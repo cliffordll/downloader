@@ -126,7 +126,8 @@ class DownloadSettingsTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def response(self, status=200, headers=None):
-        return SimpleNamespace(status_code=status, content=b'content', headers=headers or {}, close=Mock())
+        return SimpleNamespace(status_code=status, content=b'content', headers=headers or {}, close=Mock(),
+                               iter_content=lambda **kwargs: iter([b'content']))
 
     def test_pause_keeps_queue_and_resume_downloads_remaining_files(self):
         self.values['max_workers'] = 1
@@ -362,10 +363,10 @@ class DownloadSettingsTests(unittest.TestCase):
             self.assertFalse(M3U8Downloader.IsBusy())
 
     def test_successful_file_write_is_atomic(self):
-        with TemporaryDirectory() as directory, patch.object(M3U8Downloader, 'DownloadContent', return_value=(True, b'data')):
+        with TemporaryDirectory() as directory, patch('requests.get', return_value=self.response()):
             filename = str(Path(directory) / 'a.ts')
             self.assertTrue(M3U8Downloader._DownLoadFile('url', filename)[0])
-            self.assertEqual(Path(filename).read_bytes(), b'data')
+            self.assertEqual(Path(filename).read_bytes(), b'content')
             self.assertFalse(Path(filename + '.part').exists())
 
     def test_lower_concurrency_limit_waits_for_existing_requests(self):

@@ -2,7 +2,7 @@ from src.models import tree_model
 from src.models.tree_model import load_tree
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from queue import Queue
+from queue import Queue, SimpleQueue
 import sqlite3
 from tempfile import TemporaryDirectory
 import threading
@@ -38,6 +38,11 @@ class TaskRuntimeTests(unittest.TestCase):
         for patcher in (patch.object(SysSetting, '_values', values),
                         patch.object(SysSetting, 'ConfigPath', return_value=self.root / 'settings.json'),
                         patch('src.models.tree_model.TaskService', return_value=self.service),
+                        patch.object(M3U8Downloader, '_jobs', {}),
+                        patch.object(M3U8Downloader, '_changes', SimpleQueue()),
+                        patch.object(M3U8Downloader, 'errors', SimpleQueue()),
+                        patch.object(M3U8Downloader, '_unsaved', {}),
+                        patch.object(M3U8Downloader, '_storage_error', ''),
                         patch.object(M3U8Downloader, '_pending', set()),
                         patch.object(M3U8Downloader, '_requesting', set()),
                         patch.object(M3U8Downloader, '_paused_files', set()),
@@ -73,6 +78,23 @@ class TaskRuntimeTests(unittest.TestCase):
         M3U8Downloader._pending.add(M3U8Downloader.FileKey(filename))
         return True
 
+    def sync(self, frame):
+        # 手动驱动后台调度阶段，再模拟 GUI 定时读取；UI 本身不再负责写状态。
+        M3U8Downloader._SyncRuntime()
+        frame._SyncTaskRuntime()
+
+    def deliver(self, frame, success, filename, context):
+        task_id, _ = context
+        if task_id not in M3U8Downloader._jobs:
+            record = self.repository.get(task_id)
+            if record is None:
+                return
+            keys = {M3U8Downloader.FileKey(record.save_dir / s.relative_path) for s in record.details.segments}
+            M3U8Downloader._jobs[task_id] = [self.service, keys, record.status]
+        key = M3U8Downloader.FileKey(filename)
+        M3U8Downloader._Deliver(('url', filename, M3U8Downloader._SaveResult, context, key), success)
+        self.sync(frame)
+
     def save_default_directory(self, frame, directory):
         dialog = SettingsDialog(frame)
         try:
@@ -93,7 +115,7 @@ class TaskRuntimeTests(unittest.TestCase):
         first_path = task.save_dir / task.details.segments[0].relative_path
         key = M3U8Downloader.FileKey(first_path)
         M3U8Downloader._requesting.add(key)
-        frame._SyncTaskRuntime()
+        self.sync(frame)
         before = self.repository.get(task.id)
         pending = M3U8Downloader.Snapshot()['pending']
         new_default = self.root / 'new-default'
@@ -106,10 +128,10 @@ class TaskRuntimeTests(unittest.TestCase):
         self.write_segment(task, 0)
         M3U8Downloader._requesting.clear()
         M3U8Downloader._pending.discard(key)
-        frame._DownloadCall(True, str(first_path), (task.id, 0))
+        self.deliver(frame, True, str(first_path), (task.id, 0))
         second_path = task.save_dir / task.details.segments[1].relative_path
         M3U8Downloader._pending.clear()
-        frame._DownloadCall(False, str(second_path), (task.id, 1))
+        self.deliver(frame, False, str(second_path), (task.id, 1))
         with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue) as retry:
             frame.OnTaskAction(item, 'retry')
         self.assertEqual(Path(retry.call_args.args[1]), second_path)
@@ -255,19 +277,36 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertEqual([call.args[3] for call in download.call_args_list], [(task.id, 0), (task.id, 1)])
         key = M3U8Downloader.FileKey(task.save_dir / task.details.segments[0].relative_path)
         M3U8Downloader._requesting.add(key)
+        self.sync(frame)
         frame.OnTaskProgress(None)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.DOWNLOADING)
         frame.OnTaskAction(item, 'start')
+        self.sync(frame)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.PAUSING)
         M3U8Downloader._requesting.clear()
+        self.sync(frame)
         frame.OnTaskProgress(None)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.PAUSED)
+        with patch.object(self.repository, 'mutate', wraps=self.repository.mutate) as mutate:
+            self.sync(frame)
+            frame.OnTaskProgress(None)
+            self.sync(frame)
+            frame.OnTaskProgress(None)
+        mutate.assert_not_called()
+        frame.OnTaskAction(item, 'start')
+        self.sync(frame)
+        self.assertEqual(self.repository.get(task.id).status, TaskStatus.QUEUED)
+
+    def test_gui_progress_poll_only_reads_persisted_notifications(self):
+        task = self.create()
+        frame = self.frame()
+        self.service.runtime_status(task.id, TaskStatus.DOWNLOADING)
+        M3U8Downloader._changes.put(task.id)
         with patch.object(self.repository, 'mutate', wraps=self.repository.mutate) as mutate:
             frame.OnTaskProgress(None)
             frame.OnTaskProgress(None)
         mutate.assert_not_called()
-        frame.OnTaskAction(item, 'start')
-        self.assertEqual(self.repository.get(task.id).status, TaskStatus.QUEUED)
+        self.assertEqual(frame.model.fileTree.items[0].task_status, TaskStatus.DOWNLOADING)
 
     def test_callback_uses_id_after_reorder_filter_and_deletion(self):
         first, second = self.create('first'), self.create('second')
@@ -275,13 +314,13 @@ class TaskRuntimeTests(unittest.TestCase):
         frame.model.fileTree.items.reverse()
         frame._SearchItems('second')
         path = self.write_segment(first, 0)
-        frame._DownloadCall(True, str(path), (first.id, 0))
+        self.deliver(frame, True, str(path), (first.id, 0))
         self.assertEqual(self.repository.get(first.id).progress.completed_segments, 1)
         self.assertEqual(self.repository.get(second.id).progress.completed_segments, 0)
         self.assertEqual(frame.model.fileTree.items[1].download, 1)
         self.repository.delete(first.id)
         frame.OnRefresh(None)
-        frame._DownloadCall(True, str(path), (first.id, 0))
+        self.deliver(frame, True, str(path), (first.id, 0))
         self.assertIsNone(self.repository.get(first.id))
         self.assertEqual(frame.model.fileTree.items[0].task_id, second.id)
         self.assertEqual(frame.model.fileTree.items[0].download, 0)
@@ -291,7 +330,7 @@ class TaskRuntimeTests(unittest.TestCase):
         frame = self.frame()
         path = str(task.save_dir / task.details.segments[1].relative_path)
         M3U8Downloader._errors[M3U8Downloader.FileKey(path)] = 'HTTP 500'
-        frame._DownloadCall(False, path, (task.id, 1))
+        self.deliver(frame, False, path, (task.id, 1))
         self.assertEqual(self.repository.get(task.id).last_error, 'HTTP 500')
         M3U8Downloader._errors.clear()
         frame.OnRefresh(None)
@@ -329,10 +368,12 @@ class TaskRuntimeTests(unittest.TestCase):
         key = M3U8Downloader.FileKey(task.save_dir / task.details.segments[0].relative_path)
         M3U8Downloader._pending.add(key)
         M3U8Downloader.Pause()
-        frame._SyncTaskRuntime()
+        M3U8Downloader._jobs[task.id] = [self.service, {key}, task.status]
+        self.sync(frame)
         with patch.object(M3U8Downloader, 'DownloadTSFile') as enqueue:
             frame.OnResumeAllDownloads(None)
         enqueue.assert_not_called()  # 本来只下载第一片，继续不能擅自把第二片加入队列。
+        self.sync(frame)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.QUEUED)
 
     def test_normal_close_persists_interruption_including_merge(self):
@@ -358,8 +399,8 @@ class TaskRuntimeTests(unittest.TestCase):
                     frame.OnTaskAction(item, 'start')
                 path = self.write_segment(task, 0)
                 M3U8Downloader._pending.clear()
-                frame._DownloadCall(True, str(path), (task.id, 0))
-                frame._DownloadCall(True, str(path), (task.id, 0))
+                self.deliver(frame, True, str(path), (task.id, 0))
+                self.deliver(frame, True, str(path), (task.id, 0))
                 self.app.ProcessPendingEvents()
                 self.assertEqual(merge.call_count, cycle + 1)
                 path.unlink()
@@ -371,11 +412,11 @@ class TaskRuntimeTests(unittest.TestCase):
         paths = [self.write_segment(task, index) for index in range(2)]
         M3U8Downloader._pending.add(M3U8Downloader.FileKey(paths[1]))
         with patch.object(frame.model, '_SendEvent') as event:
-            frame._DownloadCall(True, str(paths[0]), (task.id, 0))
+            self.deliver(frame, True, str(paths[0]), (task.id, 0))
             event.assert_not_called()
             M3U8Downloader._pending.clear()
-            frame._DownloadCall(True, str(paths[1]), (task.id, 1))
-            frame._DownloadCall(True, str(paths[1]), (task.id, 1))
+            self.deliver(frame, True, str(paths[1]), (task.id, 1))
+            self.deliver(frame, True, str(paths[1]), (task.id, 1))
             event.assert_called_once()
             self.assertEqual(event.call_args.args[0]['task_id'], task.id)
 
@@ -385,7 +426,7 @@ class TaskRuntimeTests(unittest.TestCase):
         frame = self.frame()
         path = self.write_segment(task, 0)
         with patch.object(frame, '_QueueDurationCheck') as queue, patch.object(frame.model, '_SendEvent') as event:
-            frame._DownloadCall(True, str(path), (task.id, 0))
+            self.deliver(frame, True, str(path), (task.id, 0))
             queue.assert_called_once()
             event.assert_not_called()
             self.assertEqual(frame.model.TaskInfo(0)['status'], '检测时长')
@@ -447,7 +488,8 @@ class TaskRuntimeTests(unittest.TestCase):
         frame.model.ApplyTaskRecord(self.service.begin_merge(task.id))
         M3U8Downloader._pending.add(M3U8Downloader.FileKey(paths[1]))
         with patch.object(frame.model, '_SendEvent'):
-            frame._DownloadCall(True, str(paths[0]), (task.id, 0))
+            self.deliver(frame, True, str(paths[0]), (task.id, 0))
+        self.sync(frame)
         frame.OnTaskProgress(None)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.MERGING)
 
@@ -500,7 +542,7 @@ class TaskRuntimeTests(unittest.TestCase):
         M3U8Downloader._pending.add(key)
         with patch.object(M3U8Downloader, 'DownloadContent', return_value=(False, 'HTTP 403')):
             success, _ = M3U8Downloader._DownLoadFile('https://example.com/a.ts', filename)
-        M3U8Downloader._Deliver(('url', filename, frame._DownloadCall, (task.id, 0), key), success)
+        self.deliver(frame, success, filename, (task.id, 0))
         self.assertNotIn(key, M3U8Downloader.Snapshot()['pending'])
         self.assertEqual(self.repository.get(task.id).details.segments[0].last_error, 'HTTP 403')
 

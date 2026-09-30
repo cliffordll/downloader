@@ -105,11 +105,11 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
-    def test_callback_without_stable_identity_does_not_change_rows(self):
+    def test_unknown_task_notification_does_not_change_rows(self):
         self.tree.items.insert(0, TreeItem(parent=FileItem(fileName='other/download.m3u8'),
                                         childs=[FileItem(fileName='other/a.ts')]))
         receiver = SimpleNamespace(model=self.model)
-        MainFrame._DownloadCall(receiver, True, PathManager.GetAbsPath('task/b.ts'), None)
+        MainFrame._M3U8Changed(receiver, 'unknown-task-id')
         self.assertEqual(self.tree.items[0].download, 0)
         self.assertEqual(self.tree.items[1].download, 1)
 

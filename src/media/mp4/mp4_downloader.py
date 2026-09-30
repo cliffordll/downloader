@@ -104,14 +104,15 @@ class MP4Downloader:
                 except requests.RequestException as error:
                     # 非临时错误不重复请求；每次重试从已落盘文件长度恢复。
                     response = error.response
+                    delay = min(2 ** attempt, 60)
+                    if response is not None and response.status_code == 429:
+                        # 即使当前任务已耗尽重试，其他下载也必须遵守这次全局冷却。
+                        delay = Downloader.RetryAfter(response.headers.get('Retry-After'), delay)
+                        Downloader.DeferRequests(delay)
                     if (isinstance(error, (requests.exceptions.SSLError, requests.exceptions.TooManyRedirects))
                             or (response is not None and response.status_code < 500 and response.status_code != 429)
                             or attempt == retries):
                         raise
-                    delay = min(2 ** attempt, 60)
-                    if response is not None and response.status_code == 429:
-                        delay = Downloader.RetryAfter(response.headers.get('Retry-After'), delay)
-                        Downloader.DeferRequests(delay)
                     pause.wait(delay)
         except _Paused:
             self._finish_state(task_id, TaskStatus.INTERRUPTED if self._closed.is_set() else TaskStatus.PAUSED)

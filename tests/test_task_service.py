@@ -1,6 +1,8 @@
 from src.models.tree_model import load_tree
 from pathlib import Path
 import sqlite3
+import threading
+from queue import SimpleQueue
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
@@ -35,7 +37,11 @@ class TaskServiceTests(unittest.TestCase):
         self.service = TaskService(self.repository)
         self.directory = self.root / 'download' / 'video'
         config = dict(SysSetting.Defaults(), download_dir=str(self.root / 'download'))
-        for patcher in (patch.object(SysSetting, '_values', config),
+        for patcher in (patch.object(M3U8Downloader, '_shutdown', threading.Event()),
+                        patch.object(M3U8Downloader, '_jobs', {}),
+                        patch.object(M3U8Downloader, '_changes', SimpleQueue()),
+                        patch.object(M3U8Downloader, 'errors', SimpleQueue()),
+                        patch.object(SysSetting, '_values', config),
                         patch('src.models.tree_model.TaskService', return_value=self.service)):
             patcher.start()
             self.addCleanup(patcher.stop)

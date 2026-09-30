@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import threading
 import time
 import unittest
+import requests
 from unittest.mock import patch
 
 from src.core.sys_setting import SysSetting
@@ -98,6 +99,25 @@ class MP4DownloadTests(unittest.TestCase):
         self.rate.stop()
         self.config.stop()
         self.temp.cleanup()
+
+    def test_last_429_registers_global_cooldown_even_without_more_retries(self):
+        for retries in (0, 1):
+            with self.subTest(retries=retries):
+                task = self.create(f'limited-{retries}')
+                SysSetting._values['max_retries'] = retries
+                errors = []
+                for status in ([503] if retries else []) + [429]:
+                    response = requests.Response()
+                    response.status_code = status
+                    response.headers['Retry-After'] = '30'
+                    errors.append(requests.HTTPError(f'HTTP {status}', response=response))
+                with patch.object(self.engine, '_transfer', side_effect=errors) as transfer:
+                    before = time.monotonic()
+                    self.engine.start(task.id)
+                    self.wait(lambda: not self.engine.busy(task.id))
+                self.assertEqual(transfer.call_count, retries + 1)
+                self.assertGreaterEqual(Downloader._paused_until, before + 30)
+                self.assertEqual(self.repository.get(task.id).status, TaskStatus.FAILED)
 
     def create(self, name='video'):
         return self.service.create_mp4(self.root / name,
