@@ -23,6 +23,9 @@ ICON_FILES = {
     "expand": "tools/expand.png",
     "collapse": "tools/collapse.png",
     "refresh": "tools/refresh.png",
+    "pause": "tools/pause.png",
+    "start": "tools/start.png",
+    "settings": "tools/settings.png",
     "help": "tools/help.png",
     "about": "tools/about.png",
 }
@@ -218,9 +221,8 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
             # 主窗口还会重新检查 enabled，再分发下载、重试、删除或更多菜单。
             self.frame.OnTaskAction(item, action['id'])
         else:
-            # 分片只有一个“下载”操作，复用主窗口已有的行激活处理逻辑。
-            event = dv.DataViewEvent(dv.wxEVT_DATAVIEW_ITEM_ACTIVATED, self.frame.mcTree, item)
-            self.frame.OnActivatedChanged(event)
+            # 分片下载只从操作文字触发，双击普通单元格不再启动网络请求。
+            self.frame.OnSegmentDownload(item)
         return True
 
 
@@ -243,6 +245,7 @@ class MainFrame(wx.Frame):
         self._createStatusBar()
 
         self._searchText = ''
+        self._filterText = ''
         self._searchTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnSearchTimer, self._searchTimer)
         self._createMainPanel()
@@ -253,7 +256,8 @@ class MainFrame(wx.Frame):
         self.Layout()
         self.mcTree.GetParent().Layout()
         self._FitTaskColumns()
-        self.OnTaskProgress(None)
+        self.OnTaskProgress(None, notify=False)
+        self._UpdatePauseTool()
         # 初始化完成后再监听尺寸变化；后续缩放仍合并为一次延迟调整。
         self.mcTree.Bind(wx.EVT_SIZE, self.OnTaskListSize)
         self._progressTimer = wx.Timer(self)
@@ -269,19 +273,10 @@ class MainFrame(wx.Frame):
         self.menuBar = wx.MenuBar()
         # 创建文件菜单
         fileMenu = wx.Menu()
-        openItem    = fileMenu.Append(wx.ID_OPEN, "&打开\tCtrl-O")
+        openItem    = fileMenu.Append(wx.ID_OPEN, "打开下载文件夹\tCtrl-O")
         fileMenu.AppendSeparator()
         addMUItem   = fileMenu.Append(wx.ID_ANY, "&下载M3U8\tCtrl-M")
         addTSItem   = fileMenu.Append(wx.ID_ANY, "&下载TS\tCtrl-T")
-        pauseItem = fileMenu.Append(wx.ID_ANY, "全部暂停")
-        self.Bind(wx.EVT_MENU, self.OnPauseDownloads, pauseItem)
-        self.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads, pauseItem)
-        fileMenu.AppendSeparator()
-        # importM3U8  = fileMenu.Append(wx.ID_ANY, "&导入M3U8\tCtrl-D")
-        # fileMenu.AppendSeparator()
-        expandItem  = fileMenu.Append(wx.ID_ANY, "展开全部")
-        collapseItem = fileMenu.Append(wx.ID_ANY, "折叠全部")
-        refeshItem  = fileMenu.Append(wx.ID_REFRESH, "刷新")
         fileMenu.AppendSeparator()
         settingItem  = fileMenu.Append(wx.ID_ANY, "设置\tCtrl-,")
         exitItem    = fileMenu.Append(wx.ID_EXIT, "&退出")
@@ -289,14 +284,36 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnOpen, openItem)
         self.Bind(wx.EVT_MENU, self.OnAddMU, addMUItem)
         self.Bind(wx.EVT_MENU, self.OnAddTS, addTSItem)
-        self.Bind(wx.EVT_MENU, self.OnExpandAll, expandItem)
-        self.Bind(wx.EVT_MENU, self.OnCollapseAll, collapseItem)
-        self.Bind(wx.EVT_MENU, self.OnRefresh, refeshItem)
         self.Bind(wx.EVT_MENU, self.OnSetting, settingItem)
         self.Bind(wx.EVT_MENU, self.OnExit, exitItem)
 		
-        # 创建编辑菜单
+        # 任务菜单负责下载控制，查看菜单负责列表及界面展示。
+        taskMenu = wx.Menu()
+        self.pauseAllItem = taskMenu.Append(wx.ID_ANY, '全部暂停\tCtrl-Shift-P')
+        self.resumeAllItem = taskMenu.Append(wx.ID_ANY, '全部继续\tCtrl-Shift-R')
+        can_pause, can_resume = self._GlobalDownloadActions()
+        self.pauseAllItem.Enable(can_pause)
+        self.resumeAllItem.Enable(can_resume)
+        self.Bind(wx.EVT_MENU, self.OnPauseAllDownloads, self.pauseAllItem)
+        self.Bind(wx.EVT_MENU, self.OnResumeAllDownloads, self.resumeAllItem)
+        self.Bind(wx.EVT_UPDATE_UI, self.OnUpdateGlobalDownloadAction, self.pauseAllItem)
+        self.Bind(wx.EVT_UPDATE_UI, self.OnUpdateGlobalDownloadAction, self.resumeAllItem)
+
         viewMenu = wx.Menu()
+        expandItem = viewMenu.Append(wx.ID_ANY, "全部展开\tCtrl-Shift-E")
+        collapseItem = viewMenu.Append(wx.ID_ANY, "全部折叠\tCtrl-Shift-C")
+        refreshItem = viewMenu.Append(wx.ID_REFRESH, "刷新\tF5")
+        findItem = viewMenu.Append(wx.ID_FIND, "查找\tCtrl-F", '定位到文件名或路径筛选框')
+        self.Bind(wx.EVT_MENU, self.OnExpandAll, expandItem)
+        self.Bind(wx.EVT_MENU, self.OnCollapseAll, collapseItem)
+        self.Bind(wx.EVT_MENU, self.OnRefresh, refreshItem)
+        self.Bind(wx.EVT_MENU, self.OnFind, findItem)
+        viewMenu.AppendSeparator()
+        self.defaultExpandItem = viewMenu.Append(wx.ID_ANY, '默认展开任务',
+                                                '新加载任务时应用；不改变当前任务的展开状态', kind=wx.ITEM_CHECK)
+        self.defaultExpandItem.Check(SysSetting.GetAll()['default_expand_tasks'])
+        self.Bind(wx.EVT_MENU, self.OnDefaultExpandTasks, self.defaultExpandItem)
+        viewMenu.AppendSeparator()
         self.showToolItem   = viewMenu.Append(wx.ID_ANY, "显示工具栏", kind=wx.ITEM_CHECK)
         self.showStatusItem = viewMenu.Append(wx.ID_ANY, "显示状态栏", kind=wx.ITEM_CHECK)
         self.Bind(wx.EVT_MENU, self.OnToggleToolBar, self.showToolItem)
@@ -304,13 +321,14 @@ class MainFrame(wx.Frame):
 
         # 创建关于菜单
         aboutMenu = wx.Menu()
-        helpItem    = aboutMenu.Append(wx.ID_ANY, "帮助")
+        helpItem    = aboutMenu.Append(wx.ID_ANY, "使用说明\tF1")
         aboutItem   = aboutMenu.Append(wx.ID_ANY, "关于")
         self.Bind(wx.EVT_MENU, self.OnHelp, helpItem)
         self.Bind(wx.EVT_MENU, self.OnAbout, aboutItem)
 
         # 将文件菜单添加到菜单栏
         self.menuBar.Append(fileMenu, "&文件")
+        self.menuBar.Append(taskMenu, "&任务")
         self.menuBar.Append(viewMenu, "&查看")
         self.menuBar.Append(aboutMenu, "&帮助")
         # 设置菜单栏
@@ -327,24 +345,34 @@ class MainFrame(wx.Frame):
             bundle = toolbar_icon(icon)
             return self.toolBar.AddTool(tool_id, label, bundle, shortHelp=label)
 
-        openButton = add_tool(wx.ID_OPEN, "打开", "open")
+        openButton = add_tool(wx.ID_OPEN, "打开下载文件夹", "open")
         muButton = add_tool(wx.ID_ANY, "下载M3U8", "playlist")
         tsButton = add_tool(wx.ID_ANY, "下载TS", "segment")
         self.toolBar.AddSeparator()
-        expandButton = add_tool(wx.ID_ANY, "展开全部", "expand")
-        collapseButton = add_tool(wx.ID_ANY, "折叠全部", "collapse")
-        refreshButton = add_tool(wx.ID_ANY, "刷新", "refresh")
+        expandButton = add_tool(wx.ID_ANY, "全部展开", "expand")
+        collapseButton = add_tool(wx.ID_ANY, "全部折叠", "collapse")
+        self.toolBar.SetToolShortHelp(expandButton.GetId(), '展开当前列表中的全部任务')
+        self.toolBar.SetToolShortHelp(collapseButton.GetId(), '折叠当前列表中的全部任务')
+        self._pauseTool = add_tool(wx.ID_ANY, "全部暂停", "pause")
+        self._pauseIcons = {False: toolbar_icon('pause'), True: toolbar_icon('start')}
+        self._pauseToolState = None
+        refreshButton = add_tool(wx.ID_REFRESH, "刷新", "refresh")
+        self.toolBar.AddSeparator()
+        settingButton = add_tool(wx.ID_ANY, "设置", "settings")
         self.toolBar.AddSeparator()
         helpButton = add_tool(wx.ID_ANY, "帮助", "help")
         aboutButton = add_tool(wx.ID_ANY, "关于", "about")
 
         # self.toolBar.Bind(wx.EVT_TOOL, self.OnNew, newButton)
-        # self.toolBar.Bind(wx.EVT_TOOL, self.OnOpen, openButton)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnOpen, openButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddMU, muButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddTS, tsButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnExpandAll, expandButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnCollapseAll, collapseButton)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnPauseDownloads, self._pauseTool)
+        self.toolBar.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads, self._pauseTool)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnRefresh, refreshButton)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnSetting, settingButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnHelp, helpButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAbout, aboutButton)
         # 启用工具栏
@@ -356,7 +384,7 @@ class MainFrame(wx.Frame):
         self.statusBar.SetFieldsCount(2)
         self.statusBar.SetStatusWidths([-1, -3])
         self.statusBar.SetStatusText('就绪', 0)
-        self.statusBar.SetStatusText('双击任务或分片行执行“操作”列中的操作', 1)
+        self.statusBar.SetStatusText('双击任务展开/折叠；下载请使用“操作”列', 1)
         self.showStatusItem.Check(self.statusBar.IsShown())
 
     def _createMainPanel(self):
@@ -364,29 +392,38 @@ class MainFrame(wx.Frame):
         panel = wx.Panel(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
-        # 首航布局
+        # 筛选区域只放条件和结果数量，全局操作集中在菜单、工具栏。
         uriSizer = wx.BoxSizer(wx.HORIZONTAL)
-        bxSearch = wx.SearchCtrl(panel)
-        btnExpand = wx.Button(panel, label="全部展开")
-        btnCollapse = wx.Button(panel, label="全部折叠")
-        btnPause = wx.Button(panel, label="全部暂停")
-        btnRefresh = wx.Button(panel, label="刷新")
-        btnPause.SetToolTip('暂停全部分片下载；已发出的请求允许完成，排队任务保留。')
-        uriSizer.Add(bxSearch, proportion=50, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
-        uriSizer.Add(btnExpand, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
-        uriSizer.Add(btnCollapse, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
-        uriSizer.Add(btnPause, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
-        uriSizer.Add(btnRefresh, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
-        
-        bxSearch.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnSearch)
-        bxSearch.Bind(wx.EVT_TEXT, self.OnSearchText)
-        btnExpand.Bind(wx.EVT_BUTTON, self.OnExpandAll)
-        btnCollapse.Bind(wx.EVT_BUTTON, self.OnCollapseAll)
-        btnRefresh.Bind(wx.EVT_BUTTON, self.OnRefresh)
-        btnPause.Bind(wx.EVT_BUTTON, self.OnPauseDownloads)
-        btnPause.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads)
-        # 首次显示前同步文字和可用状态，避免等待空闲更新时按钮短暂可点击。
-        btnPause.UpdateWindowUI()
+        self.searchCtrl = wx.SearchCtrl(panel, style=wx.TE_PROCESS_ENTER)
+        self.searchCtrl.SetDescriptiveText('筛选文件名或路径')
+        self.searchCtrl.ShowCancelButton(True)
+        self.statusFilter = wx.Choice(panel, choices=[
+            '全部状态', '未开始', '等待下载', '下载中', '暂停中', '已暂停',
+            '待继续', '下载失败', '待合并', '合并中', '合并失败', '已完成'])
+        self.statusFilter.SetSelection(0)
+        self.filterCount = wx.StaticText(panel, label='')
+        self.filterCount.SetMinSize(self.FromDIP(wx.Size(140, -1)))
+        uriSizer.Add(self.searchCtrl, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
+        uriSizer.Add(self.statusFilter, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=10)
+        uriSizer.Add(self.filterCount, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=5)
+        self.searchCtrl.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnSearch)
+        self.searchCtrl.Bind(wx.EVT_TEXT_ENTER, self.OnSearch)
+        self.searchCtrl.Bind(wx.EVT_TEXT, self.OnSearchText)
+        self.searchCtrl.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN, self.OnClearSearch)
+        self.searchCtrl.Bind(wx.EVT_CHAR_HOOK, self.OnSearchKey)
+        self.statusFilter.Bind(wx.EVT_CHOICE, self.OnStatusFilter)
+
+        self.emptyPanel = wx.Panel(panel)
+        emptySizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.emptyText = wx.StaticText(self.emptyPanel, label='没有符合条件的任务')
+        self.clearFiltersButton = wx.Button(self.emptyPanel, label='清除全部筛选')
+        self.clearFiltersButton.Bind(wx.EVT_BUTTON, self.OnClearAllFilters)
+        emptySizer.AddStretchSpacer()
+        emptySizer.Add(self.emptyText, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=12)
+        emptySizer.Add(self.clearFiltersButton, flag=wx.ALIGN_CENTER_VERTICAL)
+        emptySizer.AddStretchSpacer()
+        self.emptyPanel.SetSizer(emptySizer)
+        self.emptyPanel.Hide()
 
         # 多列树布局
         # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_READONLY|wx.TE_RICH2)
@@ -399,6 +436,8 @@ class MainFrame(wx.Frame):
         # 在列表内部窗口的原生绘制结束后统一替换选中边框。
         self.mcTree.GetMainWindow().Bind(wx.EVT_PAINT, self.OnTaskListPaint)
         self.mcTree.AssociateModel(self.model)
+        self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
+        self._UpdateFilterCount()
         # 添加多列
         self.mcTree.AppendTextColumn("序列", 0, width=60)
         # # 自定义列
@@ -422,18 +461,21 @@ class MainFrame(wx.Frame):
         # self.model.DecRef()  # 避免内存泄漏
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_EXPANDED, self.OnTaskExpansionChanged)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_COLLAPSED, self.OnTaskExpansionChanged)
-        # 新加载的任务默认折叠，按需通过行首箭头或行内操作展开。
+        # 默认折叠；用户开启查看菜单中的偏好后，首次加载才主动展开。
         # self.OnExpandAll(None)
+        if SysSetting.GetAll()['default_expand_tasks']:
+            self.OnExpandAll(None)
         listSizer.Add(self.mcTree, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
         # listSizer.Add(self.mulist, proportion=10, flag=wx.EXPAND|wx.ALL, border=5)
         # self.list.SetBackgroundColour(wx.RED)
 
-        # 双击下载
+        # 双击任务只切换展开状态，下载由操作列触发。
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_ACTIVATED, self.OnActivatedChanged)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_CONTEXT_MENU, self.OnTaskContextMenu)
         self.Bind(EVT_ALL_DOWNLOAD, self.OnAllTSDownload)
 
         sizer.Add(uriSizer, flag=wx.EXPAND, border=0)
+        sizer.Add(self.emptyPanel, flag=wx.EXPAND | wx.TOP | wx.BOTTOM, border=12)
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND|wx.ALL, border=0)
         # 设置面板的sizer
         panel.SetSizer(sizer)
@@ -535,21 +577,30 @@ class MainFrame(wx.Frame):
             self._searchTimer.Stop()
         event.Skip()
 
-    def OnTaskProgress(self, event):
+    def OnTaskProgress(self, event, notify=True):
+        """启动只建立缓存；后续只刷新变化的单元格，不反复使整行和全部表头失效。"""
         display = {}
         for index, task in enumerate(self.model.fileTree.items):
             info = self.model.TaskInfo(index)
             state = (info['progress'], info['status'], json.dumps(self.model.TaskActions(index), ensure_ascii=False))
             display[task.parent.fileName] = state
-            if self._task_display.get(task.parent.fileName) != state:
-                self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
+            previous = self._task_display.get(task.parent.fileName)
+            if notify and previous != state:
+                item = self.model.ObjectToItem(self.model._BuildKey((index,)))
+                for field, column in enumerate((5, 6, 4)):
+                    if previous is None or previous[field] != state[field]:
+                        self.model.ValueChanged(item, column)
+        status_changed = any(self._task_display.get(key, ('', ''))[1] != state[1]
+                             for key, state in display.items())
         self._task_display = display
+        if status_changed and self.statusFilter.GetSelection() > 0:
+            self._ApplyTaskFilter()
 
     def OnTaskAction(self, item, action_id='start'):
         """自定义操作分发入口，不是 wx 自动调用的重写方法。
 
         行内渲染器识别点击区域后传入 item 和操作 id；“转 MP4”菜单传入 merge。
-        item 指明具体任务行，不依赖当前选中行；默认 start 也供任务行双击使用。
+        item 指明具体任务行，不依赖当前选中行；默认 start 表示开始/暂停/继续。
         start 表示开始/暂停/继续，retry 重试失败，delete 删除，toggle 展开/折叠，more 打开菜单。
         """
         if not item.IsOk():
@@ -684,33 +735,68 @@ class MainFrame(wx.Frame):
     ###################################
     ### 事件所需函数
     ###################################
-    def _FindItem(self, search_text):
-        """按显示顺序搜索文件名/路径，命中后才创建对应的视图节点。
-
-        直接扫描数据，避免每取下一项都重建整个子节点列表，也不读取进度、
-        状态和操作列。MP4 排在分片前面，分片的节点索引需加上 MP4 数量。
-        """
-        for index, task in enumerate(self.model.fileTree.items):
-            if task.parent and search_text in task.parent.fileName.casefold():
-                return self.model.ObjectToItem(self.model._BuildKey((index,)))
-            for files, offset in ((task.outputs, 0), (task.childs, len(task.outputs))):
-                for child_index, file in enumerate(files):
-                    if search_text in file.fileName.casefold():
-                        return self.model.ObjectToItem(self.model._BuildKey((index, offset + child_index)))
-        return dv.NullDataViewItem
-    
     def _SearchItems(self, text):
-        """搜索匹配项"""
-        text = text.strip().casefold()
-        if not text:
-            return
-        found_item = self._FindItem(text)
-        if found_item.IsOk():
-            parent = self.model.GetParent(found_item)
-            if parent.IsOk():
-                self.mcTree.Expand(parent)
-            self.mcTree.Select(found_item)
-            self.mcTree.EnsureVisible(found_item)
+        """应用关键词筛选；命中任务、MP4 或分片路径均保留整个任务。"""
+        self._filterText = text.strip().casefold()
+        self._ApplyTaskFilter()
+
+    def _UpdateFilterCount(self):
+        total = len(self.model.fileTree.items)
+        visible = total if self.model.visible_tasks is None else len(self.model.visible_tasks)
+        label = f'显示 {visible} / {total} 个任务'
+        if self.filterCount.GetLabel() != label:
+            self.filterCount.SetLabel(label)
+        empty = visible == 0
+        filtered = bool(self._filterText) or self.statusFilter.GetSelection() > 0
+        self.emptyText.SetLabel('没有符合条件的任务' if filtered else '暂无任务，请从文件菜单或工具栏添加')
+        self.clearFiltersButton.Show(filtered)
+        if self.emptyPanel.IsShown() != empty:
+            self.emptyPanel.Show(empty)
+            self.emptyPanel.GetParent().Layout()
+        if empty:
+            self.emptyPanel.Layout()
+
+    def _ApplyTaskFilter(self, force=False):
+        """只筛选根任务，保持原始任务索引，避免筛选后暂停、删除或下载回调操作错行。"""
+        text = self._filterText
+        status = self.statusFilter.GetStringSelection()
+        visible = None
+        if text or status != '全部状态':
+            visible = set()
+            for index, task in enumerate(self.model.fileTree.items):
+                if text and not (
+                    (task.parent and text in task.parent.fileName.casefold())
+                    or any(text in file.fileName.casefold() for file in task.outputs)
+                    or any(text in file.fileName.casefold() for file in task.childs)
+                ):
+                    continue
+                if status != '全部状态' and self.model.TaskInfo(index)['status'].split(' · ', 1)[0] != status:
+                    continue
+                visible.add(index)
+        if force or visible != self.model.visible_tasks:
+            expanded = set()
+            root = dv.NullDataViewItem
+            self._SaveExpandState(root, expanded)
+            # 刷新时只给新任务应用默认值，已存在任务保留用户手动展开/折叠的状态。
+            if SysSetting.GetAll()['default_expand_tasks']:
+                for index, task in enumerate(self.model.fileTree.items):
+                    if task.parent and task.parent.fileName not in self._knownTaskPaths:
+                        expanded.add(self.model._BuildKey((index,)))
+            selected = self.mcTree.GetSelection()
+            selected_key = self.model.ItemToObject(selected) if selected.IsOk() else None
+            self.mcTree.Freeze()
+            try:
+                self.model.visible_tasks = visible
+                self.model.Cleared()
+                self._RestoreExpandState(root, expanded)
+                if selected_key is not None and not force:
+                    index = self.model.ParseKey(selected_key)[0]
+                    if visible is None or index in visible:
+                        self.mcTree.Select(self.model.ObjectToItem(selected_key))
+            finally:
+                self.mcTree.Thaw()
+        self._UpdateFilterCount()
+        self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
 
     def _RecursiveExpand(self, item, expand):
         """递归展开/折叠"""
@@ -723,17 +809,8 @@ class MainFrame(wx.Frame):
             child, cookie = self.model.GetNextChild(item, cookie)
 
     def _RefreshWithState(self):
-        """保存当前所有展开状态, 并刷新视图"""
-        expandeds = set()
-        root = dv.NullDataViewItem  # 关键点：使用虚拟根节点
-        # 保存所有展开状态
-        self._SaveExpandState(root, expandeds)
-
-        # 刷新视图（默认折叠）
-        self.model.Cleared()
-
-        # 恢复所有展开状态
-        self._RestoreExpandState(root, expandeds)
+        """重新加载视图时仍应用当前条件，并保留可见任务的展开状态。"""
+        self._ApplyTaskFilter(force=True)
 
     def _SaveExpandState(self, parent, expandeds):
         """递归保存展开状态"""
@@ -758,7 +835,7 @@ class MainFrame(wx.Frame):
                 # else:
                 #     self.mcTree.Collapse(child)
             else:
-                self._RestoreExpandState(child)
+                self._RestoreExpandState(child, expandeds)
             child, cookie = self.model.GetNextChild(parent, cookie)
 
 
@@ -766,7 +843,8 @@ class MainFrame(wx.Frame):
     ### 操作菜单的事件
     ################################### 
     def OnOpen(self, event):
-        print("Open action")
+        """打开设置中的下载目录，菜单、快捷键和工具栏共用此入口。"""
+        self._OpenLocalPath(SysSetting.GetWorkPath())
     
     def OnAddMU(self, event):
         workPath = SysSetting.GetWorkPath()
@@ -793,8 +871,11 @@ class MainFrame(wx.Frame):
         try:
             if dlg.ShowModal() == wx.ID_OK and previous != SysSetting.GetWorkPath():
                 self.model.fileTree = FileManager.GetFileInfos()
+                self.model.visible_tasks = None
+                self._knownTaskPaths = set()
                 self.model.Cleared()
-                # 切换工作目录后，新任务同样保持默认折叠。
+                self._ApplyTaskFilter(force=True)
+                # 切换工作目录也按默认展开偏好加载，不无条件展开全部。
                 # self.OnExpandAll(None)
         finally:
             dlg.Destroy()
@@ -803,20 +884,74 @@ class MainFrame(wx.Frame):
         self.Close()
 
     def OnPauseDownloads(self, event):
-        if Downloader.IsPaused():
-            Downloader.Resume()
-        else:
+        # 工具栏维持单按钮；所有待处理任务都已单独暂停时，也应显示并执行继续。
+        can_pause, can_resume = self._GlobalDownloadActions()
+        if can_pause:
+            self.OnPauseAllDownloads(event)
+        elif can_resume:
+            self.OnResumeAllDownloads(event)
+
+    @staticmethod
+    def _GlobalDownloadActions():
+        """固定菜单项各自判定可用状态；混合运行/暂停时两项均可用。"""
+        snapshot = Downloader.Snapshot()
+        can_pause = not snapshot['paused'] and bool(snapshot['pending'] - snapshot['paused_files'])
+        can_resume = snapshot['paused'] or bool(snapshot['pending'] & snapshot['paused_files'])
+        return can_pause, can_resume
+
+    def OnPauseAllDownloads(self, event):
+        if self._GlobalDownloadActions()[0]:
             Downloader.Pause()
         self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+
+    def OnResumeAllDownloads(self, event):
+        if self._GlobalDownloadActions()[1]:
+            Downloader.Resume()  # 同时清除全局暂停和单个任务的暂停标记。
+        self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+
+    def OnUpdateGlobalDownloadAction(self, event):
+        can_pause, can_resume = self._GlobalDownloadActions()
+        if event.GetId() == self.pauseAllItem.GetId():
+            event.Enable(can_pause)
+        else:
+            event.Enable(can_resume)
 
     def OnUpdatePauseDownloads(self, event):
         paused = Downloader.IsPaused()
         busy = Downloader.IsBusy()
-        event.SetText('全部继续' if paused else '全部暂停')
-        event.Enable(paused or busy)
+        can_pause, can_resume = self._GlobalDownloadActions()
+        event.Enable(can_pause or can_resume)
+        self._UpdatePauseTool()
         snapshot = Downloader.Snapshot()
         self.statusBar.SetStatusText(('暂停中' if snapshot['requesting'] else '已暂停') if paused
                                      else ('正在下载' if busy else '就绪'), 0)
+
+    def _UpdatePauseTool(self):
+        """菜单和工具栏共用下载状态；状态未变时不重复设置位图，避免工具栏闪动。"""
+        can_pause, can_resume = self._GlobalDownloadActions()
+        paused = not can_pause and can_resume
+        enabled = can_pause or can_resume
+        if self._pauseToolState == (paused, enabled):
+            return
+        label = '全部继续' if paused else '全部暂停'
+        tool_id = self._pauseTool.GetId()
+        self.toolBar.EnableTool(tool_id, enabled)
+        if self._pauseToolState is None or self._pauseToolState[0] != paused:
+            self.toolBar.SetToolNormalBitmap(tool_id, self._pauseIcons[paused])
+            self._pauseTool.SetLabel(label)
+            self.toolBar.SetToolShortHelp(tool_id, label + '（包括筛选隐藏的任务）')
+        self._pauseToolState = (paused, enabled)
+
+    def OnDefaultExpandTasks(self, event):
+        """只保存加载偏好，不把当前列表的临时展开操作变成默认设置。"""
+        values = SysSetting.GetAll()
+        previous = values['default_expand_tasks']
+        values['default_expand_tasks'] = event.IsChecked()
+        try:
+            SysSetting.Save(values)
+        except (ValueError, OSError) as error:
+            self.defaultExpandItem.Check(previous)
+            wx.MessageBox(str(error), '设置未保存', wx.OK | wx.ICON_WARNING, self)
 
     def OnToggleToolBar(self, event):
         '''隐藏展示工具栏'''
@@ -841,11 +976,13 @@ class MainFrame(wx.Frame):
         self._ShowInformation('使用帮助', (
             '1. 添加任务\n'
             '通过“文件 → 下载M3U8”输入播放列表网址，或通过“下载TS”按分片命名规则创建任务。\n\n'
+            '筛选区域可按文件名、路径和任务状态筛选；关键词也匹配任务下的 MP4 和分片。'
+            '清空关键词并选择“全部状态”恢复全部任务。隐藏任务仍继续下载。\n\n'
             '2. 下载与合并\n'
             '任务行固定显示“开始/暂停/继续、重试、删除、展开/折叠、更多”，不可用的操作会置灰。'
             '“更多”或右键菜单提供转 MP4、播放视频和打开文件夹。删除会确认是否删除任务及本地文件。'
             '行内“暂停/继续”只控制当前任务，已发出的请求允许完成。进度按已完成分片数计算。\n'
-            '双击列表中的任务行下载全部分片，也可双击未下载的分片行单独下载。'
+            '双击任务行展开或折叠分片列表；下载请点击操作列中的开始、继续或下载。'
             '全部下载完成后，任务的操作变为“转MP4”，双击即可合并。\n\n'
             '点击“全部暂停”可暂停全部分片任务；已发出的请求允许完成，此时显示“暂停中”。'
             '这些请求结束后显示“已暂停”。点击“全部继续”后接着下载排队分片，暂停不影响 MP4 合并。\n\n'
@@ -867,17 +1004,46 @@ class MainFrame(wx.Frame):
     ###################################
     ### 操作树得事件
     ###################################
+    def OnFind(self, event):
+        """菜单和 Ctrl+F 共用：聚焦现有筛选框，选中文字以便直接输入新条件。"""
+        self.searchCtrl.SetFocus()
+        self.searchCtrl.SelectAll()
+
     def OnSearch(self, event):
-        """点击搜索按钮时立即查找，并取消尚未执行的延迟搜索。"""
+        """点击搜索按钮或按回车立即筛选，取消尚未执行的延迟筛选。"""
         self._searchTimer.Stop()
         self._SearchItems(event.GetEventObject().GetValue())
     
     def OnSearchText(self, event):
-        """输入停止 200 毫秒后才搜索，连续输入时重置单次计时器。"""
+        """输入停止 200 毫秒后才筛选；清空时立即移除关键词条件。"""
         self._searchTimer.Stop()
         self._searchText = event.GetString()
         if self._searchText.strip():
             self._searchTimer.StartOnce(200)
+        else:
+            self._SearchItems('')
+
+    def OnSearchKey(self, event):
+        """只处理筛选框内的 Esc，不注册全局快捷键，也不清除状态筛选。"""
+        if event.GetKeyCode() == wx.WXK_ESCAPE and not event.HasAnyModifiers():
+            self.OnClearSearch(event)
+        else:
+            event.Skip()
+
+    def OnClearSearch(self, event):
+        self._searchTimer.Stop()
+        self._searchText = ''
+        self.searchCtrl.ChangeValue('')
+        self._SearchItems('')
+
+    def OnClearAllFilters(self, event):
+        """空结果提示中的恢复入口，同时清除关键词、状态及尚未执行的筛选。"""
+        self.statusFilter.SetSelection(0)
+        self.OnClearSearch(event)
+
+    def OnStatusFilter(self, event):
+        self._searchTimer.Stop()
+        self._SearchItems(self.searchCtrl.GetValue())
 
     def OnSearchTimer(self, event):
         """计时结束时只搜索最新输入；清空输入或关闭窗口会取消计时。"""
@@ -908,40 +1074,29 @@ class MainFrame(wx.Frame):
         self._RefreshWithState()
 
     def OnActivatedChanged(self, event):
-        """选中项变化事件"""
+        """任务双击/键盘激活只展开或折叠，普通分片单元格激活不下载。"""
         column = event.GetDataViewColumn()
         if column is not None and column.GetModelColumn() == 4:
             return  # The custom renderer handles action cells on a single click.
         item = event.GetItem()
         if not item.IsOk():
             return
-        value = self.model.GetValue(item, 4)
-        if not value:
-            return
-
-        # 解析索引
         keys = self.model.ItemToObject(item)
         objs = self.model.ParseKey(keys)
         if len(objs) == 1:
-            self.OnTaskAction(item)
-            return
-        elif len(objs) == 2:    # 子节点
-            parent = self.model.GetParent(item)
-            if parent.IsOk():
-                idxj = objs[1] - len(self.model.fileTree.items[objs[0]].outputs)
-                if idxj < 0:
-                    return
-                # tsName = self.model.GetValue(item, 1)
-                tsSeed = self.model.GetValue(parent, 1)
-                # # dlg = wx.MessageBox(f"是否下载{tsName}文件。", "提示", style=wx.ICON_QUESTION)
-                # dlg = wx.MessageBox(f"是否下载{tsName}文件。", "提示", style=wx.OK|wx.ICON_QUESTION)
-                # if dlg != wx.ID_OK:
-                #     return
+            self.OnTaskAction(item, 'toggle')
 
-                count = self._DownloadFiles(tsSeed, [(idxj, item)])
-                # wx.MessageBox(f"共需提交{count}个下载任务。", "提示", style=wx.OK|wx.ICON_INFORMATION)
-        else:
-            pass
+    def OnSegmentDownload(self, item):
+        """只由分片的“下载”操作调用，重新核对索引和是否仍需要下载。"""
+        if not item.IsOk():
+            return
+        keys = self.model.ParseKey(self.model.ItemToObject(item))
+        if len(keys) != 2:
+            return
+        task = self.model.fileTree.items[keys[0]]
+        index = keys[1] - len(task.outputs)
+        if 0 <= index < len(task.childs) and task.childs[index].fileSize == '-' and task.parent:
+            self._DownloadFiles(task.parent.fileName, [(index, item)])
 
     
     def OnAllTSDownload(self, event):

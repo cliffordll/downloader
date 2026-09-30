@@ -9,7 +9,6 @@ class TabSetting(wx.Panel):
     def __init__(self, parent):
         super().__init__(parent)
         layout = wx.BoxSizer(wx.VERTICAL)
-        layout.Add(wx.StaticText(self, label='下载设置'), 0, wx.ALL, 12)
         grid = wx.FlexGridSizer(cols=2, vgap=10, hgap=12)
         grid.AddGrowableCol(1, 1)
         self.controls = {}
@@ -19,7 +18,8 @@ class TabSetting(wx.Panel):
             grid.Add(control, 1, wx.EXPAND)
             self.controls[key] = control
 
-        row('download_dir', '下载目录', wx.DirPickerCtrl(self, style=wx.DIRP_USE_TEXTCTRL))
+        row('download_dir', '下载目录', wx.DirPickerCtrl(self, message='选择下载文件夹', style=wx.DIRP_USE_TEXTCTRL))
+        self.controls['download_dir'].GetPickerCtrl().SetLabel('选择文件夹')
         row('max_workers', '最大并发数（1～16）', wx.SpinCtrl(self, min=1, max=16))
         row('request_interval', '请求启动间隔（秒）', wx.SpinCtrlDouble(self, min=0, max=60, inc=0.1))
         self.controls['request_interval'].SetDigits(1)
@@ -27,11 +27,12 @@ class TabSetting(wx.Panel):
         row('connect_timeout', '连接超时（秒）', wx.SpinCtrl(self, min=1, max=300))
         row('read_timeout', '读取超时（秒）', wx.SpinCtrl(self, min=1, max=600))
         row('ffmpeg_path', 'FFmpeg 路径（留空自动检测）', wx.FilePickerCtrl(
-            self, wildcard='可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*',
+            self, message='选择 FFmpeg 可执行文件', wildcard='可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*',
             style=wx.FLP_OPEN | wx.FLP_USE_TEXTCTRL))
+        self.controls['ffmpeg_path'].GetPickerCtrl().SetLabel('选择文件')
         self.controls['ffmpeg_path'].SetToolTip('留空时优先使用项目 scripts 目录中的 FFmpeg，找不到再查找系统 PATH。')
         row('auto_merge', '下载完成后', wx.CheckBox(self, label='自动合并为 MP4'))
-        layout.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 12)
+        layout.Add(grid, 0, wx.EXPAND | wx.TOP | wx.LEFT | wx.RIGHT, 12)
         note = wx.StaticText(self, label=(
             '设置对后续请求生效，正在进行的请求正常完成。\n'
             '下载或转换进行中不能切换下载目录。\n'
@@ -70,8 +71,10 @@ class TabSetting(wx.Panel):
     def OnSave(self, event):
         from src.managers.downloader import Downloader
         from src.managers.converter import Converter
-        values = {key: control.GetPath() if key in ('download_dir', 'ffmpeg_path') else control.GetValue()
-                  for key, control in self.controls.items()}
+        # 保留由查看菜单管理的偏好，避免保存下载设置时重置它们。
+        values = SysSetting.GetAll()
+        values.update({key: control.GetPath() if key in ('download_dir', 'ffmpeg_path') else control.GetValue()
+                       for key, control in self.controls.items()})
         try:
             values = SysSetting.Validate(values)
             if values['download_dir'] != SysSetting.GetAll()['download_dir'] and (Downloader.IsBusy() or Converter.IsBusy()):

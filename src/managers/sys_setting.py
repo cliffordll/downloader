@@ -28,6 +28,7 @@ class SysSetting:
             'read_timeout': 30,
             'ffmpeg_path': '',
             'auto_merge': False,
+            'default_expand_tasks': False,
         }
 
     @classmethod
@@ -63,6 +64,8 @@ class SysSetting:
         result['ffmpeg_path'] = ffmpeg
         if not isinstance(result['auto_merge'], bool):
             raise ValueError('自动合并设置必须为开启或关闭。')
+        if not isinstance(result['default_expand_tasks'], bool):
+            raise ValueError('默认展开任务设置必须为开启或关闭。')
         return result
 
     @classmethod

@@ -38,7 +38,8 @@ class SettingsTests(unittest.TestCase):
         executable = self.root / 'ffmpeg.exe'
         executable.touch()
         values = self.values(max_workers=2, request_interval=0.7, max_retries=4,
-                             connect_timeout=7, read_timeout=45, ffmpeg_path=str(executable), auto_merge=True)
+                             connect_timeout=7, read_timeout=45, ffmpeg_path=str(executable), auto_merge=True,
+                             default_expand_tasks=True)
         SysSetting.Save(values)
         SysSetting._values = None
         self.assertEqual(SysSetting.GetAll(), values)
@@ -53,7 +54,7 @@ class SettingsTests(unittest.TestCase):
                         {'request_interval': float('nan')}, {'request_interval': -1},
                         {'max_retries': 11}, {'connect_timeout': 0}, {'read_timeout': 601},
                         {'download_dir': 'relative'}, {'ffmpeg_path': str(self.root / 'missing.exe')},
-                        {'auto_merge': 'true'}):
+                        {'auto_merge': 'true'}, {'default_expand_tasks': 'true'}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 SysSetting.Save(self.values(**changes))
             self.assertEqual(self.config.read_bytes(), before)

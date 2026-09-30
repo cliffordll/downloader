@@ -52,6 +52,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     def __init__(self, parent=None):
         super().__init__()
         self.fileTree = FileManager.GetFileInfos()
+        # None 表示全部；筛选只改变根节点可见性，不删任务、不改变下载回调使用的索引。
+        self.visible_tasks = None
         # 因为 ObjectToItem(obj) 在库内部维护一张map，key 为 id(obj)，所以 obj 对象不能变
         # id(obj) 函数返回对象的"标识值"
         self.keyMap = dict()
@@ -217,14 +219,16 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     def GetChildren(self, parent, children):
         """重写：wx 查询子节点时调用，将 DataViewItem 追加到 children 并返回数量。
 
-        无效 parent 表示不可见的虚拟根，此时返回所有任务；任务下面则返回
+        无效 parent 表示不可见的虚拟根，此时返回符合筛选条件的任务；任务下面则返回
         MP4 和分片。ObjectToItem 把缓存的节点键转换为 wx 使用的节点标识。
         """
         if not parent.IsOk():  # 根节点
             for idx, mu in enumerate(self.fileTree.items):
+                if self.visible_tasks is not None and idx not in self.visible_tasks:
+                    continue
                 _key = self._BuildKey((idx,))
                 children.append(self.ObjectToItem(_key))
-            return len(self.fileTree.items)
+            return len(children)
 
         keys = self.ItemToObject(parent)
         objs = self.ParseKey(keys)
@@ -251,6 +255,22 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             pass
         return 0
     
+    def ItemChanged(self, item):
+        """隐藏任务仍可更新数据，但不用通知视图重绘不存在的行。"""
+        if item.IsOk() and self.visible_tasks is not None:
+            index = self.ParseKey(self.ItemToObject(item))[0]
+            if index not in self.visible_tasks:
+                return True
+        return super().ItemChanged(item)
+
+    def ValueChanged(self, item, col):
+        """筛选隐藏的行不发送单元格重绘通知，数据仍保留在完整任务列表中。"""
+        if item.IsOk() and self.visible_tasks is not None:
+            index = self.ParseKey(self.ItemToObject(item))[0]
+            if index not in self.visible_tasks:
+                return True
+        return super().ValueChanged(item, col)
+
     # 父类函数
     def GetValue(self, item, col):
         """重写：wx 准备显示单元格时，按节点 item 和模型列 col 读取数据。
