@@ -152,7 +152,7 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         return wx.Size(max(1, width - self.frame.FromDIP(8)), self.frame.FromDIP(24))
 
     def _ActionRects(self, cell):
-        """左右留白后等分为：开始/继续、重试、删除、更多。
+        """左右留白后等分为：开始/暂停/继续、重试、删除、更多。
 
         这是本类自定义的辅助方法，不是 wx 的重写回调，由 Render/ActivateCell 调用。
         绘制与点击判断共用此方法，确保显示位置和点击区域始终对应。
@@ -505,19 +505,30 @@ class MainFrame(wx.Frame):
         self._task_display = display
 
     def OnTaskAction(self, item, action_id='start'):
+        """自定义操作分发入口，不是 wx 自动调用的重写方法。
+
+        行内渲染器识别点击区域后传入 item 和操作 id；“转 MP4”菜单传入 merge。
+        item 指明具体任务行，不依赖当前选中行；默认 start 也供任务行双击使用。
+        start 表示开始/暂停/继续，retry 重试失败，delete 删除，more 打开菜单。
+        """
         if not item.IsOk():
             return
         keys = self.model.ParseKey(self.model.ItemToObject(item))
+        # 只有任务父节点使用这组操作；分片子节点由另一个处理函数负责。
         if len(keys) != 1:
             return
         index = keys[0]
         task = self.model.fileTree.items[index]
         info = self.model.TaskInfo(index)
+        # 点击与绘制之间状态可能改变，所以在执行前重新读取当前任务状态。
         if action_id == 'merge':
+            # 合并位于“更多”菜单内：分片必须完整，不能正在下载/合并或已有输出。
             if info['pending'] or info['merging'] or task.outputs or not info['total'] or info['done'] != info['total']:
                 return
             self._CreateMP4File(task.parent.fileName, item)
         else:
+            # 按稳定的操作 id 匹配，不依赖“开始”“继续”等会随状态变化的显示文字。
+            # 再检查 enabled，防止过期的界面状态触发已不可用的操作。
             action = next((entry for entry in self.model.TaskActions(index) if entry['id'] == action_id), None)
             if action is None or not action['enabled']:
                 return
@@ -525,17 +536,32 @@ class MainFrame(wx.Frame):
                 self.OnTaskMenu(item)
                 return
             if action_id == 'delete':
+                # 删除处理函数会再次检查目录和运行状态，并弹出确认框。
                 self.OnDeleteTask(task)
                 return
         if action_id in ('start', 'retry'):
+            if action_id == 'start' and info['pending']:
+                # 当前任务已有排队/处理中的分片：切换暂停状态，不重新提交下载。
+                # 只传入当前任务的 pending 文件键，不暂停其他任务。
+                if info['paused']:
+                    Downloader.ResumeFiles(info['pending'])
+                else:
+                    Downloader.PauseFiles(info['pending'])
+                self.model.ItemChanged(item)
+                return
+            # 无待处理队列时才创建下载请求。开始/继续下载所有缺失分片，
+            # 重试仅选择失败集合中的缺失分片，已经存在的分片一律跳过。
             tasks = []
             for segment_index, child in enumerate(task.childs):
                 key = Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
                 if child.fileSize == '-' and (action_id != 'retry' or key in info['failed']):
                     child_item = self.model.ObjectToItem(self.model._BuildKey(
                         (index, len(task.outputs) + segment_index)))
+                    # 子节点中 MP4 排在分片前面，因此界面节点索引需加 outputs 偏移；
+                    # 提交给下载逻辑的 segment_index 仍是播放列表中的分片索引。
                     tasks.append((segment_index, child_item))
             self._DownloadFiles(task.parent.fileName, tasks)
+        # 通知 wx 重新读取本行数据，使操作文字、置灰状态和任务状态及时更新。
         self.model.ItemChanged(item)
 
     def OnTaskContextMenu(self, event):
@@ -762,9 +788,9 @@ class MainFrame(wx.Frame):
             '1. 添加任务\n'
             '通过“文件 → 下载M3U8”输入播放列表网址，或通过“下载TS”按分片命名规则创建任务。\n\n'
             '2. 下载与合并\n'
-            '任务行固定显示“开始/继续、重试、删除、更多”，不可用的操作会置灰。'
+            '任务行固定显示“开始/暂停/继续、重试、删除、更多”，不可用的操作会置灰。'
             '“更多”或右键菜单提供转 MP4、播放视频和打开文件夹。删除会确认是否删除任务及本地文件。'
-            '进度按已完成分片数计算。\n'
+            '行内“暂停/继续”只控制当前任务，已发出的请求允许完成。进度按已完成分片数计算。\n'
             '双击列表中的任务行下载全部分片，也可双击未下载的分片行单独下载。'
             '全部下载完成后，任务的操作变为“转MP4”，双击即可合并。\n\n'
             '点击“全部暂停”可暂停全部分片任务；已发出的请求允许完成，此时显示“暂停中”。'

@@ -115,6 +115,7 @@ class DownloadSettingsTests(unittest.TestCase):
             patch.object(Downloader, '_pending', set()),
             patch.object(Downloader, '_requesting', set()),
             patch.object(Downloader, '_failed', set()),
+            patch.object(Downloader, '_paused_files', set()),
             patch.object(Downloader, 'threadQueue', Queue()),
             patch.object(Downloader, 'isStop', True),
         ):
@@ -227,6 +228,65 @@ class DownloadSettingsTests(unittest.TestCase):
             self.assertEqual(Downloader.DownloadContent('https://example.com'), (True, b'content'))
         self.assertEqual(get.call_args.kwargs['timeout'], (4, 23))
         response.close.assert_called_once()
+
+    def test_resume_one_task_keeps_other_task_paused(self):
+        self.values['max_workers'] = 1
+        first_started, second_started = threading.Event(), threading.Event()
+        Downloader.Pause()
+
+        def download(uri, filename):
+            (first_started if uri == 'first' else second_started).set()
+            return True, filename
+
+        with patch.object(Downloader, '_DownLoadFile', side_effect=download), \
+             patch('wx.CallAfter', side_effect=lambda func, *args: func(*args)):
+            Downloader.DownloadTSFile('first', 'first.ts', Mock(), None)
+            Downloader.DownloadTSFile('second', 'second.ts', Mock(), None)
+            try:
+                Downloader.ResumeFiles({Downloader.FileKey('second.ts')})
+                self.assertTrue(second_started.wait(2))
+                self.assertFalse(first_started.wait(0.2))
+                self.assertNotIn(Downloader.FileKey('first.ts'), Downloader.Snapshot()['failed'])
+                Downloader.ResumeFiles({Downloader.FileKey('first.ts')})
+                self.assertTrue(first_started.wait(2))
+            finally:
+                Downloader.Resume()
+                Downloader._master.join(3)
+            self.assertFalse(Downloader.IsBusy())
+
+    def test_paused_dispatched_file_returns_to_queue_without_failure(self):
+        first_waiting, release, other_started = [threading.Event() for _ in range(3)]
+        self.values['max_workers'] = 1
+        attempts = []
+
+        def download(uri, filename):
+            attempts.append(uri)
+            if uri == 'first' and attempts.count('first') == 1:
+                first_waiting.set()
+                release.wait(3)
+                Downloader._WaitForRequest(True, Downloader.FileKey(filename))
+                self.fail('paused request should have been requeued')
+            if uri == 'other':
+                other_started.set()
+            return True, filename
+
+        with patch.object(Downloader, '_DownLoadFile', side_effect=download), \
+             patch('wx.CallAfter', side_effect=lambda func, *args: func(*args)):
+            Downloader.DownloadTSFile('first', 'first.ts', Mock(), None)
+            try:
+                self.assertTrue(first_waiting.wait(2))
+                Downloader.PauseFiles({Downloader.FileKey('first.ts')})
+                Downloader.DownloadTSFile('other', 'other.ts', Mock(), None)
+                release.set()
+                self.assertTrue(other_started.wait(2))
+                self.assertFalse(Downloader.Snapshot()['failed'])
+                Downloader.ResumeFiles({Downloader.FileKey('first.ts')})
+            finally:
+                release.set()
+                Downloader.Resume()
+                Downloader._master.join(3)
+            self.assertEqual(attempts, ['first', 'other', 'first'])
+            self.assertFalse(Downloader.IsBusy())
 
     def test_403_is_not_retried(self):
         with patch('requests.get', return_value=self.response(403)) as get:

@@ -19,6 +19,7 @@ class TaskSummary(TypedDict):
     failed: set[str]
     pending: set[str]
     merging: bool
+    paused: bool
     progress: str
 
 # 定义自定义事件类型
@@ -75,6 +76,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         pending = keys & snapshot['pending']
         requesting = keys & snapshot['requesting']
         failed = keys & snapshot['failed']
+        paused = snapshot['paused'] or bool(pending and pending <= snapshot['paused_files'])
         output = os.path.join(os.path.dirname(PathManager.GetAbsPath(task.parent.fileName)), 'output.mp4')
         merging = Converter.IsConverting(output)
         if merging:
@@ -86,7 +88,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         elif total and done == total:
             status = '待合并'
         elif pending:
-            status = ('暂停中' if requesting else '已暂停') if snapshot['paused'] else (
+            status = ('暂停中' if requesting else '已暂停') if paused else (
                 '下载中' if requesting else '等待下载')
         elif failed:
             status = '下载失败'
@@ -102,6 +104,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             'failed': failed,
             'pending': pending,
             'merging': merging,
+            'paused': paused,
             'progress': f'{int(done * 100 / total) if total else 0}% · {done}/{total}',
         }
 
@@ -115,9 +118,12 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         info = self.TaskInfo(index)
         idle = not info['pending'] and not info['merging']
         downloadable = idle and not Downloader.IsPaused() and not task.outputs
+        # 第一项在排队/下载期间可暂停；暂停后恢复当前任务，不重新提交分片。
+        running = bool(info['pending']) and not info['merging']
+        label = ('继续' if info['paused'] else '暂停') if running else ('继续' if info['done'] else '开始')
         return [
-            dict(id='start', label='继续' if info['done'] else '开始',
-                 enabled=bool(downloadable and info['done'] < info['total'])),
+            dict(id='start', label=label,
+                 enabled=bool(running or (downloadable and info['done'] < info['total']))),
             dict(id='retry', label='重试', enabled=bool(downloadable and info['failed'])),
             dict(id='delete', label='删除', enabled=idle),
             dict(id='more', label='更多', enabled=True),

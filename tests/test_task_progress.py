@@ -26,6 +26,7 @@ class TaskProgressTests(unittest.TestCase):
         for patcher in (patch.object(Downloader, '_pending', set()),
                         patch.object(Downloader, '_requesting', set()),
                         patch.object(Downloader, '_failed', set()),
+            patch.object(Downloader, '_paused_files', set()),
                         patch.object(Downloader, '_user_paused', threading.Event()),
                         patch.object(Converter, '_outputs', set()),
                         patch('src.models.tree_model.FileManager.GetFileInfos', return_value=self.tree)):
@@ -76,6 +77,30 @@ class TaskProgressTests(unittest.TestCase):
         self.task.outputs.append(FileItem(fileName='task/output.mp4', fileSize=20))
         self.assertEqual(self.model.TaskInfo(0)['status'], '已完成')
 
+    def test_row_pause_and_resume_only_affect_its_pending_files(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test')
+        try:
+            other = Downloader.FileKey(PathManager.GetAbsPath('other/a.ts'))
+            Downloader._pending.update({self.key, other})
+            Downloader._requesting.add(self.key)
+            item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+            self.assertEqual(frame.model.TaskActions(0)[0]['label'], '暂停')
+            frame.OnTaskAction(item, 'start')
+            self.assertEqual(Downloader.Snapshot()['paused_files'], {self.key})
+            self.assertEqual(frame.model.TaskInfo(0)['status'], '暂停中')
+            Downloader._requesting.clear()
+            self.assertEqual(frame.model.TaskInfo(0)['status'], '已暂停')
+            self.assertEqual(frame.model.TaskActions(0)[0]['label'], '继续')
+            with patch.object(frame, '_DownloadFiles') as enqueue:
+                frame.OnTaskAction(item, 'start')
+                enqueue.assert_not_called()
+            self.assertFalse(Downloader.Snapshot()['paused_files'])
+            self.assertEqual(frame.model.TaskActions(0)[0]['label'], '暂停')
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_callback_uses_file_path_after_task_reorder(self):
         self.tree.items.insert(0, TreeItem(parent=FileItem(fileName='other/download.m3u8'),
                                         childs=[FileItem(fileName='other/a.ts')]))
@@ -123,8 +148,8 @@ class TaskProgressTests(unittest.TestCase):
             dc.SelectObject(wx.NullBitmap)
             Downloader._pending.add(self.key)
             Downloader.Pause()
-            self.assertEqual([a['enabled'] for a in frame.model.TaskActions(0)], [False, False, False, True])
-            for index in range(3):
+            self.assertEqual([a['enabled'] for a in frame.model.TaskActions(0)], [True, False, False, True])
+            for index in (1, 2):
                 self.assertFalse(click(index))
             Downloader._pending.clear()
             self.task.childs[1].fileSize = '10 B'
