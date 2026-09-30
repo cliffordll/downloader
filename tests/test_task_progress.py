@@ -128,7 +128,8 @@ class TaskProgressTests(unittest.TestCase):
                 return renderer.ActivateCell(cell, frame.model, item, 4, mouse)
 
             actions = frame.model.TaskActions(0)
-            self.assertEqual([a['label'] for a in actions], ['继续', '重试', '删除', '折叠', '更多'])
+            self.assertFalse(frame.mcTree.IsExpanded(item))
+            self.assertEqual([a['label'] for a in actions], ['继续', '重试', '删除', '展开', '更多'])
             self.assertEqual([a['enabled'] for a in actions], [True, False, True, True, True])
             self.assertFalse(click(1))
             Downloader._failed.add(self.key)
@@ -143,13 +144,13 @@ class TaskProgressTests(unittest.TestCase):
                 menu.assert_called_once_with(item)
             # 同一点击区域切换展开状态，箭头操作后也重新读取正确文字。
             self.assertTrue(click(3))
-            self.assertFalse(frame.mcTree.IsExpanded(item))
-            self.assertEqual(frame.model.TaskActions(0)[3]['label'], '展开')
-            self.assertTrue(click(3))
             self.assertTrue(frame.mcTree.IsExpanded(item))
             self.assertEqual(frame.model.TaskActions(0)[3]['label'], '折叠')
-            frame.mcTree.Collapse(item)
+            self.assertTrue(click(3))
+            self.assertFalse(frame.mcTree.IsExpanded(item))
             self.assertEqual(frame.model.TaskActions(0)[3]['label'], '展开')
+            frame.mcTree.Expand(item)
+            self.assertEqual(frame.model.TaskActions(0)[3]['label'], '折叠')
             bitmap = wx.Bitmap(size.width, size.height)
             dc = wx.MemoryDC(bitmap)
             renderer.SetValue(frame.model.GetValue(item, 4))
@@ -206,6 +207,52 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
+    def test_search_scans_paths_and_reveals_collapsed_segment(self):
+        self.task.outputs.append(FileItem(fileName='task/movie.mp4'))
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test')
+        try:
+            parent = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+            frame.mcTree.Collapse(parent)
+            # 搜索不能再遍历视图或计算任务状态；大量分片时这些调用很昂贵。
+            with patch.object(frame.model, 'GetFirstChild', side_effect=AssertionError), \
+                 patch.object(frame.model, 'GetValue', side_effect=AssertionError), \
+                 patch.object(frame.model, 'TaskInfo', side_effect=AssertionError):
+                self.assertFalse(frame._FindItem('不存在').IsOk())
+                self.assertFalse(frame._FindItem('更多').IsOk())
+                for text, key in [('download', '0'), ('movie.mp4', '0.0'), ('b.ts', '0.2')]:
+                    self.assertEqual(frame.model.ItemToObject(frame._FindItem(text)), key)
+            frame._SearchItems(' B.TS ')
+            self.assertTrue(frame.mcTree.IsExpanded(parent))
+            self.assertEqual(frame.model.ItemToObject(frame.mcTree.GetSelection()), '0.2')
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_search_debounces_input_and_button_searches_immediately(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test')
+        try:
+            with patch.object(frame, '_SearchItems') as search, \
+                 patch.object(frame._searchTimer, 'StartOnce') as start, \
+                 patch.object(frame._searchTimer, 'Stop') as stop:
+                for text in ('b', 'b.ts'):
+                    frame.OnSearchText(SimpleNamespace(GetString=lambda text=text: text))
+                search.assert_not_called()
+                self.assertEqual(start.call_count, 2)
+                start.assert_called_with(200)
+                frame.OnSearchTimer(None)
+                search.assert_called_once_with('b.ts')
+                frame.OnSearchText(SimpleNamespace(GetString=lambda: ''))
+                self.assertEqual(start.call_count, 2)
+                control = SimpleNamespace(GetValue=lambda: 'movie.mp4')
+                frame.OnSearch(SimpleNamespace(GetEventObject=lambda: control))
+                search.assert_called_with('movie.mp4')
+                self.assertEqual(stop.call_count, 4)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_columns_fit_available_width_when_resizing(self):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test')
@@ -231,6 +278,27 @@ class TaskProgressTests(unittest.TestCase):
                 frame.OnTaskProgress(None)
                 frame.OnTaskProgress(None)
                 fit.assert_not_called()
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_initial_columns_and_progress_are_ready_before_show(self):
+        shown = []
+        def inspect_before_show(frame):
+            shown.append(frame)
+            columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(7)]
+            self.assertLessEqual(sum(columns), frame.mcTree.GetClientSize().width)
+            self.assertGreater(columns[6], 0)
+            self.assertIn(self.task.parent.fileName, frame._task_display)
+            # 初次定时刷新不应把已经显示的相同状态再次通知整行重绘。
+            with patch.object(frame.model, 'ItemChanged') as changed:
+                frame.OnTaskProgress(None)
+                changed.assert_not_called()
+
+        with patch.object(MainFrame, 'Show', new=inspect_before_show):
+            frame = MainFrame(None, 'test')
+        try:
+            self.assertEqual(shown, [frame])
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()

@@ -242,10 +242,20 @@ class MainFrame(wx.Frame):
         self._createToolBar()
         self._createStatusBar()
 
+        self._searchText = ''
+        self._searchTimer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.OnSearchTimer, self._searchTimer)
         self._createMainPanel()
         # 记住默认窗口宽度；放大时按默认列比例扩展，恢复窗口时还原布局。
         self._defaultTaskWidth = self.GetClientSize().width
         self._task_display = {}
+        # 显示前完成布局、列宽和状态缓存，避免先画初始列宽再跳到适配后的宽度。
+        self.Layout()
+        self.mcTree.GetParent().Layout()
+        self._FitTaskColumns()
+        self.OnTaskProgress(None)
+        # 初始化完成后再监听尺寸变化；后续缩放仍合并为一次延迟调整。
+        self.mcTree.Bind(wx.EVT_SIZE, self.OnTaskListSize)
         self._progressTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnTaskProgress, self._progressTimer)
         self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
@@ -359,14 +369,14 @@ class MainFrame(wx.Frame):
         bxSearch = wx.SearchCtrl(panel)
         btnExpand = wx.Button(panel, label="全部展开")
         btnCollapse = wx.Button(panel, label="全部折叠")
-        btnRefresh = wx.Button(panel, label="刷新")
         btnPause = wx.Button(panel, label="全部暂停")
+        btnRefresh = wx.Button(panel, label="刷新")
         btnPause.SetToolTip('暂停全部分片下载；已发出的请求允许完成，排队任务保留。')
         uriSizer.Add(bxSearch, proportion=50, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
         uriSizer.Add(btnExpand, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
         uriSizer.Add(btnCollapse, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
-        uriSizer.Add(btnRefresh, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
         uriSizer.Add(btnPause, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
+        uriSizer.Add(btnRefresh, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
         
         bxSearch.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnSearch)
         bxSearch.Bind(wx.EVT_TEXT, self.OnSearchText)
@@ -375,6 +385,8 @@ class MainFrame(wx.Frame):
         btnRefresh.Bind(wx.EVT_BUTTON, self.OnRefresh)
         btnPause.Bind(wx.EVT_BUTTON, self.OnPauseDownloads)
         btnPause.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads)
+        # 首次显示前同步文字和可用状态，避免等待空闲更新时按钮短暂可点击。
+        btnPause.UpdateWindowUI()
 
         # 多列树布局
         # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_READONLY|wx.TE_RICH2)
@@ -406,12 +418,12 @@ class MainFrame(wx.Frame):
             column = self.mcTree.GetColumn(index)
             column.GetRenderer().EnableEllipsize(wx.ELLIPSIZE_END)
             column.SetFlags(column.GetFlags() & ~wx.COL_RESIZABLE)
-        self.mcTree.Bind(wx.EVT_SIZE, self.OnTaskListSize)
         # self.mcTree.AppendTextColumn("下载地址", 5)
         # self.model.DecRef()  # 避免内存泄漏
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_EXPANDED, self.OnTaskExpansionChanged)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_COLLAPSED, self.OnTaskExpansionChanged)
-        self.OnExpandAll(None)
+        # 新加载的任务默认折叠，按需通过行首箭头或行内操作展开。
+        # self.OnExpandAll(None)
         listSizer.Add(self.mcTree, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
         # listSizer.Add(self.mulist, proportion=10, flag=wx.EXPAND|wx.ALL, border=5)
         # self.list.SetBackgroundColour(wx.RED)
@@ -425,7 +437,6 @@ class MainFrame(wx.Frame):
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND|wx.ALL, border=0)
         # 设置面板的sizer
         panel.SetSizer(sizer)
-        wx.CallAfter(self._FitTaskColumns)
 
     def OnTaskListPaint(self, event):
         """先同步完成原生列表绘制，再覆盖黑色焦点边框，避免延迟补画闪烁。"""
@@ -460,7 +471,7 @@ class MainFrame(wx.Frame):
     def _FitTaskColumns(self):
         """自定义列宽适配方法，不是 wx 的重写回调。
 
-        初始化和窗口尺寸变化后通过 wx.CallAfter 调用，等待布局更新后再取宽度。
+        初始化时在显示前完成布局并直接调用；后续尺寸变化通过 wx.CallAfter 调用。
         默认窗口维持现有布局；放大时各列按默认比例扩展；缩小时优先压缩文件名列。
         所有列的总宽度控制在可用区域内，避免出现横向滚动条。
         """
@@ -521,6 +532,7 @@ class MainFrame(wx.Frame):
     def OnDestroy(self, event):
         if event.GetEventObject() is self:
             self._progressTimer.Stop()
+            self._searchTimer.Stop()
         event.Skip()
 
     def OnTaskProgress(self, event):
@@ -672,30 +684,31 @@ class MainFrame(wx.Frame):
     ###################################
     ### 事件所需函数
     ###################################
-    def _FindItem(self, parent, search_text):
-        """递归查找匹配项"""
-        child, cookie = self.model.GetFirstChild(parent)
-        while child.IsOk():
-            # 检查当前项
-            for col in range(self.model.GetColumnCount()):
-                value = self.model.GetValue(child, col).lower()
-                if search_text in value:
-                    return child
-            # 如果是容器，递归检查子项
-            if self.model.IsContainer(child):
-                found_in_child = self._FindItem(child, search_text)
-                if found_in_child.IsOk():
-                    return found_in_child
-            child, cookie = self.model.GetNextChild(parent, cookie)
+    def _FindItem(self, search_text):
+        """按显示顺序搜索文件名/路径，命中后才创建对应的视图节点。
+
+        直接扫描数据，避免每取下一项都重建整个子节点列表，也不读取进度、
+        状态和操作列。MP4 排在分片前面，分片的节点索引需加上 MP4 数量。
+        """
+        for index, task in enumerate(self.model.fileTree.items):
+            if task.parent and search_text in task.parent.fileName.casefold():
+                return self.model.ObjectToItem(self.model._BuildKey((index,)))
+            for files, offset in ((task.outputs, 0), (task.childs, len(task.outputs))):
+                for child_index, file in enumerate(files):
+                    if search_text in file.fileName.casefold():
+                        return self.model.ObjectToItem(self.model._BuildKey((index, offset + child_index)))
         return dv.NullDataViewItem
     
     def _SearchItems(self, text):
         """搜索匹配项"""
+        text = text.strip().casefold()
         if not text:
             return
-        root = dv.NullDataViewItem  # 关键点：使用虚拟根节点
-        found_item = self._FindItem(root, text.lower())
+        found_item = self._FindItem(text)
         if found_item.IsOk():
+            parent = self.model.GetParent(found_item)
+            if parent.IsOk():
+                self.mcTree.Expand(parent)
             self.mcTree.Select(found_item)
             self.mcTree.EnsureVisible(found_item)
 
@@ -781,7 +794,8 @@ class MainFrame(wx.Frame):
             if dlg.ShowModal() == wx.ID_OK and previous != SysSetting.GetWorkPath():
                 self.model.fileTree = FileManager.GetFileInfos()
                 self.model.Cleared()
-                self.OnExpandAll(None)
+                # 切换工作目录后，新任务同样保持默认折叠。
+                # self.OnExpandAll(None)
         finally:
             dlg.Destroy()
 
@@ -854,14 +868,20 @@ class MainFrame(wx.Frame):
     ### 操作树得事件
     ###################################
     def OnSearch(self, event):
-        """搜索按钮事件"""
-        # print("on_search", event.GetString())
-        self._SearchItems(event.GetString())
+        """点击搜索按钮时立即查找，并取消尚未执行的延迟搜索。"""
+        self._searchTimer.Stop()
+        self._SearchItems(event.GetEventObject().GetValue())
     
     def OnSearchText(self, event):
-        """搜索文本变化事件"""
-        # print("on_search_text", event.GetString())
-        self._SearchItems(event.GetString())
+        """输入停止 200 毫秒后才搜索，连续输入时重置单次计时器。"""
+        self._searchTimer.Stop()
+        self._searchText = event.GetString()
+        if self._searchText.strip():
+            self._searchTimer.StartOnce(200)
+
+    def OnSearchTimer(self, event):
+        """计时结束时只搜索最新输入；清空输入或关闭窗口会取消计时。"""
+        self._SearchItems(self._searchText)
 
     def OnExpandAll(self, event):
         """展开所有节点"""
