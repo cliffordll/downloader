@@ -109,9 +109,12 @@ class DownloadSettingsTests(unittest.TestCase):
         for patcher in (
             patch.object(SysSetting, 'GetAll', side_effect=lambda: dict(self.values)),
             patch.object(Downloader, '_shutdown', threading.Event()),
+            patch.object(Downloader, '_user_paused', threading.Event()),
             patch.object(Downloader, '_next_request', 0.0),
             patch.object(Downloader, '_paused_until', 0.0),
             patch.object(Downloader, '_pending', set()),
+            patch.object(Downloader, '_requesting', set()),
+            patch.object(Downloader, '_failed', set()),
             patch.object(Downloader, 'threadQueue', Queue()),
             patch.object(Downloader, 'isStop', True),
         ):
@@ -120,6 +123,102 @@ class DownloadSettingsTests(unittest.TestCase):
 
     def response(self, status=200, headers=None):
         return SimpleNamespace(status_code=status, content=b'content', headers=headers or {}, close=Mock())
+
+    def test_pause_keeps_queue_and_resume_downloads_remaining_files(self):
+        self.values['max_workers'] = 1
+        started, release, delivered, next_started = [threading.Event() for _ in range(4)]
+
+        def download(uri, filename):
+            if uri == 'first':
+                started.set()
+                release.wait(3)
+            else:
+                next_started.set()
+            return True, filename
+
+        def callback(success, filename, item):
+            if filename == 'first.ts':
+                delivered.set()
+
+        with patch.object(Downloader, '_DownLoadFile', side_effect=download), \
+             patch('wx.CallAfter', side_effect=lambda func, *args: func(*args)):
+            Downloader.DownloadTSFile('first', 'first.ts', callback, None)
+            try:
+                self.assertTrue(started.wait(2))
+                Downloader.Pause()
+                Downloader.DownloadTSFile('second', 'second.ts', callback, None)
+                release.set()
+                self.assertTrue(delivered.wait(2))
+                self.assertFalse(next_started.wait(0.2))
+                self.assertTrue(Downloader.IsBusy())
+                Downloader.Resume()
+                self.assertTrue(next_started.wait(2))
+            finally:
+                release.set()
+                Downloader.Resume()
+                Downloader._master.join(4)
+            self.assertFalse(Downloader._master.is_alive())
+            self.assertFalse(Downloader.IsBusy())
+
+    def test_pause_blocks_segment_requests_but_not_playlist_loading(self):
+        entered = threading.Event()
+        Downloader.Pause()
+        with patch('requests.get', return_value=self.response()) as get:
+            def download():
+                entered.set()
+                return Downloader.DownloadContent('segment', respect_pause=True)
+            worker = threading.Thread(target=download)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                worker.join(0.2)
+                self.assertTrue(worker.is_alive())
+                get.assert_not_called()
+                self.assertTrue(Downloader.DownloadContent('playlist')[0])
+                get.assert_called_once_with('playlist', timeout=SysSetting.GetTimeout())
+                Downloader.Resume()
+                worker.join(2)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(get.call_count, 2)
+            finally:
+                Downloader._shutdown.set()
+                worker.join(2)
+
+    def test_shutdown_exits_paused_scheduler_without_starting_queue(self):
+        Downloader.Pause()
+        with patch.object(Downloader, '_DownLoadFile') as download:
+            Downloader.DownloadTSFile('queued', 'queued.ts', Mock(), None)
+            Downloader.Shutdown()
+            Downloader._master.join(2)
+            self.assertFalse(Downloader._master.is_alive())
+            download.assert_not_called()
+            self.assertFalse(Downloader.IsBusy())
+
+    def test_pause_snapshot_tracks_only_requests_still_in_flight(self):
+        started, release = threading.Event(), threading.Event()
+        key = Downloader.FileKey('inflight.ts')
+
+        def request(*args, **kwargs):
+            started.set()
+            release.wait(3)
+            return self.response()
+
+        with patch('requests.get', side_effect=request):
+            worker = threading.Thread(target=Downloader.DownloadContent,
+                                      args=('url',), kwargs=dict(respect_pause=True, request_key=key))
+            worker.start()
+            try:
+                self.assertTrue(started.wait(2))
+                Downloader.Pause()
+                self.assertEqual(Downloader.Snapshot()['requesting'], {key})
+                release.set()
+                worker.join(2)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(Downloader.Snapshot()['requesting'], set())
+                self.assertTrue(Downloader.IsPaused())
+            finally:
+                release.set()
+                worker.join(4)
 
     def test_request_receives_both_configured_timeouts(self):
         self.values.update(connect_timeout=4, read_timeout=23)

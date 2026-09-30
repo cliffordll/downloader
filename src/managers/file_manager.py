@@ -1,4 +1,6 @@
 import os
+import shutil
+from pathlib import Path
 from urllib.parse import urlparse, urlunparse, urljoin, urlsplit
 
 from src.schemas.file_base import TreeData, TreeItem, FileItem
@@ -10,6 +12,37 @@ from src.managers.sys_setting import SysSetting
 class FileManager():
     def __init__(self):
         pass
+
+    @classmethod
+    def TaskDeletionDirectory(cls, filename):
+        """Validate the complete directory before offering or performing deletion."""
+        from src.managers.downloader import Downloader
+        from src.managers.converter import Converter
+        root = Path(SysSetting.GetWorkPath()).resolve()
+        source = Path(PathManager.GetAbsPath(filename)).resolve()
+        directory = source.parent
+        if directory == root or root not in directory.parents:
+            raise ValueError('只能删除下载目录内独立的任务文件夹，不能删除下载根目录或外部目录。')
+        if not source.is_file():
+            raise ValueError('任务文件已不存在，请刷新列表。')
+        for other in directory.rglob('*'):
+            if other.suffix.lower() in ('.seed', '.m3u8') and (
+                    other.parent != directory or other.stem != source.stem):
+                raise ValueError('此文件夹还包含其他播放列表，请打开文件夹手动整理，避免误删其他任务。')
+        pending = Downloader.Snapshot()['pending']
+        if any(directory == Path(path).resolve().parent or directory in Path(path).resolve().parents
+               for path in pending):
+            raise ValueError('任务仍在下载或排队中，暂停也会保留队列，暂时不能删除。')
+        if Converter.IsConverting(str(directory / 'output.mp4')):
+            raise ValueError('任务正在合并，暂时不能删除。')
+        return directory
+
+    @classmethod
+    def DeleteTaskDirectory(cls, filename, expected_directory):
+        directory = cls.TaskDeletionDirectory(filename)
+        if directory != expected_directory:
+            raise ValueError('任务目录已变化，请刷新后重试。')
+        shutil.rmtree(directory)
 
     @classmethod
     def GetFileItem(cls, absFile: str, absUri: str='-'):

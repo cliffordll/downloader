@@ -153,6 +153,50 @@ class PlaylistHandlingTests(unittest.TestCase):
         self.assertTrue(FileManager.CreateM3U8File(str(self.root), str(path)))
         self.assertEqual(path.read_bytes(), original)
 
+    def test_delete_task_directory_removes_only_confirmed_task(self):
+        directory = self.root / 'task'
+        directory.mkdir()
+        source = directory / 'download.m3u8'
+        source.write_text(playlist('a.ts'))
+        (directory / 'a.ts').write_bytes(b'data')
+        other = self.root / 'keep.txt'
+        other.write_text('keep')
+        with patch.object(Downloader, 'Snapshot', return_value={'pending': set()}), \
+             patch.object(Converter, 'IsConverting', return_value=False):
+            target = FileManager.TaskDeletionDirectory(str(source))
+            with self.assertRaises(ValueError):
+                FileManager.DeleteTaskDirectory(str(source), target.parent)
+            self.assertTrue(source.exists())
+            FileManager.DeleteTaskDirectory(str(source), target)
+        self.assertFalse(directory.exists())
+        self.assertEqual(other.read_text(), 'keep')
+
+    def test_delete_rejects_root_other_playlists_and_busy_tasks(self):
+        source = self.write('download.m3u8', playlist('a.ts'))
+        with self.assertRaises(ValueError):
+            FileManager.TaskDeletionDirectory(str(source))
+        with TemporaryDirectory() as outside:
+            external = Path(outside) / 'external.m3u8'
+            external.write_text(playlist('a.ts'))
+            with self.assertRaises(ValueError):
+                FileManager.TaskDeletionDirectory(str(external))
+        directory = self.root / 'task'
+        directory.mkdir()
+        source = directory / 'download.m3u8'
+        source.write_text(playlist('a.ts'))
+        other = directory / 'other.m3u8'
+        other.write_text(playlist('b.ts'))
+        with self.assertRaises(ValueError):
+            FileManager.TaskDeletionDirectory(str(source))
+        other.unlink()
+        with patch.object(Downloader, 'Snapshot', return_value={
+                'pending': {str(directory / 'a.ts')}}), self.assertRaises(ValueError):
+            FileManager.TaskDeletionDirectory(str(source))
+        with patch.object(Downloader, 'Snapshot', return_value={'pending': set()}), \
+             patch.object(Converter, 'IsConverting', return_value=True), self.assertRaises(ValueError):
+            FileManager.TaskDeletionDirectory(str(source))
+        self.assertTrue(source.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -6,6 +6,7 @@ from pathlib import Path
 from queue import Queue, Empty
 import threading
 import time
+from typing import TypedDict
 
 import requests
 import wx
@@ -13,13 +14,23 @@ import wx
 from src.managers.sys_setting import SysSetting
 
 
+class DownloadSnapshot(TypedDict):
+    pending: set[str]
+    requesting: set[str]
+    failed: set[str]
+    paused: bool
+
+
 class Downloader:
     isStop = True
     threadQueue = Queue()
     threadLock = threading.Lock()
     _pending = set()
+    _requesting = set()
+    _failed = set()
     _master = None
     _shutdown = threading.Event()
+    _user_paused = threading.Event()
     _rate_lock = threading.Lock()
     _next_request = 0.0
     _paused_until = 0.0
@@ -29,15 +40,50 @@ class Downloader:
         with cls.threadLock:
             return bool(cls._pending)
 
+    @staticmethod
+    def FileKey(filename):
+        return os.path.normcase(os.path.abspath(filename))
+
     @classmethod
-    def _WaitForRequest(cls):
+    def Snapshot(cls) -> DownloadSnapshot:
+        with cls.threadLock:
+            return {
+                'pending': set(cls._pending),
+                'requesting': set(cls._requesting),
+                'failed': set(cls._failed),
+                'paused': cls.IsPaused(),
+            }
+
+    @classmethod
+    def IsPaused(cls):
+        return cls._user_paused.is_set()
+
+    @classmethod
+    def Pause(cls):
+        with cls.threadLock:
+            cls._user_paused.set()
+
+    @classmethod
+    def Resume(cls):
+        cls._user_paused.clear()
+
+    @classmethod
+    def _WaitForRequest(cls, respect_pause=False, request_key=None):
         while not cls._shutdown.is_set():
-            with cls._rate_lock:
-                now = time.monotonic()
-                delay = max(cls._next_request, cls._paused_until) - now
-                if delay <= 0:
-                    cls._next_request = now + SysSetting.GetAll()['request_interval']
-                    return True
+            if respect_pause and cls.IsPaused():
+                cls._shutdown.wait(0.1)
+                continue
+            with cls.threadLock:
+                if respect_pause and cls.IsPaused():
+                    continue
+                with cls._rate_lock:
+                    now = time.monotonic()
+                    delay = max(cls._next_request, cls._paused_until) - now
+                    if delay <= 0:
+                        cls._next_request = now + SysSetting.GetAll()['request_interval']
+                        if request_key is not None:
+                            cls._requesting.add(request_key)
+                        return True
             cls._shutdown.wait(min(delay, 0.2))
         return False
 
@@ -55,11 +101,11 @@ class Downloader:
                 return fallback
 
     @classmethod
-    def DownloadContent(cls, baseUrl):
+    def DownloadContent(cls, baseUrl, respect_pause=False, request_key=None):
         retries = SysSetting.GetAll()['max_retries']
         error = '下载已停止'
         for attempt in range(retries + 1):
-            if not cls._WaitForRequest():
+            if not cls._WaitForRequest(respect_pause, request_key):
                 return False, '下载已停止'
             backoff = min(2 ** attempt, 60)
             try:
@@ -83,6 +129,10 @@ class Downloader:
                 return False, str(exc)
             except requests.RequestException as exc:
                 error = str(exc)
+            finally:
+                if request_key is not None:
+                    with cls.threadLock:
+                        cls._requesting.discard(request_key)
             if attempt < retries and cls._shutdown.wait(backoff):
                 return False, '下载已停止'
         return False, error
@@ -93,7 +143,8 @@ class Downloader:
         try:
             if Path(fileName).is_file():
                 return True, fileName
-            success, content = cls.DownloadContent(baseUrl)
+            success, content = cls.DownloadContent(baseUrl, respect_pause=True,
+                                                   request_key=cls.FileKey(fileName))
             if not success:
                 print(f'下载失败：{fileName}：{content}')
                 return False, fileName
@@ -114,16 +165,18 @@ class Downloader:
 
     @classmethod
     def DownloadTSFile(cls, absUri, absFile, callback, item):
-        key = os.path.normcase(os.path.abspath(absFile))
+        key = cls.FileKey(absFile)
         with cls.threadLock:
             if cls._shutdown.is_set() or key in cls._pending:
-                return
+                return False
             cls._pending.add(key)
+            cls._failed.discard(key)
             cls.threadQueue.put((absUri, absFile, callback, item, key))
             if cls.isStop:
                 cls.isStop = False
                 cls._master = threading.Thread(target=cls._MasterThreadRun, name='download-scheduler')
                 cls._master.start()
+            return True
 
     @classmethod
     def _Deliver(cls, task, success):
@@ -135,6 +188,8 @@ class Downloader:
         finally:
             with cls.threadLock:
                 cls._pending.discard(key)
+                if not success:
+                    cls._failed.add(key)
 
     @classmethod
     def _MasterThreadRun(cls):
@@ -143,7 +198,7 @@ class Downloader:
         with ThreadPoolExecutor(max_workers=16) as pool:
             while True:
                 with cls.threadLock:
-                    if not cls._shutdown.is_set():
+                    if not cls._shutdown.is_set() and not cls.IsPaused():
                         while len(active) < SysSetting.GetMaxWorkers():
                             try:
                                 task = cls.threadQueue.get_nowait()
@@ -167,6 +222,8 @@ class Downloader:
                                 cls._pending.discard(task[4])
                         else:
                             wx.CallAfter(cls._Deliver, task, success)
+                else:
+                    cls._shutdown.wait(0.1)
 
     @classmethod
     def Shutdown(cls):

@@ -1,7 +1,12 @@
 import wx
+import json
 # import wx.gizmos as gizmos
 import wx.dataview as dv
 from src.managers.file_manager import FileManager
+from src.managers.path_manager import PathManager
+from src.managers.downloader import Downloader
+from src.managers.converter import Converter
+import os
 
 # 定义自定义事件类型
 ALL_DOWNLOAD_EVENT = wx.NewEventType()
@@ -28,6 +33,53 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         self.keyMap = dict()
 
         self.parent = parent
+        self.merge_failed = set()
+
+    def TaskInfo(self, index):
+        task = self.fileTree.items[index]
+        total = len(task.childs)
+        done = sum(child.fileSize != '-' for child in task.childs)
+        keys = {Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
+                for child in task.childs if child.fileSize == '-'}
+        snapshot = Downloader.Snapshot()
+        pending = keys & snapshot['pending']
+        requesting = keys & snapshot['requesting']
+        failed = keys & snapshot['failed']
+        output = os.path.join(os.path.dirname(PathManager.GetAbsPath(task.parent.fileName)), 'output.mp4')
+        merging = Converter.IsConverting(output)
+        if merging:
+            status = '合并中'
+        elif task.parent.fileName in self.merge_failed:
+            status = '合并失败'
+        elif task.outputs:
+            status = '已完成'
+        elif total and done == total:
+            status = '待合并'
+        elif pending:
+            status = ('暂停中' if requesting else '已暂停') if snapshot['paused'] else (
+                '下载中' if requesting else '等待下载')
+        elif failed:
+            status = '下载失败'
+        else:
+            status = '未开始' if not done else '待继续'
+        if failed:
+            status += f' · {len(failed)} 个失败'
+        return dict(total=total, done=done, percent=int(done * 100 / total) if total else 0,
+                    status=status, failed=failed, pending=pending, merging=merging,
+                    progress=f'{int(done * 100 / total) if total else 0}% · {done}/{total}')
+
+    def TaskActions(self, index):
+        task = self.fileTree.items[index]
+        info = self.TaskInfo(index)
+        idle = not info['pending'] and not info['merging']
+        downloadable = idle and not Downloader.IsPaused() and not task.outputs
+        return [
+            dict(id='start', label='继续' if info['done'] else '开始',
+                 enabled=bool(downloadable and info['done'] < info['total'])),
+            dict(id='retry', label='重试', enabled=bool(downloadable and info['failed'])),
+            dict(id='delete', label='删除', enabled=idle),
+            dict(id='more', label='更多', enabled=True),
+        ]
 
     def _SendEvent(self, payload=None):
         """发送自定义事件的方法"""
@@ -63,7 +115,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         return tuple(map(int, keyStr.split(".")))
 
     def GetColumnCount(self):
-        return 5  # 序列，文件名，文件大小，最后修改时间, 操作
+        return 7  # 原有列、进度、状态
     
     def GetColumnType(self, col):
         return "string"
@@ -129,27 +181,26 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         # print("GetValue keys:", keys)
+        if col in (5, 6):
+            if len(objs) != 1:
+                return ''
+            info = self.TaskInfo(objs[0])
+            return info['progress'] if col == 5 else info['status']
         if len(objs) == 1:
             idxi = objs[0]
+            parent = self.fileTree.items[idxi].parent
+            if parent is None:
+                return ''
             if col == 0:
                 return f"{idxi+1}"
             elif col == 1:
-                return self.fileTree.items[idxi].parent.fileName
+                return parent.fileName
             elif col == 2:
-                return self.fileTree.items[idxi].parent.fileSize
+                return parent.fileSize
             elif col == 3:
-                return self.fileTree.items[idxi].parent.modifyAt
+                return parent.modifyAt
             else:
-                # return f"{idxi+1}"
-                # 判断已下载个数 和 总TS文件格式是否相等
-                if self.fileTree.items[idxi].download == len(self.fileTree.items[idxi].childs):
-                    if len(self.fileTree.items[idxi].outputs) > 0:
-                        return "播放"
-                    else:
-                        return "转MP4"
-                return "下载全部"
-            # else:
-            #     return self.fileTree.items[idxi].parent.absUri
+                return json.dumps(self.TaskActions(idxi), ensure_ascii=False)
         elif len(objs) == 2:
             idxi = objs[0]
             idxj = objs[1]
@@ -166,6 +217,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                         return self.fileTree.items[idxi].outputs[idxj].fileSize
                     elif col == 3:
                         return self.fileTree.items[idxi].outputs[idxj].modifyAt
+                    return ''
                 else:
                     idxj -= coutputs
 
@@ -234,15 +286,19 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 pass
         elif len(objs) == 2:
             idxi = objs[0]
-            idxj = objs[1]
+            idxj = objs[1] - len(self.fileTree.items[idxi].outputs)
+            if not 0 <= idxj < len(self.fileTree.items[idxi].childs):
+                return False
+            was_missing = self.fileTree.items[idxi].childs[idxj].fileSize == '-'
             # self.fileTree.items[idxi].childs[idxj].fileSize = "--B"
             # self.fileTree.items[idxi].childs[idxj].modifyAt = "----:--:-- --:--"
             self.fileTree.items[idxi].childs[idxj].fileSize = variant.fileSize
             self.fileTree.items[idxi].childs[idxj].modifyAt = variant.modifyAt
 
             # 下载成功一个文件
-            self.fileTree.items[idxi].download += 1
-            if self.fileTree.items[idxi].download == len(self.fileTree.items[idxi].childs):
+            self.fileTree.items[idxi].download = sum(
+                child.fileSize != '-' for child in self.fileTree.items[idxi].childs)
+            if was_missing and self.fileTree.items[idxi].download == len(self.fileTree.items[idxi].childs):
                 # return "转MP4"
                 self._SendEvent(payload={"fileName": self.fileTree.items[idxi].parent.fileName})
             return True

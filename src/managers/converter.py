@@ -16,6 +16,11 @@ class Converter:
             return bool(cls._outputs)
 
     @classmethod
+    def IsConverting(cls, filename):
+        with cls._lock:
+            return os.path.abspath(filename) in cls._outputs
+
+    @classmethod
     def _ConvertTSFile(cls, playlist, outputFile='output.mp4', callback=None, item=None):
         success = False
         try:

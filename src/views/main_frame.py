@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import wx 
@@ -48,11 +49,76 @@ def toolbar_icon(name):
     ])
 
 
+class TaskActionRenderer(dv.DataViewCustomRenderer):
+    """Render a compact text action, aligned consistently across rows."""
+    def __init__(self, frame):
+        super().__init__('string', dv.DATAVIEW_CELL_ACTIVATABLE, wx.ALIGN_CENTER)
+        self.frame = frame
+        self.label = ''
+
+    def SetValue(self, value):
+        self.label = value
+        return True
+
+    def GetValue(self):
+        return self.label
+
+    def GetSize(self):
+        return self.frame.FromDIP(wx.Size(152, 24))
+
+    def _ActionRects(self, cell):
+        rect = wx.Rect(cell)
+        rect.Deflate(self.frame.FromDIP(4), 0)
+        return [wx.Rect(rect.x + rect.width * i // 4, rect.y,
+                        rect.width * (i + 1) // 4 - rect.width * i // 4, rect.height)
+                for i in range(4)]
+
+    def Render(self, cell, dc, state):
+        if not self.label:
+            return True
+        font = wx.Font(self.frame.mcTree.GetFont())
+        font.SetWeight(wx.FONTWEIGHT_NORMAL)
+        dc.SetFont(font)
+        colour = (wx.SYS_COLOUR_HIGHLIGHTTEXT if state & dv.DATAVIEW_CELL_SELECTED
+                  else wx.SYS_COLOUR_HOTLIGHT)
+        if self.label.startswith('['):
+            for action, rect in zip(json.loads(self.label), self._ActionRects(cell)):
+                dc.SetTextForeground(wx.SystemSettings.GetColour(
+                    colour if action['enabled'] else wx.SYS_COLOUR_GRAYTEXT))
+                dc.DrawLabel(action['label'], rect, wx.ALIGN_CENTER)
+        else:
+            dc.SetTextForeground(wx.SystemSettings.GetColour(colour))
+            dc.DrawLabel(self.label, cell, wx.ALIGN_CENTER)
+        return True
+
+    def ActivateCell(self, cell, model, item, col, mouseEvent):
+        value = model.GetValue(item, col)
+        if not value:
+            return False
+        if model.IsContainer(item):
+            actions = json.loads(value)
+            if mouseEvent is None:
+                # Enter defaults to download, or More; never delete via a default action.
+                action = actions[0] if actions[0]['enabled'] else actions[3]
+            else:
+                point = mouseEvent.GetPosition()  # Relative to the cell.
+                rects = self._ActionRects(wx.Rect(0, 0, cell.width, cell.height))
+                action = next((entry for entry, rect in zip(actions, rects) if rect.Contains(point)), None)
+            if action is None or not action['enabled']:
+                return False
+            self.frame.OnTaskAction(item, action['id'])
+        else:
+            event = dv.DataViewEvent(dv.wxEVT_DATAVIEW_ITEM_ACTIVATED, self.frame.mcTree, item)
+            self.frame.OnActivatedChanged(event)
+        return True
+
+
 class MainFrame(wx.Frame):
     def __init__(self, parent, title):
         # super(MyFrame, self).__init__(parent, title=title)
         super().__init__(parent, title=title)
         self.SetSize(width=1024, height=700)
+        self.SetMinSize(self.FromDIP(wx.Size(780, 420)))
         
         # 先加载 PNG/JPG，再转为 ICO， 调整尺寸（建议32x32或16x16）
         image = icon_image("app/logo.png", 32)
@@ -66,6 +132,11 @@ class MainFrame(wx.Frame):
         self._createStatusBar()
 
         self._createMainPanel()
+        self._task_display = {}
+        self._progressTimer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.OnTaskProgress, self._progressTimer)
+        self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
+        self._progressTimer.Start(500)
 
         self.Center()
         self.Show()
@@ -79,6 +150,9 @@ class MainFrame(wx.Frame):
         fileMenu.AppendSeparator()
         addMUItem   = fileMenu.Append(wx.ID_ANY, "&下载M3U8\tCtrl-M")
         addTSItem   = fileMenu.Append(wx.ID_ANY, "&下载TS\tCtrl-T")
+        pauseItem = fileMenu.Append(wx.ID_ANY, "全部暂停")
+        self.Bind(wx.EVT_MENU, self.OnPauseDownloads, pauseItem)
+        self.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads, pauseItem)
         fileMenu.AppendSeparator()
         # importM3U8  = fileMenu.Append(wx.ID_ANY, "&导入M3U8\tCtrl-D")
         # fileMenu.AppendSeparator()
@@ -173,16 +247,21 @@ class MainFrame(wx.Frame):
         btnExpand = wx.Button(panel, label="全部展开")
         btnCollapse = wx.Button(panel, label="全部折叠")
         btnRefresh = wx.Button(panel, label="刷新")
+        btnPause = wx.Button(panel, label="全部暂停")
+        btnPause.SetToolTip('暂停全部分片下载；已发出的请求允许完成，排队任务保留。')
         uriSizer.Add(bxSearch, proportion=50, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
         uriSizer.Add(btnExpand, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
         uriSizer.Add(btnCollapse, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
         uriSizer.Add(btnRefresh, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
+        uriSizer.Add(btnPause, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
         
         bxSearch.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnSearch)
         bxSearch.Bind(wx.EVT_TEXT, self.OnSearchText)
         btnExpand.Bind(wx.EVT_BUTTON, self.OnExpandAll)
         btnCollapse.Bind(wx.EVT_BUTTON, self.OnCollapseAll)
         btnRefresh.Bind(wx.EVT_BUTTON, self.OnRefresh)
+        btnPause.Bind(wx.EVT_BUTTON, self.OnPauseDownloads)
+        btnPause.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads)
 
         # 多列树布局
         # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_READONLY|wx.TE_RICH2)
@@ -193,16 +272,24 @@ class MainFrame(wx.Frame):
         self.mcTree = dv.DataViewCtrl(panel, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
         self.mcTree.AssociateModel(self.model)
         # 添加多列
-        self.mcTree.AppendTextColumn("序列", 0, width=80)
+        self.mcTree.AppendTextColumn("序列", 0, width=60)
         # # 自定义列
         # renderer = dv.DataViewTextRenderer()
         # renderer.EnableEllipsize(wx.ELLIPSIZE_END)
         # self.mcTree.AppendColumn(dv.DataViewColumn("文件名", renderer, 1, width=180, align=wx.ALIGN_LEFT))
         # self.mcTree.AppendTextColumn("文件名", 1, width=500)
-        self.mcTree.AppendTextColumn("文件名", 1, width=500)
-        self.mcTree.AppendTextColumn("文件大小", 2, width=100, align=wx.ALIGN_RIGHT)
-        self.mcTree.AppendTextColumn("修改时间", 3, width=140)
-        self.mcTree.AppendTextColumn("操作", 4, width=60)
+        self.mcTree.AppendTextColumn("文件名", 1, width=250)
+        self.mcTree.AppendTextColumn("下载进度", 5, width=140)
+        self.mcTree.AppendTextColumn("状态", 6, width=140)
+        self.mcTree.AppendTextColumn("文件大小", 2, width=90, align=wx.ALIGN_RIGHT)
+        self.mcTree.AppendTextColumn("修改时间", 3, width=130)
+        self.mcTree.AppendColumn(dv.DataViewColumn("操作", TaskActionRenderer(self), 4,
+                                                 width=self.FromDIP(160), align=wx.ALIGN_CENTER))
+        for index in range(self.mcTree.GetColumnCount()):
+            column = self.mcTree.GetColumn(index)
+            column.GetRenderer().EnableEllipsize(wx.ELLIPSIZE_END)
+            column.SetFlags(column.GetFlags() & ~wx.COL_RESIZABLE)
+        self.mcTree.Bind(wx.EVT_SIZE, self.OnTaskListSize)
         # self.mcTree.AppendTextColumn("下载地址", 5)
         # self.model.DecRef()  # 避免内存泄漏
         self.OnExpandAll(None)
@@ -210,16 +297,165 @@ class MainFrame(wx.Frame):
         # listSizer.Add(self.mulist, proportion=10, flag=wx.EXPAND|wx.ALL, border=5)
         # self.list.SetBackgroundColour(wx.RED)
 
-        # 点击选中
-        # self.mcTree.Bind(dv.EVT_DATAVIEW_SELECTION_CHANGED, self.OnSelectionChanged)
         # 双击下载
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_ACTIVATED, self.OnActivatedChanged)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_CONTEXT_MENU, self.OnTaskContextMenu)
         self.Bind(EVT_ALL_DOWNLOAD, self.OnAllTSDownload)
 
-        sizer.Add(uriSizer, flag=wx.ALL, border=0)
+        sizer.Add(uriSizer, flag=wx.EXPAND, border=0)
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND|wx.ALL, border=0)
         # 设置面板的sizer
         panel.SetSizer(sizer)
+        wx.CallAfter(self._FitTaskColumns)
+
+    def OnTaskListSize(self, event):
+        event.Skip()
+        if not getattr(self, '_columnFitPending', False):
+            self._columnFitPending = True
+            wx.CallAfter(self._FitTaskColumns)
+
+    def _FitTaskColumns(self):
+        self._columnFitPending = False
+        if not self or not self.mcTree:
+            return
+        size_key = (self.mcTree.GetSize().width, self.FromDIP(100))
+        if getattr(self, '_columnSizeKey', None) == size_key:
+            return
+        # Reserve space for the vertical scrollbar, including when it appears later.
+        available = (self.mcTree.GetSize().width
+                     - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
+                     - self.FromDIP(4))
+        if available <= 0:
+            return
+        self._columnSizeKey = size_key
+        widths = [self.FromDIP(value) for value in (50, 0, 110, 115, 85, 125, 160)]
+        widths[1] = max(1, available - sum(widths))
+        if sum(widths) > available:
+            # Also handle transient small sizes during window creation.
+            total = sum(widths)
+            widths = [max(1, value * available // total) for value in widths]
+        self.mcTree.Freeze()
+        try:
+            for index, width in enumerate(widths):
+                column = self.mcTree.GetColumn(index)
+                if column.GetWidth() != width:
+                    column.SetWidth(width)
+        finally:
+            self.mcTree.Thaw()
+
+    def OnDestroy(self, event):
+        if event.GetEventObject() is self:
+            self._progressTimer.Stop()
+        event.Skip()
+
+    def OnTaskProgress(self, event):
+        display = {}
+        for index, task in enumerate(self.model.fileTree.items):
+            info = self.model.TaskInfo(index)
+            state = (info['progress'], info['status'], json.dumps(self.model.TaskActions(index), ensure_ascii=False))
+            display[task.parent.fileName] = state
+            if self._task_display.get(task.parent.fileName) != state:
+                self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
+        self._task_display = display
+
+    def OnTaskAction(self, item, action_id='start'):
+        if not item.IsOk():
+            return
+        keys = self.model.ParseKey(self.model.ItemToObject(item))
+        if len(keys) != 1:
+            return
+        index = keys[0]
+        task = self.model.fileTree.items[index]
+        info = self.model.TaskInfo(index)
+        if action_id == 'merge':
+            if info['pending'] or info['merging'] or task.outputs or not info['total'] or info['done'] != info['total']:
+                return
+            self._CreateMP4File(task.parent.fileName, item)
+        else:
+            action = next((entry for entry in self.model.TaskActions(index) if entry['id'] == action_id), None)
+            if action is None or not action['enabled']:
+                return
+            if action_id == 'more':
+                self.OnTaskMenu(item)
+                return
+            if action_id == 'delete':
+                self.OnDeleteTask(task)
+                return
+        if action_id in ('start', 'retry'):
+            tasks = []
+            for segment_index, child in enumerate(task.childs):
+                key = Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
+                if child.fileSize == '-' and (action_id != 'retry' or key in info['failed']):
+                    child_item = self.model.ObjectToItem(self.model._BuildKey(
+                        (index, len(task.outputs) + segment_index)))
+                    tasks.append((segment_index, child_item))
+            self._DownloadFiles(task.parent.fileName, tasks)
+        self.model.ItemChanged(item)
+
+    def OnTaskContextMenu(self, event):
+        self.OnTaskMenu(event.GetItem())
+
+    def _OpenLocalPath(self, path):
+        target = Path(path)
+        if not target.exists():
+            wx.MessageBox('文件或目录已不存在，请刷新列表。', '提示', parent=self)
+            return
+        if not wx.LaunchDefaultApplication(str(target)):
+            wx.MessageBox('无法打开，请检查系统的默认应用设置。', '提示', parent=self)
+
+    def OnTaskMenu(self, item):
+        if not item.IsOk():
+            return
+        index = self.model.ParseKey(self.model.ItemToObject(item))[0]
+        task = self.model.fileTree.items[index]
+        directory = Path(PathManager.GetAbsPath(task.parent.fileName)).parent
+        menu = wx.Menu()
+
+        def add(label, callback, enabled=True):
+            entry = menu.Append(wx.ID_ANY, label)
+            entry.Enable(enabled)
+            menu.Bind(wx.EVT_MENU, lambda event: callback(), entry)
+
+        info = self.model.TaskInfo(index)
+        parent_item = self.model.ObjectToItem(self.model._BuildKey((index,)))
+        add('转 MP4', lambda: self.OnTaskAction(parent_item, 'merge'),
+            bool(info['total']) and info['done'] == info['total'] and not task.outputs
+            and not info['pending'] and not info['merging'])
+        add('打开文件夹', lambda: self._OpenLocalPath(directory))
+        if task.outputs:
+            for output in task.outputs:
+                path = PathManager.GetAbsPath(output.fileName)
+                add('播放视频：' + Path(path).name, lambda path=path: self._OpenLocalPath(path))
+        else:
+            add('播放视频（尚未生成）', lambda: None, False)
+        try:
+            self.mcTree.PopupMenu(menu)
+        finally:
+            menu.Destroy()
+
+    def OnDeleteTask(self, task):
+        try:
+            directory = FileManager.TaskDeletionDirectory(task.parent.fileName)
+        except (ValueError, OSError) as error:
+            wx.MessageBox(str(error), '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
+            return
+        dialog = wx.MessageDialog(self, '', '删除任务及文件',
+                                  wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
+        dialog.SetExtendedMessage(f'将永久删除以下任务文件夹及其中全部文件：\n\n{directory}\n\n'
+                                  '包括播放列表、已下载分片、MP4 和该目录中的其他文件。此操作无法撤销。')
+        dialog.SetYesNoLabels('删除', '取消')
+        try:
+            if dialog.ShowModal() != wx.ID_YES:
+                return
+        finally:
+            dialog.Destroy()
+        try:
+            FileManager.DeleteTaskDirectory(task.parent.fileName, directory)
+            self.model.merge_failed.discard(task.parent.fileName)
+        except (ValueError, OSError) as error:
+            wx.MessageBox(f'删除未完成：{error}', '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
+        finally:
+            self.OnRefresh(None)
 
     ###################################
     ### 事件所需函数
@@ -340,6 +576,22 @@ class MainFrame(wx.Frame):
     def OnExit(self, event):
         self.Close()
 
+    def OnPauseDownloads(self, event):
+        if Downloader.IsPaused():
+            Downloader.Resume()
+        else:
+            Downloader.Pause()
+        self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+
+    def OnUpdatePauseDownloads(self, event):
+        paused = Downloader.IsPaused()
+        busy = Downloader.IsBusy()
+        event.SetText('全部继续' if paused else '全部暂停')
+        event.Enable(paused or busy)
+        snapshot = Downloader.Snapshot()
+        self.statusBar.SetStatusText(('暂停中' if snapshot['requesting'] else '已暂停') if paused
+                                     else ('正在下载' if busy else '就绪'), 0)
+
     def OnToggleToolBar(self, event):
         '''隐藏展示工具栏'''
         self.toolBar.Show(self.showToolItem.IsChecked())
@@ -364,8 +616,13 @@ class MainFrame(wx.Frame):
             '1. 添加任务\n'
             '通过“文件 → 下载M3U8”输入播放列表网址，或通过“下载TS”按分片命名规则创建任务。\n\n'
             '2. 下载与合并\n'
+            '任务行固定显示“开始/继续、重试、删除、更多”，不可用的操作会置灰。'
+            '“更多”或右键菜单提供转 MP4、播放视频和打开文件夹。删除会确认是否删除任务及本地文件。'
+            '进度按已完成分片数计算。\n'
             '双击列表中的任务行下载全部分片，也可双击未下载的分片行单独下载。'
             '全部下载完成后，任务的操作变为“转MP4”，双击即可合并。\n\n'
+            '点击“全部暂停”可暂停全部分片任务；已发出的请求允许完成，此时显示“暂停中”。'
+            '这些请求结束后显示“已暂停”。点击“全部继续”后接着下载排队分片，暂停不影响 MP4 合并。\n\n'
             '3. 下载设置\n'
             '通过“文件 → 设置”（Ctrl+,）调整保存目录、并发、请求间隔、重试、超时及自动合并。'
             '合并需要 FFmpeg，路径留空时先查找 scripts 目录，再查找系统 PATH。\n\n'
@@ -420,6 +677,9 @@ class MainFrame(wx.Frame):
 
     def OnActivatedChanged(self, event):
         """选中项变化事件"""
+        column = event.GetDataViewColumn()
+        if column is not None and column.GetModelColumn() == 4:
+            return  # The custom renderer handles action cells on a single click.
         item = event.GetItem()
         if not item.IsOk():
             return
@@ -430,36 +690,15 @@ class MainFrame(wx.Frame):
         # 解析索引
         keys = self.model.ItemToObject(item)
         objs = self.model.ParseKey(keys)
-        if len(objs) == 1:      # 父节点
-            if item.IsOk():
-                tsSeed = self.model.GetValue(item, 1)
-                if value == "转MP4":
-                    # wx.MessageBox(f"将要合并多少个文件。", "提示")
-                    self._CreateMP4File(tsSeed, item)
-                    return
-                elif value == "下载全部":
-                    pass
-                else:
-                    wx.MessageBox(f"【{value}】操作暂不支持。", "提示")
-                    return
-
-                # # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.ICON_QUESTION)
-                # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.OK|wx.ICON_INFORMATION)
-                # if dlg != wx.ID_OK:
-                #     return
-                tasks = []
-                childs = []
-                self.model.GetChildren(item, childs)
-                for idxj, child in enumerate(childs):
-                    tasks.append((idxj, child))
-                count = self._DownloadFiles(tsSeed, tasks)
-
-                # dlg = wx.MessageBox(f"是否下载{tsSeed}文件中，所有TS文件。", "提示", style=wx.ICON_QUESTION)
-                wx.MessageBox(f"共需提交{count}个下载任务。", "提示", style=wx.OK|wx.ICON_INFORMATION)
+        if len(objs) == 1:
+            self.OnTaskAction(item)
+            return
         elif len(objs) == 2:    # 子节点
             parent = self.model.GetParent(item)
             if parent.IsOk():
-                idxj = objs[1]
+                idxj = objs[1] - len(self.model.fileTree.items[objs[0]].outputs)
+                if idxj < 0:
+                    return
                 # tsName = self.model.GetValue(item, 1)
                 tsSeed = self.model.GetValue(parent, 1)
                 # # dlg = wx.MessageBox(f"是否下载{tsName}文件。", "提示", style=wx.ICON_QUESTION)
@@ -496,18 +735,17 @@ class MainFrame(wx.Frame):
     def _DownloadCall(self, flag: bool, fileName: str, item):
         if flag:
             flag, fileItem = FileManager.GetFileItem(fileName)
-
-            # # 方法一，更新所有数据，并展开
-            # self.OnRefresh(None)
-            # self.OnExpandAll(None)
-
-            # 方法二，更新 item 的低0列数据 （不用刷新整个页面，还能保证上一次是否展开）
-            self.model.SetValue(variant=fileItem, item=item, col=0)
-            self.model.ValueChanged(item, 0)
-        else:
-            # wx.MessageBox(f"错误信息：{fileName}", "提示")
-            pass
-        return
+            if not flag:
+                return
+            key = Downloader.FileKey(fileName)
+            for index, task in enumerate(self.model.fileTree.items):
+                for segment_index, child in enumerate(task.childs):
+                    if Downloader.FileKey(PathManager.GetAbsPath(child.fileName)) == key:
+                        current = self.model.ObjectToItem(self.model._BuildKey(
+                            (index, len(task.outputs) + segment_index)))
+                        self.model.SetValue(variant=fileItem, item=current, col=0)
+                        self.model.ItemChanged(current)
+                        self.model.ItemChanged(self.model.GetParent(current))
 
     def _DownloadFiles(self, tsSeed: str, tasks: list):
         '''下载文件并修改视图状态'''
@@ -537,8 +775,8 @@ class MainFrame(wx.Frame):
                 continue
             PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
 
-            Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item)
-            count += 1
+            if Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item):
+                count += 1
         if missing_source:
             wx.MessageBox("部分分片缺少下载地址，请提供完整网址或配套的 seed 文件。", "提示")
         return count
@@ -551,13 +789,26 @@ class MainFrame(wx.Frame):
         FileManager.CreateM3U8File(absDir, absSeed)
 
     def _CreateMP4Call(self, flag: bool, fileName: str, item):
+        # A refresh can reorder rows while FFmpeg is running.
+        output_dir = Downloader.FileKey(PathManager.GetAbsDir(fileName))
+        task = None
+        for index, candidate in enumerate(self.model.fileTree.items):
+            if Downloader.FileKey(PathManager.GetAbsDir(PathManager.GetAbsPath(candidate.parent.fileName))) == output_dir:
+                task = candidate
+                item = self.model.ObjectToItem(self.model._BuildKey((index,)))
+                break
+        if task is None:
+            return
         if flag:
             code, newFile = FileManager.GetFileItem(fileName)
             # 插入数据
-            self.model.InsertChildData(item, newFile)
+            if not any(output.fileName == newFile.fileName for output in task.outputs):
+                self.model.InsertChildData(item, newFile)
+            self.model.merge_failed.discard(task.parent.fileName)
             # 刷新视图
             self._RefreshWithState()
         else:
+            self.model.merge_failed.add(task.parent.fileName)
             wx.MessageBox(f"视频文件合并失败", "提示")
 
     def _CreateMP4File(self, tsSeed: str, item):
@@ -581,4 +832,5 @@ class MainFrame(wx.Frame):
             wx.MessageBox("播放列表无效，无法生成合并清单。", "提示")
             return
 
+        self.model.merge_failed.discard(tsSeed)
         Converter.ConvertTSFile(playlist, outputFile, self._CreateMP4Call, item)
