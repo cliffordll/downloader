@@ -2,12 +2,16 @@ import wx
 
 from src.views.downloads.edit_ts import DownloadEditTS
 from src.views.downloads.download_path import DownloadPath
-from src.managers.file_manager import FileManager
+import sqlite3
+from src.managers.task_service import TaskService
+from src.managers.task_repository import TaskDataError
+from src.schemas.task import SourceType
 
 class DownloadDialogTS(wx.Dialog):
-    def __init__(self, parent, title, workPath):
+    def __init__(self, parent, title, workPath, task_service=None):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent)
+        self.tasks = task_service or TaskService()
         self.SetTitle(title)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
@@ -35,19 +39,18 @@ class DownloadDialogTS(wx.Dialog):
         self.downPath.SetDownPath(baseUri=baseUri)
 
     def OnDownBtnClicked(self, event):
-        downPath = self.downPath.GetDownPath() 
-        print("OnDownBtnClicked", downPath)
 
         # 获取下载参数
         baseUri = self.downEdit.GetBaseURI()
         basePath = self.downEdit.GetBasePath()
         content = self.downEdit.GetContent()
 
-        # 创建下载种子
-        flag = FileManager().CreateSeedFile(downPath, basePath, baseUri, content)
-        if flag:
-            wx.MessageBox(f"下载任务创建成功，请到首页查看。", "提示", wx.ICON_INFORMATION)
-            # self.OnClose(None)
-            self.EndModal(wx.OK)
-        else:
-            wx.MessageBox(f"下载任务创建失败，请稍后重试。", "提示", wx.ICON_WARNING)
+        try:
+            downPath = self.downPath.GetDownPath()
+            self.tasks.create_m3u8(downPath, baseUri, content, basePath,
+                                   source_type=SourceType.TS_PATTERN,
+                                   ts_pattern=self.downEdit.tcReg.GetValue().strip() or None)
+        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(f"下载任务创建失败：{error}", "提示", wx.ICON_WARNING, parent=self)
+            return
+        self.EndModal(wx.OK)

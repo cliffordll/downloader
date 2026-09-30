@@ -2,7 +2,7 @@ import wx
 import json
 # import wx.gizmos as gizmos
 import wx.dataview as dv
-from src.managers.file_manager import FileManager
+from src.managers.task_service import TaskService
 from src.managers.path_manager import PathManager
 from src.managers.downloader import Downloader
 from src.managers.converter import Converter
@@ -51,7 +51,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     """
     def __init__(self, parent=None):
         super().__init__()
-        self.fileTree = FileManager.GetFileInfos()
+        self.tasks = TaskService()
+        self.fileTree = self.tasks.load_tree()
         # None 表示全部；筛选只改变根节点可见性，不删任务、不改变下载回调使用的索引。
         self.visible_tasks = None
         # 因为 ObjectToItem(obj) 在库内部维护一张map，key 为 id(obj)，所以 obj 对象不能变
@@ -294,7 +295,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             if col == 0:
                 return f"{idxi+1}"
             elif col == 1:
-                return parent.fileName
+                return parent.displayName or parent.fileName
             elif col == 2:
                 return parent.fileSize
             elif col == 3:
@@ -312,7 +313,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                         return f"{idxi+1}.{idxj}"
                     elif col == 1:
                         # print("#############33", objs, self.fileTree.items[idxi].outputs[idxj])
-                        return self.fileTree.items[idxi].outputs[idxj].fileName
+                        output = self.fileTree.items[idxi].outputs[idxj]
+                        return output.displayName or output.fileName
                     elif col == 2:
                         return self.fileTree.items[idxi].outputs[idxj].fileSize
                     elif col == 3:
@@ -326,7 +328,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             if col == 0:
                 return f"{idxi+1}.{idxj+1}"
             elif col == 1:
-                return self.fileTree.items[idxi].childs[idxj].fileName
+                child = self.fileTree.items[idxi].childs[idxj]
+                return child.displayName or child.fileName
             elif col == 2:
                 return self.fileTree.items[idxi].childs[idxj].fileSize
             elif col == 3:

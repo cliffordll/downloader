@@ -31,7 +31,7 @@ class TaskProgressTests(unittest.TestCase):
             patch.object(Downloader, '_paused_files', set()),
                         patch.object(Downloader, '_user_paused', threading.Event()),
                         patch.object(Converter, '_outputs', set()),
-                        patch('src.models.tree_model.FileManager.GetFileInfos', return_value=self.tree)):
+                        patch('src.models.tree_model.TaskService.load_tree', return_value=self.tree)):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.model = MultiColumnTreeModel()
@@ -197,6 +197,7 @@ class TaskProgressTests(unittest.TestCase):
                 frame.OnTaskMenu(item)
                 child = frame.model.ObjectToItem(frame.model._BuildKey((0, 0)))
                 frame.OnTaskMenu(child)
+            Downloader._pending.clear()
             with patch('src.views.main_frame.FileManager.TaskDeletionDirectory', return_value='task'), \
                  patch('src.views.main_frame.FileManager.DeleteTaskDirectory') as delete, \
                  patch('src.views.main_frame.wx.MessageDialog') as dialog:

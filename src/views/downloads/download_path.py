@@ -1,4 +1,5 @@
 import wx
+from pathlib import Path
 from src.managers.sys_setting import SysSetting
 from src.managers.file_manager import FileManager
 from src.managers.path_manager import PathManager
@@ -26,7 +27,7 @@ class DownloadPath(wx.Panel):
         self.lblPath.SetBackgroundColour(wx.LIGHT_GREY)
         self.tcDown = wx.TextCtrl(self)
         self.tcDown.SetHint("任务子目录，例如 video01")
-        self.tcDown.SetToolTip("文件保存在左侧下载根目录与此任务子目录组合的位置。")
+        self.tcDown.SetToolTip("填写尚不存在的任务子目录，文件保存在左侧下载根目录与此子目录组合的位置。")
 
         btnDown = wx.Button(self, label="下载")
         btnDown.Bind(wx.EVT_BUTTON, self.OnBtnDownClicked)
@@ -48,10 +49,11 @@ class DownloadPath(wx.Panel):
     
     def GetDownPath(self):
         '''返回绝对路径'''
-        downPath = self.lblPath.GetLabel().strip()
-        downPath += self._GetDownPath()
-        # print(downPath)
-        return downPath
+        root = Path(self.lblPath.GetLabel().strip()).resolve()
+        directory = (root / self._GetDownPath()).resolve()
+        if root not in directory.parents:
+            raise ValueError('请填写下载根目录内的任务子目录。')
+        return str(directory)
 
     def OnBtnDownClicked(self, event):
         """按钮点击事件处理函数"""
@@ -59,4 +61,9 @@ class DownloadPath(wx.Panel):
         if not downPath:
             wx.MessageBox(f"请输入保存子目录，或获取播放列表后自动生成。", "警告", wx.ICON_WARNING)
         else:
+            try:
+                self.GetDownPath()
+            except ValueError as error:
+                wx.MessageBox(str(error), '警告', wx.ICON_WARNING, parent=self)
+                return
             event.Skip()

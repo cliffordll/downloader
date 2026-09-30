@@ -1,9 +1,11 @@
 import time
 from pydantic import BaseModel, Field, field_validator
 from typing import Union, List, Optional
+from uuid import UUID
 
 class FileItem(BaseModel):
     fileName: str
+    displayName: str = ''  # 界面名称与内部绝对路径分离，切换默认目录不影响已有任务。
     fileSize: Union[str, int]           = Field(default='-')
     modifyAt: Union[str, int, float]    = Field(default="----:--:-- --:--")
     absUri: str                         = Field(default="")
@@ -33,6 +35,7 @@ class FileItem(BaseModel):
         return v
 
 class TreeItem(BaseModel):
+    task_id: Optional[UUID] = None  # 数据库身份，不使用行号作为持久化标识。
     parent: Optional[FileItem]  = None
     outputs: List[FileItem]     = []    # 输出文件，mp4，支持多个
     childs: List[FileItem]      = []

@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 
 import wx 
@@ -14,6 +15,7 @@ from src.managers.downloader import Downloader
 from src.managers.converter import Converter
 from src.managers.sys_setting import SysSetting
 from src.managers.path_manager import PathManager
+from src.managers.task_repository import TaskDataError
 
 ICON_ROOT = Path(__file__).resolve().parents[2] / "icons"
 ICON_FILES = {
@@ -634,7 +636,7 @@ class MainFrame(wx.Frame):
                 self.OnTaskMenu(item)
                 return
             if action_id == 'delete':
-                # 删除处理函数会再次检查目录和运行状态，并弹出确认框。
+                # 删除处理函数会再次检查运行状态，并确认只删除任务记录。
                 self.OnDeleteTask(task)
                 return
         if action_id in ('start', 'retry'):
@@ -709,28 +711,33 @@ class MainFrame(wx.Frame):
             menu.Destroy()
 
     def OnDeleteTask(self, task):
-        try:
-            directory = FileManager.TaskDeletionDirectory(task.parent.fileName)
-        except (ValueError, OSError) as error:
-            wx.MessageBox(str(error), '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
+        """本阶段只删除数据库记录；下载文件保留，不再递归删除任务目录。"""
+        def busy():
+            keys = {Downloader.FileKey(child.fileName) for child in task.childs}
+            output = str(Path(task.parent.fileName).parent / 'output.mp4')
+            return bool(keys & Downloader.Snapshot()['pending']) or Converter.IsConverting(output)
+
+        if busy():
+            wx.MessageBox('任务仍在下载、排队或合并中，暂时不能删除。', '无法删除',
+                          wx.OK | wx.ICON_WARNING, parent=self)
             return
-        dialog = wx.MessageDialog(self, '', '删除任务及文件',
-                                  wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
-        dialog.SetExtendedMessage(f'将永久删除以下任务文件夹及其中全部文件：\n\n{directory}\n\n'
-                                  '包括播放列表、已下载分片、MP4 和该目录中的其他文件。此操作无法撤销。')
-        dialog.SetYesNoLabels('删除', '取消')
+        dialog = wx.MessageDialog(self, '', '删除任务', wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
+        dialog.SetExtendedMessage('将从列表和数据库中删除此任务，已下载的文件会保留。')
+        dialog.SetYesNoLabels('删除任务', '取消')
         try:
             if dialog.ShowModal() != wx.ID_YES:
                 return
         finally:
             dialog.Destroy()
         try:
-            FileManager.DeleteTaskDirectory(task.parent.fileName, directory)
+            if busy():
+                raise ValueError('任务状态已变化，请停止下载后再删除。')
+            self.model.tasks.repository.delete(task.task_id)
             self.model.merge_failed.discard(task.parent.fileName)
-        except (ValueError, OSError) as error:
+        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'删除未完成：{error}', '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
-        finally:
-            self.OnRefresh(None)
+            return
+        self.OnRefresh(None)
 
     ###################################
     ### 事件所需函数
@@ -746,9 +753,9 @@ class MainFrame(wx.Frame):
         label = f'显示 {visible} / {total} 个任务'
         if self.filterCount.GetLabel() != label:
             self.filterCount.SetLabel(label)
-        empty = visible == 0
         filtered = bool(self._filterText) or self.statusFilter.GetSelection() > 0
-        self.emptyText.SetLabel('没有符合条件的任务' if filtered else '暂无任务，请从文件菜单或工具栏添加')
+        # 无任务时保持空列表；仅筛选无匹配结果时显示清除筛选提示。
+        empty = total > 0 and visible == 0 and filtered
         self.clearFiltersButton.Show(filtered)
         if self.emptyPanel.IsShown() != empty:
             self.emptyPanel.Show(empty)
@@ -756,7 +763,7 @@ class MainFrame(wx.Frame):
         if empty:
             self.emptyPanel.Layout()
 
-    def _ApplyTaskFilter(self, force=False):
+    def _ApplyTaskFilter(self, force=False, expanded_keys=None):
         """只筛选根任务，保持原始任务索引，避免筛选后暂停、删除或下载回调操作错行。"""
         text = self._filterText
         status = self.statusFilter.GetStringSelection()
@@ -765,7 +772,8 @@ class MainFrame(wx.Frame):
             visible = set()
             for index, task in enumerate(self.model.fileTree.items):
                 if text and not (
-                    (task.parent and text in task.parent.fileName.casefold())
+                    (task.parent and (text in task.parent.fileName.casefold()
+                                     or text in task.parent.displayName.casefold()))
                     or any(text in file.fileName.casefold() for file in task.outputs)
                     or any(text in file.fileName.casefold() for file in task.childs)
                 ):
@@ -774,9 +782,10 @@ class MainFrame(wx.Frame):
                     continue
                 visible.add(index)
         if force or visible != self.model.visible_tasks:
-            expanded = set()
+            expanded = set() if expanded_keys is None else set(expanded_keys)
             root = dv.NullDataViewItem
-            self._SaveExpandState(root, expanded)
+            if expanded_keys is None:
+                self._SaveExpandState(root, expanded)
             # 刷新时只给新任务应用默认值，已存在任务保留用户手动展开/折叠的状态。
             if SysSetting.GetAll()['default_expand_tasks']:
                 for index, task in enumerate(self.model.fileTree.items):
@@ -848,7 +857,7 @@ class MainFrame(wx.Frame):
     
     def OnAddMU(self, event):
         workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogMU(None, "M3U8 URI", workPath)
+        dlg = DownloadDialogMU(self, "M3U8 URI", workPath, task_service=self.model.tasks)
         result = dlg.ShowModal()
         if result == wx.OK:
             # 创建新任务成功，自动刷新页面
@@ -857,7 +866,7 @@ class MainFrame(wx.Frame):
 
     def OnAddTS(self, event):
         workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogTS(None, "M3U8 TS", workPath)
+        dlg = DownloadDialogTS(self, "M3U8 TS", workPath, task_service=self.model.tasks)
         result = dlg.ShowModal()
         if result == wx.OK:
             # 创建新任务成功，自动刷新页面
@@ -866,17 +875,11 @@ class MainFrame(wx.Frame):
     
     def OnSetting(self, event):
         from src.views.tab_setting import SettingsDialog
-        previous = SysSetting.GetWorkPath()
         dlg = SettingsDialog(self)
         try:
-            if dlg.ShowModal() == wx.ID_OK and previous != SysSetting.GetWorkPath():
-                self.model.fileTree = FileManager.GetFileInfos()
-                self.model.visible_tasks = None
-                self._knownTaskPaths = set()
-                self.model.Cleared()
-                self._ApplyTaskFilter(force=True)
-                # 切换工作目录也按默认展开偏好加载，不无条件展开全部。
-                # self.OnExpandAll(None)
+            # 设置只影响之后新建任务的默认目录，已有行及其绝对路径保持不变。
+            dlg.ShowModal()
+            # self.OnExpandAll(None)
         finally:
             dlg.Destroy()
 
@@ -980,10 +983,10 @@ class MainFrame(wx.Frame):
             '清空关键词并选择“全部状态”恢复全部任务。隐藏任务仍继续下载。\n\n'
             '2. 下载与合并\n'
             '任务行固定显示“开始/暂停/继续、重试、删除、展开/折叠、更多”，不可用的操作会置灰。'
-            '“更多”或右键菜单提供转 MP4、播放视频和打开文件夹。删除会确认是否删除任务及本地文件。'
+            '“更多”或右键菜单提供转 MP4、播放视频和打开文件夹。删除只移除任务记录，保留本地文件。'
             '行内“暂停/继续”只控制当前任务，已发出的请求允许完成。进度按已完成分片数计算。\n'
             '双击任务行展开或折叠分片列表；下载请点击操作列中的开始、继续或下载。'
-            '全部下载完成后，任务的操作变为“转MP4”，双击即可合并。\n\n'
+            '全部下载完成后，可从“更多”中选择“转 MP4”。\n\n'
             '点击“全部暂停”可暂停全部分片任务；已发出的请求允许完成，此时显示“暂停中”。'
             '这些请求结束后显示“已暂停”。点击“全部继续”后接着下载排队分片，暂停不影响 MP4 合并。\n\n'
             '3. 下载设置\n'
@@ -995,8 +998,8 @@ class MainFrame(wx.Frame):
         ))
 
     def OnAbout(self, event):
-        self._ShowInformation('关于视频下载', (
-            '视频下载\n\n'
+        self._ShowInformation('关于 AVDownloader', (
+            'AVDownloader\n\n'
             '支持 M3U8 播放列表、TS 分片下载及 FFmpeg 合并 MP4。\n\n'
             '项目地址：\nhttps://github.com/cliffordll/downloader'
         ))
@@ -1062,16 +1065,22 @@ class MainFrame(wx.Frame):
         self._RecursiveExpand(root, False)
 
     def OnRefresh(self, event):
-        # 完全重置数据
-        self.model.fileTree = FileManager.GetFileInfos()
-
-        # 方法1：刷新全部，默认折叠
-        # # 不需要调用 ValueChanged()
-        # # 因为 Cleared() 已经通知视图重新加载数据
-        # self.model.Cleared()
-
-        # 方法2：记录上一次的展开折叠状态
-        self._RefreshWithState()
+        # 只从数据库恢复任务；读取失败保留当前列表，不退回扫描目录。
+        try:
+            tree = self.model.tasks.load_tree()
+        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(f'读取任务失败：{error}', '刷新失败', wx.OK | wx.ICON_WARNING, parent=self)
+            return
+        # 删除或新增记录会改变行号，先按任务身份保存展开状态，再映射到新行。
+        expanded_ids = set()
+        for index, task in enumerate(self.model.fileTree.items):
+            item = self.model.ObjectToItem(self.model._BuildKey((index,)))
+            if self.mcTree.IsExpanded(item):
+                expanded_ids.add(task.task_id or task.parent.fileName)
+        self.model.fileTree = tree
+        expanded = {self.model._BuildKey((index,)) for index, task in enumerate(tree.items)
+                    if (task.task_id or task.parent.fileName) in expanded_ids}
+        self._ApplyTaskFilter(force=True, expanded_keys=expanded)
 
     def OnActivatedChanged(self, event):
         """任务双击/键盘激活只展开或折叠，普通分片单元格激活不下载。"""
@@ -1135,45 +1144,42 @@ class MainFrame(wx.Frame):
                         self.model.ItemChanged(self.model.GetParent(current))
 
     def _DownloadFiles(self, tsSeed: str, tasks: list):
-        '''下载文件并修改视图状态'''
-        absSeed = PathManager.GetAbsPath(tsSeed)
-        absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
-
-        tsList = FileManager.GetSegments(absSeed)
-        if not tsList or any(idx < 0 or idx >= len(tsList) for idx, _ in tasks):
-            wx.MessageBox("播放列表无效或已发生变化，请刷新后重试。", "提示")
+        """使用数据库投影中的分片地址和绝对路径，清单文件不是下载依据。"""
+        task = next((task for task in self.model.fileTree.items
+                     if task.parent and task.parent.fileName == tsSeed), None)
+        if task is None or any(index < 0 or index >= len(task.childs) for index, _ in tasks):
+            wx.MessageBox('任务不存在或分片已变化，请刷新后重试。', '提示')
             return 0
-        missing_source = False
         count = 0
-        for task in tasks:
-            idx = task[0]
-            item = task[1]
-            tsName = tsList[idx].name
-            absUri = tsList[idx].absUri
-
-            if not tsName:
+        for index, item in tasks:
+            child = task.childs[index]
+            path = Path(child.fileName)
+            if path.is_file():
                 continue
-            absFile = PathManager.JoinPath(absDir, tsName)
-            # 文件已经存在，返回
-            if PathManager.IsExists(absFile):
+            if not child.absUri:
+                wx.MessageBox('分片缺少下载地址，请重新创建任务。', '提示')
                 continue
-            if not absUri:
-                missing_source = True
-                continue
-            PathManager.MakeDirsByFile(absFile)        # 判断最后一层目录是否存在（针对ts uri 有/）
-
-            if Downloader.DownloadTSFile(absUri, absFile, self._DownloadCall, item):
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as error:
+                wx.MessageBox(f'无法创建下载目录：{error}', '提示')
+                return count
+            if Downloader.DownloadTSFile(child.absUri, str(path), self._DownloadCall, item):
                 count += 1
-        if missing_source:
-            wx.MessageBox("部分分片缺少下载地址，请提供完整网址或配套的 seed 文件。", "提示")
         return count
-    
-    def _CreateM3U8File(self, tsSeed):
-        '''创建M3U8文件'''
-        absSeed = PathManager.GetAbsPath(tsSeed)
-        absDir = PathManager.GetAbsDir(absSeed)    # 下载文件路径
 
-        FileManager.CreateM3U8File(absDir, absSeed)
+    def _CreateM3U8File(self, tsSeed):
+        """本地播放列表是可重建文件，丢失后从任务库恢复。"""
+        task = next((task for task in self.model.fileTree.items
+                     if task.parent and task.parent.fileName == tsSeed), None)
+        try:
+            if task is None:
+                raise ValueError('任务不存在，请刷新后重试。')
+            self.model.tasks.write_playlist(task.task_id)
+            return True
+        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(f'生成本地播放列表失败：{error}', '提示')
+            return False
 
     def _CreateMP4Call(self, flag: bool, fileName: str, item):
         # A refresh can reorder rows while FFmpeg is running.
@@ -1188,6 +1194,8 @@ class MainFrame(wx.Frame):
             return
         if flag:
             code, newFile = FileManager.GetFileItem(fileName)
+            newFile.fileName = str(Path(fileName).resolve())
+            newFile.displayName = Path(fileName).name
             # 插入数据
             if not any(output.fileName == newFile.fileName for output in task.outputs):
                 self.model.InsertChildData(item, newFile)
@@ -1199,6 +1207,8 @@ class MainFrame(wx.Frame):
             wx.MessageBox(f"视频文件合并失败", "提示")
 
     def _CreateMP4File(self, tsSeed: str, item):
+        if not self._CreateM3U8File(tsSeed):
+            return
         absSeed = PathManager.GetAbsPath(tsSeed)
         absDir = PathManager.GetAbsDir(absSeed)
 

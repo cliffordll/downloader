@@ -96,7 +96,7 @@ class PlaylistHandlingTests(unittest.TestCase):
         self.seed(content)
         path = self.write('download.m3u8', content)
         receiver = SimpleNamespace(_DownloadCall=lambda *args: None)
-        for view in (MainFrame, TabIndex):
+        for view in (TabIndex,):
             with self.subTest(view=view.__name__), patch.object(Downloader, 'DownloadTSFile') as download:
                 view._DownloadFiles(receiver, str(path), [(0, None), (1, None)])
                 self.assertEqual([call.args[0] for call in download.call_args_list], [
@@ -107,7 +107,7 @@ class PlaylistHandlingTests(unittest.TestCase):
     def test_missing_source_is_reported_without_starting_download(self):
         path = self.write('local.m3u8', playlist('a.ts'))
         receiver = SimpleNamespace(_DownloadCall=lambda *args: None)
-        for view in (MainFrame, TabIndex):
+        for view in (TabIndex,):
             with self.subTest(view=view.__name__), patch('wx.MessageBox') as message, patch.object(
                 Downloader, 'DownloadTSFile'
             ) as download:
@@ -118,7 +118,7 @@ class PlaylistHandlingTests(unittest.TestCase):
     def test_changed_playlist_does_not_cause_index_error(self):
         path = self.write('local.m3u8', playlist('a.ts'))
         receiver = SimpleNamespace(_DownloadCall=lambda *args: None)
-        for view in (MainFrame, TabIndex):
+        for view in (TabIndex,):
             with self.subTest(view=view.__name__), patch('wx.MessageBox') as message, patch.object(
                 Downloader, 'DownloadTSFile'
             ) as download:
@@ -141,7 +141,6 @@ class PlaylistHandlingTests(unittest.TestCase):
         path = self.write('download.m3u8', '')
         receiver = SimpleNamespace(_CreateMP4Call=lambda *args: None)
         with patch('wx.MessageBox'), patch.object(Converter, 'ConvertTSFile') as convert:
-            MainFrame._CreateMP4File(receiver, str(path), None)
             TabIndex._CreatePlaylist(receiver, str(path))
             convert.assert_not_called()
         self.assertFalse((self.root / 'playlist.txt').exists())
