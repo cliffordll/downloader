@@ -21,6 +21,7 @@ class DownloadSnapshot(TypedDict):
     failed: set[str]
     paused: bool
     paused_files: set[str]
+    errors: dict[str, str]
 
 
 class _TaskPaused(Exception):
@@ -41,6 +42,7 @@ class Downloader:
     _pending = set()  # 已接收且尚未完成通知的文件，用于防重复提交和判断忙碌。
     _requesting = set()  # 已获准发出请求、尚未结束的文件，用于区分暂停中/已暂停。
     _failed = set()  # 本次运行中失败的文件，重新入队时清除对应记录。
+    _errors = {}  # 文件键 → 最后错误；完成回调将错误写入任务库。
     _paused_files = set()  # 单任务暂停通过暂停该任务的待完成文件实现。
     _master = None  # 后台调度线程；有任务时按需启动。
     _shutdown = threading.Event()  # 程序退出信号；wait(timeout) 可在退出时提前结束等待。
@@ -70,6 +72,7 @@ class Downloader:
                 'failed': set(cls._failed),
                 'paused': cls.IsPaused(),
                 'paused_files': set(cls._paused_files),
+                'errors': dict(cls._errors),
             }
 
     @classmethod
@@ -211,6 +214,8 @@ class Downloader:
                                                    request_key=cls.FileKey(fileName))
             if not success:
                 print(f'下载失败：{fileName}：{content}')
+                with cls.threadLock:
+                    cls._errors[cls.FileKey(fileName)] = str(content)
                 return False, fileName
             Path(fileName).parent.mkdir(parents=True, exist_ok=True)
             with open(partial, 'wb') as output:
@@ -219,6 +224,8 @@ class Downloader:
             return True, fileName
         except OSError as exc:
             print(f'保存失败：{fileName}：{exc}')
+            with cls.threadLock:
+                cls._errors[cls.FileKey(fileName)] = str(exc)
             return False, fileName
         finally:
             if os.path.isfile(partial):
@@ -232,7 +239,7 @@ class Downloader:
         """界面提交一个分片：只负责去重入队，不在调用线程中等待网络请求。
 
         返回 True 表示接受入队，不代表下载成功；重复任务或程序退出时返回 False。
-        item 随任务带回回调，但刷新可能改变行号，界面应按文件路径重新定位。
+        item 是回调上下文，新界面传入 (任务 UUID, 分片序号)，不能使用界面行号。
         """
         key = cls.FileKey(absFile)
         with cls.threadLock:
@@ -240,6 +247,7 @@ class Downloader:
                 return False
             cls._pending.add(key)
             cls._failed.discard(key)
+            cls._errors.pop(key, None)
             cls.threadQueue.put((absUri, absFile, callback, item, key))
             if cls.isStop:
                 cls.isStop = False
@@ -251,19 +259,22 @@ class Downloader:
     def _Deliver(cls, task, success):
         """由 wx.CallAfter 在主线程调用，安全执行界面回调并清理任务状态。
 
-        已销毁的窗口不再接收回调；finally 保证回调异常也不会让 pending 永久残留。
+        先清理队列状态再通知，使回调保存的状态不包含刚完成的请求。
+        已销毁的窗口不再接收回调，启动恢复会核对已经原子写入的文件。
         """
         _, filename, callback, item, key = task
-        try:
-            owner = getattr(callback, '__self__', None)
-            if not cls._shutdown.is_set() and not (isinstance(owner, wx.Window) and not owner):
-                callback(success, filename, item)
-        finally:
-            with cls.threadLock:
-                cls._pending.discard(key)
-                cls._paused_files.discard(key)
-                if not success:
-                    cls._failed.add(key)
+        with cls.threadLock:
+            cls._pending.discard(key)
+            cls._paused_files.discard(key)
+            if not success:
+                cls._failed.add(key)
+                cls._errors.setdefault(key, '分片下载失败。')
+            else:
+                cls._failed.discard(key)
+                cls._errors.pop(key, None)
+        owner = getattr(callback, '__self__', None)
+        if not cls._shutdown.is_set() and not (isinstance(owner, wx.Window) and not owner):
+            callback(success, filename, item)
 
     @classmethod
     def _MasterThreadRun(cls):
@@ -308,6 +319,8 @@ class Downloader:
                             continue
                         except Exception as exc:
                             print(f'下载任务异常：{exc}')
+                            with cls.threadLock:
+                                cls._errors[task[4]] = str(exc)
                             success = False
                         if cls._shutdown.is_set():
                             with cls.threadLock:

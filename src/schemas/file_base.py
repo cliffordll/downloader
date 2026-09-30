@@ -2,10 +2,13 @@ import time
 from pydantic import BaseModel, Field, field_validator
 from typing import Union, List, Optional
 from uuid import UUID
+from src.schemas.task import FileStatus, TaskStatus
 
 class FileItem(BaseModel):
     fileName: str
     displayName: str = ''  # 界面名称与内部绝对路径分离，切换默认目录不影响已有任务。
+    sequence: Optional[int] = None  # 分片稳定序号，不包含输出文件造成的界面行偏移。
+    status: FileStatus = FileStatus.PENDING
     fileSize: Union[str, int]           = Field(default='-')
     modifyAt: Union[str, int, float]    = Field(default="----:--:-- --:--")
     absUri: str                         = Field(default="")
@@ -36,6 +39,8 @@ class FileItem(BaseModel):
 
 class TreeItem(BaseModel):
     task_id: Optional[UUID] = None  # 数据库身份，不使用行号作为持久化标识。
+    task_status: Optional[TaskStatus] = None
+    last_error: Optional[str] = None
     parent: Optional[FileItem]  = None
     outputs: List[FileItem]     = []    # 输出文件，mp4，支持多个
     childs: List[FileItem]      = []

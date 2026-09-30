@@ -28,6 +28,7 @@ class TaskProgressTests(unittest.TestCase):
                         patch.object(SysSetting, '_values', dict(SysSetting.GetAll(), default_expand_tasks=False)),
                         patch.object(Downloader, '_requesting', set()),
                         patch.object(Downloader, '_failed', set()),
+                        patch.object(Downloader, '_errors', {}),
             patch.object(Downloader, '_paused_files', set()),
                         patch.object(Downloader, '_user_paused', threading.Event()),
                         patch.object(Converter, '_outputs', set()),
@@ -103,7 +104,7 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
-    def test_callback_uses_file_path_after_task_reorder(self):
+    def test_callback_without_stable_identity_does_not_change_rows(self):
         self.tree.items.insert(0, TreeItem(parent=FileItem(fileName='other/download.m3u8'),
                                         childs=[FileItem(fileName='other/a.ts')]))
         receiver = SimpleNamespace(model=self.model)
@@ -111,7 +112,7 @@ class TaskProgressTests(unittest.TestCase):
         with patch('src.views.main_frame.FileManager.GetFileItem', return_value=(True, updated)):
             MainFrame._DownloadCall(receiver, True, PathManager.GetAbsPath('task/b.ts'), None)
         self.assertEqual(self.tree.items[0].download, 0)
-        self.assertEqual(self.tree.items[1].download, 2)
+        self.assertEqual(self.tree.items[1].download, 1)
 
     def test_fixed_row_actions_and_retry_scope(self):
         with patch.object(MainFrame, 'Show'):
@@ -231,9 +232,8 @@ class TaskProgressTests(unittest.TestCase):
                 delete.assert_called_once_with(self.task)
             # 筛选隐藏的任务下载完成时，仍更新原始数据，不丢失任务。
             updated = FileItem(fileName='other/c.ts', fileSize=10)
-            with patch('src.views.main_frame.FileManager.GetFileItem', return_value=(True, updated)), \
-                 patch.object(frame.model, '_SendEvent'):
-                frame._DownloadCall(True, PathManager.GetAbsPath('other/c.ts'), None)
+            with patch.object(frame.model, '_SendEvent'):
+                frame.model.SetValue(updated, frame.model.ObjectToItem(frame.model._BuildKey((0, 0))), 0)
             self.assertEqual(other.download, 1)
             frame._SearchItems('')
             self.assertIsNone(frame.model.visible_tasks)

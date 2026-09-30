@@ -8,6 +8,7 @@ from src.managers.downloader import Downloader
 from src.managers.converter import Converter
 import os
 from typing import TypedDict
+from src.schemas.task import FileStatus, TaskStatus
 
 
 class TaskSummary(TypedDict):
@@ -47,7 +48,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
 
     节点键使用零基索引：'0' 表示第一个任务，'0.1' 表示该任务的第二个子节点。
     子节点先排列 outputs（MP4），再排列 childs（分片），不能直接把子节点索引
-    当成分片索引。刷新后任务顺序可能改变，异步回调应按文件路径重新定位节点。
+    当成分片索引。刷新后任务顺序可能改变，异步回调按任务 UUID 和分片序号定位。
     """
     def __init__(self, parent=None):
         super().__init__()
@@ -61,6 +62,16 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
 
         self.parent = parent
         self.merge_failed = set()
+
+    def ApplyTaskRecord(self, record):
+        """只替换匹配 UUID 的行数据，回调不依赖刷新前的行号；不在此处整表重绘。"""
+        if record is None:
+            return None
+        for index, task in enumerate(self.fileTree.items):
+            if task.task_id == record.id:
+                self.fileTree.items[index] = self.tasks.to_tree_item(record, previous=task)
+                return index
+        return None
 
     def TaskInfo(self, index) -> TaskSummary:
         """自定义方法：汇总指定任务的分片进度和运行状态，供界面和 GetValue 使用。
@@ -78,21 +89,28 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         # pending 包含排队/处理中任务，requesting 只包含尚未结束的网络请求。
         pending = keys & snapshot['pending']
         requesting = keys & snapshot['requesting']
-        failed = keys & snapshot['failed']
+        stored_failed = {Downloader.FileKey(child.fileName) for child in task.childs
+                         if child.status == FileStatus.FAILED and child.fileSize == '-'}
+        failed = ((keys & snapshot['failed']) | stored_failed) - snapshot['pending']
         paused = snapshot['paused'] or bool(pending and pending <= snapshot['paused_files'])
         output = os.path.join(os.path.dirname(PathManager.GetAbsPath(task.parent.fileName)), 'output.mp4')
         merging = Converter.IsConverting(output)
         if merging:
             status = '合并中'
-        elif task.parent.fileName in self.merge_failed:
+        elif task.parent.fileName in self.merge_failed or (
+                task.task_status == TaskStatus.FAILED and total and done == total and not task.outputs):
             status = '合并失败'
         elif task.outputs:
             status = '已完成'
+        elif task.task_status == TaskStatus.INTERRUPTED and not pending:
+            status = '已中断'
         elif total and done == total:
             status = '待合并'
         elif pending:
             status = ('暂停中' if requesting else '已暂停') if paused else (
                 '下载中' if requesting else '等待下载')
+        elif task.task_status in (TaskStatus.PAUSED, TaskStatus.PAUSING):
+            status = '已暂停'
         elif failed:
             status = '下载失败'
         else:
@@ -123,7 +141,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         downloadable = idle and not Downloader.IsPaused() and not task.outputs
         # 第一项在排队/下载期间可暂停；暂停后恢复当前任务，不重新提交分片。
         running = bool(info['pending']) and not info['merging']
-        label = ('继续' if info['paused'] else '暂停') if running else ('继续' if info['done'] else '开始')
+        label = ('继续' if info['paused'] else '暂停') if running else (
+            '继续' if info['done'] or task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) else '开始')
         # 展开状态以列表控件为准，避免行首箭头或全部展开后文字不同步。
         tree = getattr(self.parent, 'mcTree', None)
         item = self.ObjectToItem(self._BuildKey((index,)))
@@ -488,6 +507,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 '合并中': '#8800FF',  # 鲜紫：正在生成 MP4
                 '暂停中': '#FF6600',  # 亮橙：等待已发出的请求结束
                 '已暂停': '#F00088',  # 亮玫红：请求已结束，任务保持暂停，可恢复
+                '已中断': '#B443CF',  # 紫红：上次任务未结束，需手动继续
                 '待继续': '#DAA000',  # 亮金黄：已有部分分片，等待继续下载
                 '待合并': '#00A6B8',  # 亮青：分片齐全，可以合并
                 '已完成': '#00AD45',  # 鲜绿：已生成视频

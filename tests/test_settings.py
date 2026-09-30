@@ -116,6 +116,7 @@ class DownloadSettingsTests(unittest.TestCase):
             patch.object(Downloader, '_pending', set()),
             patch.object(Downloader, '_requesting', set()),
             patch.object(Downloader, '_failed', set()),
+            patch.object(Downloader, '_errors', {}),
             patch.object(Downloader, '_paused_files', set()),
             patch.object(Downloader, 'threadQueue', Queue()),
             patch.object(Downloader, 'isStop', True),
@@ -419,11 +420,12 @@ class DownloadSettingsTests(unittest.TestCase):
         process.wait.return_value = 0
         with patch.object(SysSetting, 'GetFFmpeg', return_value='custom-ffmpeg'), \
              patch('subprocess.Popen', return_value=process) as popen, \
-             patch('os.path.isfile', return_value=True), patch('wx.CallAfter') as deliver:
+             patch('os.path.isfile', return_value=True), patch('os.replace') as replace, patch('wx.CallAfter') as deliver:
             callback = Mock()
             Converter._ConvertTSFile('playlist.txt', 'out.mp4', callback)
         self.assertEqual(popen.call_args.args[0][0], 'custom-ffmpeg')
         self.assertEqual(deliver.call_args.args[1:3], (True, 'out.mp4'))
+        replace.assert_called_once_with('out.mp4.part.mp4', 'out.mp4')
         callback.assert_not_called()  # queued for the UI thread
 
 

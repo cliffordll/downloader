@@ -8,12 +8,13 @@ import tempfile
 from src.managers.m3m8_parser import M3U8Parser
 from src.managers.task_repository import TaskRepository
 from src.schemas.file_base import FileItem, TreeData, TreeItem
-from src.schemas.task import M3U8Task, M3U8Details, SourceType, TaskOutput, TaskProgress, TaskSegment
+from src.schemas.task import M3U8Task, M3U8Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus
 
 
 class TaskService:
     def __init__(self, repository=None):
         self._repository = repository
+        self._recovered = False
 
     @property
     def repository(self):
@@ -96,21 +97,171 @@ class TaskService:
                             fileSize=stat.st_size, modifyAt=stat.st_mtime)
         return item
 
+    def to_tree_item(self, task, previous=None):
+        """将持久化记录投影到界面；磁盘上的正式文件才可显示为已下载。"""
+        if not isinstance(task, M3U8Task):
+            raise ValueError('当前列表尚未接入 MP4/RTMP 任务。')
+        parent = self._file(task.save_dir / (task.details.playlist_path or 'download.m3u8'), task.name)
+        parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
+        children = []
+        previous_children = {child.sequence: child for child in previous.childs} if previous else {}
+        for segment in sorted(task.details.segments, key=lambda segment: segment.sequence):
+            path = task.save_dir / segment.relative_path
+            child = previous_children.get(segment.sequence)
+            # 状态回调复用未变化分片，避免每下载一片就在 UI 线程检查整份清单的文件。
+            # 显式刷新/启动恢复不传 previous，会重新核对全部登记文件。
+            if child is None or child.status != segment.status or child.fileName != str(path):
+                child = self._file(path, segment.relative_path, segment.source_url)
+            child.sequence, child.status = segment.sequence, segment.status
+            children.append(child)
+        outputs = [self._file(task.save_dir / output.relative_path, output.relative_path)
+                   for output in task.outputs if output.status == FileStatus.COMPLETED
+                   and (task.save_dir / output.relative_path).is_file()]
+        return TreeItem(task_id=task.id, task_status=task.status, last_error=task.last_error,
+                        parent=parent, childs=children, outputs=outputs,
+                        download=sum(child.fileSize != '-' for child in children))
+
     def load_tree(self):
-        """任务来源只有数据库；文件检查用于显示实际进度，不会导入旧目录。"""
+        """首次读取恢复中断状态，之后刷新只核对已登记文件，不重新中断活动任务。"""
+        recovering = not self._recovered
         tree = TreeData()
-        for task in self.repository.list_tasks():
-            if not isinstance(task, M3U8Task):
-                raise ValueError('当前列表尚未接入 MP4/RTMP 任务。')
-            parent = self._file(task.save_dir / (task.details.playlist_path or 'download.m3u8'), task.name)
-            parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
-            children = [self._file(task.save_dir / segment.relative_path, segment.relative_path, segment.source_url)
-                        for segment in sorted(task.details.segments, key=lambda segment: segment.sequence)]
-            outputs = [self._file(task.save_dir / output.relative_path, output.relative_path)
-                       for output in task.outputs if (task.save_dir / output.relative_path).is_file()]
-            tree.items.append(TreeItem(task_id=task.id, parent=parent, childs=children, outputs=outputs,
-                                       download=sum(child.fileSize != '-' for child in children)))
+        for original in self.repository.list_tasks():
+            task = self.repository.mutate(original.id, lambda task: self._reconcile(task, recovering))
+            if task is not None:
+                tree.items.append(self.to_tree_item(task))
+        self._recovered = True
         return tree
+
+    @staticmethod
+    def _progress(task):
+        completed = [segment for segment in task.details.segments if segment.status == FileStatus.COMPLETED]
+        task.progress = TaskProgress(total_segments=len(task.details.segments), completed_segments=len(completed),
+                                     downloaded_bytes=sum(segment.size_bytes or 0 for segment in completed))
+
+    @staticmethod
+    def _settle(task):
+        """无正在运行的请求时确定状态；暂停和中断只在任务尚未完成时保留。"""
+        if any(output.status == FileStatus.COMPLETED for output in task.outputs):
+            task.status, task.last_error = TaskStatus.COMPLETED, None
+        elif task.status == TaskStatus.MERGING:
+            return  # 文件完成通知可能晚于用户启动合并，只有合并回调能结束该状态。
+        elif task.details.segments and task.progress.completed_segments == task.progress.total_segments:
+            if any(output.status == FileStatus.FAILED for output in task.outputs):
+                task.status = TaskStatus.FAILED
+            else:
+                task.status, task.last_error = TaskStatus.WAITING_MERGE, None
+        elif task.status not in (TaskStatus.PAUSED, TaskStatus.PAUSING):
+            failed = next((segment for segment in task.details.segments if segment.status == FileStatus.FAILED), None)
+            task.status = TaskStatus.FAILED if failed else TaskStatus.INTERRUPTED
+            task.last_error = failed.last_error if failed else task.last_error
+
+    @classmethod
+    def _reconcile(cls, task, recovering):
+        if not isinstance(task, M3U8Task):
+            raise ValueError('当前列表尚未接入 MP4/RTMP 任务。')
+        previous = task.status
+        previous_error = task.last_error
+        active = previous in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING, TaskStatus.MERGING)
+        missing = False
+        for segment in task.details.segments:
+            path = task.save_dir / segment.relative_path
+            if path.is_file():
+                segment.status, segment.size_bytes, segment.last_error = FileStatus.COMPLETED, path.stat().st_size, None
+            elif segment.status == FileStatus.COMPLETED:
+                segment.status, segment.size_bytes, segment.last_error = FileStatus.MISSING, None, '已下载分片不存在'
+                missing = True
+        for output in task.outputs:
+            path = task.save_dir / output.relative_path
+            if path.is_file():
+                # FFmpeg 现在只在成功后发布正式文件；临时文件不能作为完成依据。
+                output.status, output.size_bytes = FileStatus.COMPLETED, path.stat().st_size
+            elif output.status == FileStatus.COMPLETED:
+                output.status, output.size_bytes = FileStatus.MISSING, None
+                missing = True
+        cls._progress(task)
+        if active and not recovering:
+            return  # 普通刷新不能把本次会话的活动状态改成中断。
+        if active or missing:
+            task.status = TaskStatus.INTERRUPTED
+            task.last_error = '上次任务未正常结束，请手动继续。' if active else '部分已下载文件不存在，请继续下载。'
+        if task.status != TaskStatus.NEW or task.progress.completed_segments or any(
+                output.status == FileStatus.COMPLETED for output in task.outputs):
+            cls._settle(task)
+        if recovering and previous == TaskStatus.MERGING and task.status != TaskStatus.COMPLETED:
+            task.status, task.last_error = TaskStatus.INTERRUPTED, '上次合并未完成，请重新转 MP4。'
+        elif recovering and active and task.status not in (TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):
+            task.status, task.last_error = TaskStatus.INTERRUPTED, '上次任务未正常结束，请手动继续。'
+        elif previous == TaskStatus.INTERRUPTED and task.status != TaskStatus.COMPLETED:
+            task.status, task.last_error = TaskStatus.INTERRUPTED, previous_error
+
+    def begin_download(self, task_id, sequences):
+        """先登记排队，再提交网络请求；只清除本次重试分片的错误。"""
+        def change(task):
+            self._reconcile(task, False)
+            selected = set(sequences)
+            if not selected or not selected <= {segment.sequence for segment in task.details.segments}:
+                raise ValueError('分片序号无效，请刷新后重试。')
+            for segment in task.details.segments:
+                if segment.sequence in selected and segment.status != FileStatus.COMPLETED:
+                    segment.status, segment.last_error, segment.size_bytes = FileStatus.PENDING, None, None
+            task.status, task.last_error = TaskStatus.QUEUED, None
+            self._progress(task)
+        return self.repository.mutate(task_id, change)
+
+    def runtime_status(self, task_id, status):
+        def change(task):
+            task.status = status
+        return self.repository.mutate(task_id, change)
+
+    def finish_segment(self, task_id, sequence, filename, success, error=None):
+        """回调身份是任务 UUID + 分片序号，并校验文件路径，绝不按旧行号定位。"""
+        def change(task):
+            segment = next((segment for segment in task.details.segments if segment.sequence == sequence), None)
+            if segment is None or (task.save_dir / segment.relative_path).resolve() != Path(filename).resolve():
+                raise ValueError('分片回调身份或保存路径不匹配。')
+            path = task.save_dir / segment.relative_path
+            if success and path.is_file():
+                segment.status, segment.size_bytes, segment.last_error = FileStatus.COMPLETED, path.stat().st_size, None
+            else:
+                segment.status, segment.size_bytes = FileStatus.FAILED, None
+                segment.last_error = error or '分片下载失败或文件未保存。'
+                task.last_error = segment.last_error
+            self._progress(task)
+            self._settle(task)
+        return self.repository.mutate(task_id, change)
+
+    def begin_merge(self, task_id):
+        def change(task):
+            self._reconcile(task, False)
+            if not task.details.segments or task.progress.completed_segments != task.progress.total_segments:
+                raise ValueError('分片尚未全部下载，不能合并。')
+            if any(output.status == FileStatus.COMPLETED for output in task.outputs):
+                raise ValueError('视频文件已经存在。')
+            task.status, task.last_error = TaskStatus.MERGING, None
+            for output in task.outputs:
+                if output.kind == 'merged':
+                    output.status, output.size_bytes = FileStatus.PENDING, None
+        return self.repository.mutate(task_id, change)
+
+    def finish_merge(self, task_id, filename, success):
+        def change(task):
+            output = next((output for output in task.outputs if output.kind == 'merged'
+                           and (task.save_dir / output.relative_path).resolve() == Path(filename).resolve()), None)
+            if output is None:
+                raise ValueError('合并回调的输出文件与任务不匹配。')
+            if success and Path(filename).is_file():
+                output.status, output.size_bytes = FileStatus.COMPLETED, Path(filename).stat().st_size
+                task.status, task.last_error = TaskStatus.COMPLETED, None
+            else:
+                output.status, output.size_bytes = FileStatus.FAILED, None
+                task.status, task.last_error = TaskStatus.FAILED, 'FFmpeg 合并失败，请检查分片或重新合并。'
+        return self.repository.mutate(task_id, change)
+
+    def interrupt(self, task_id):
+        def change(task):
+            if task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING, TaskStatus.MERGING):
+                task.status, task.last_error = TaskStatus.INTERRUPTED, '程序已退出，请手动继续。'
+        return self.repository.mutate(task_id, change)
 
     def write_playlist(self, task_id):
         """从数据库重建本地清单；用户删除派生清单后仍能继续下载或合并。"""

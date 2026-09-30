@@ -23,19 +23,32 @@ class Converter:
     @classmethod
     def _ConvertTSFile(cls, playlist, outputFile='output.mp4', callback=None, item=None):
         success = False
+        # 正式文件只在 FFmpeg 成功退出后出现，重启时不会把半成品判为已完成。
+        temporary = str(outputFile) + '.part.mp4'
         try:
-            cmd = [SysSetting.GetFFmpeg(), '-nostdin', '-n', '-f', 'concat', '-safe', '0',
-                   '-i', playlist, '-c', 'copy', '-progress', 'pipe:1', outputFile]
+            if os.path.exists(outputFile):
+                raise FileExistsError('输出文件已存在。')
+            cmd = [SysSetting.GetFFmpeg(), '-nostdin', '-y', '-f', 'concat', '-safe', '0',
+                   '-i', playlist, '-c', 'copy', '-progress', 'pipe:1', temporary]
             options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                        errors='replace', **options)
             for line in process.stdout:
                 if line.startswith('out_time_ms='):
                     print(line.strip())
-            success = process.wait() == 0 and os.path.isfile(outputFile)
+            if process.wait() == 0 and os.path.isfile(temporary):
+                if os.path.exists(outputFile):
+                    raise FileExistsError('输出文件已存在。')
+                os.replace(temporary, outputFile)
+                success = True
         except (OSError, subprocess.SubprocessError) as error:
             print(f'转换失败：{error}')
         finally:
+            if os.path.isfile(temporary):
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
             if callback:
                 wx.CallAfter(cls._Deliver, success, outputFile, callback, item)
             else:

@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import sqlite3
 from uuid import UUID
+from typing import Callable
 
 from src.managers.app_paths import database_path
 from src.schemas.task import TASK_ADAPTER, Task
@@ -189,6 +190,54 @@ class TaskRepository:
         with self._transaction() as connection:
             row = connection.execute('SELECT * FROM tasks WHERE id=?', (str(task_id),)).fetchone()
             return None if row is None else self._read(connection, row)
+
+    def mutate(self, task_id: UUID, change: Callable[[Task], None]) -> Task | None:
+        """事务内读取最新值并应用变化，供并发分片结果使用，不覆盖其他分片的结果。
+
+        与编辑完整快照的 update 不同，此入口只更新变化的分片/输出行。
+        change 只能修改传入的数据，不能发起网络请求或再次进入数据库。
+        记录已删除时返回 None，迟到的回调不会重新创建任务。
+        """
+        with self._transaction(write=True) as connection:
+            row = connection.execute('SELECT * FROM tasks WHERE id=?', (str(task_id),)).fetchone()
+            if row is None:
+                return None
+            previous = self._read(connection, row)
+            task = previous.model_copy(deep=True)
+            change(task)
+            task = self._validated(task)
+            if (task.id, task.type, task.created_at) != (previous.id, previous.type, previous.created_at):
+                raise ValueError('不能修改任务身份、类型或创建时间。')
+            if task == previous:
+                return previous
+            task.updated_at = max(datetime.now(timezone.utc), previous.updated_at + timedelta(microseconds=1))
+            assignments = ','.join(f'{column}=?' for column in _COLUMNS[1:])
+            connection.execute(f'UPDATE tasks SET {assignments} WHERE id=?',
+                               self._values(task)[1:] + (str(task.id),))
+            old = previous.model_dump(mode='json')
+            new = task.model_dump(mode='json')
+            old_segments = old['details'].pop('segments', [])
+            new_segments = new['details'].pop('segments', [])
+            if old['details'] != new['details']:
+                table = _DETAIL_TABLES[new['type']]
+                connection.execute(f'UPDATE {table} SET data=? WHERE task_id=?',
+                                   (_json(new['details']), str(task.id)))
+            old_by_sequence = {segment['sequence']: segment for segment in old_segments}
+            new_by_sequence = {segment['sequence']: segment for segment in new_segments}
+            for sequence in old_by_sequence.keys() - new_by_sequence.keys():
+                connection.execute('DELETE FROM task_segments WHERE task_id=? AND sequence=?',
+                                   (str(task.id), sequence))
+            for sequence, segment in new_by_sequence.items():
+                if old_by_sequence.get(sequence) != segment:
+                    connection.execute('INSERT INTO task_segments(task_id, sequence, data) VALUES (?, ?, ?) '
+                                       'ON CONFLICT(task_id, sequence) DO UPDATE SET data=excluded.data',
+                                       (str(task.id), sequence, _json(segment)))
+            if old['outputs'] != new['outputs']:
+                connection.execute('DELETE FROM task_outputs WHERE task_id=?', (str(task.id),))
+                connection.executemany('INSERT INTO task_outputs(task_id, id, position, data) VALUES (?, ?, ?, ?)',
+                                       [(str(task.id), output['id'], index, _json(output))
+                                        for index, output in enumerate(new['outputs'])])
+            return task
 
     def list_tasks(self) -> list[Task]:
         """按创建时间、ID 稳定排序恢复任务；不依赖当前下载目录。"""
