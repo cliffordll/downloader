@@ -7,6 +7,19 @@ from src.managers.path_manager import PathManager
 from src.managers.downloader import Downloader
 from src.managers.converter import Converter
 import os
+from typing import TypedDict
+
+
+class TaskSummary(TypedDict):
+    """任务状态的字段类型，避免混合字典让 status 被推断成多种类型。"""
+    total: int
+    done: int
+    percent: int
+    status: str
+    failed: set[str]
+    pending: set[str]
+    merging: bool
+    progress: str
 
 # 定义自定义事件类型
 ALL_DOWNLOAD_EVENT = wx.NewEventType()
@@ -45,7 +58,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         self.parent = parent
         self.merge_failed = set()
 
-    def TaskInfo(self, index):
+    def TaskInfo(self, index) -> TaskSummary:
         """自定义方法：汇总指定任务的分片进度和运行状态，供界面和 GetValue 使用。
 
         index 是 fileTree.items 的索引；进度按完成分片数计算，不是字节进度。
@@ -81,9 +94,16 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             status = '未开始' if not done else '待继续'
         if failed:
             status += f' · {len(failed)} 个失败'
-        return dict(total=total, done=done, percent=int(done * 100 / total) if total else 0,
-                    status=status, failed=failed, pending=pending, merging=merging,
-                    progress=f'{int(done * 100 / total) if total else 0}% · {done}/{total}')
+        return {
+            'total': total,
+            'done': done,
+            'percent': int(done * 100 / total) if total else 0,
+            'status': status,
+            'failed': failed,
+            'pending': pending,
+            'merging': merging,
+            'progress': f'{int(done * 100 / total) if total else 0}% · {done}/{total}',
+        }
 
     def TaskActions(self, index):
         """自定义方法：按固定位置返回四项操作的 id、显示文字和可用状态。
@@ -423,6 +443,29 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         if not keys:
             return False
         objs = self.ParseKey(keys)
+        if col == 6 and len(objs) == 1:
+            # 模型第 6 列是“状态”；长度为 1 的节点键表示任务行，分片行不走此分支。
+            # 单独返回状态样式，避免继续执行下方任务行的统一蓝色粗体设置。
+            status = self.TaskInfo(objs[0])['status']
+            # 使用饱和度较高的颜色区分运行、暂停、待处理和完成状态。
+            # 保留状态文字，颜色只是辅助提示，不作为唯一的识别方式。
+            colours = {
+                '下载中': '#0055FF',  # 鲜蓝：正在下载
+                '合并中': '#8800FF',  # 鲜紫：正在生成 MP4
+                '暂停中': '#FF6600',  # 亮橙：等待已发出的请求结束
+                '已暂停': '#F00088',  # 亮玫红：请求已结束，任务保持暂停，可恢复
+                '待继续': '#DAA000',  # 亮金黄：已有部分分片，等待继续下载
+                '待合并': '#00A6B8',  # 亮青：分片齐全，可以合并
+                '已完成': '#00AD45',  # 鲜绿：已生成视频
+            }
+            # 失败优先显示红色，也覆盖“下载中 · 2 个失败”这类组合文案。
+            # 未开始、等待下载等未单独配置的状态使用中性灰色。
+            colour = '#FF1744' if '失败' in status else colours.get(status, '#707070')
+            attr.SetColour(wx.Colour(colour))
+            # 状态文字加粗，增强小字号下的颜色辨识度，不添加背景色块。
+            # True 告诉 wx 使用这里提供的样式。
+            attr.SetBold(True)
+            return True
         if len(objs) == 1:
             attr.SetBold(True)
             attr.SetColour(wx.BLUE)

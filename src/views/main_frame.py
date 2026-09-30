@@ -49,6 +49,67 @@ def toolbar_icon(name):
     ])
 
 
+class TaskProgressRenderer(dv.DataViewCustomRenderer):
+    """在任务行内绘制进度条及居中的进度文字，不创建独立的 wx.Gauge 控件。"""
+
+    def __init__(self, frame):
+        super().__init__('string', dv.DATAVIEW_CELL_INERT, wx.ALIGN_CENTER)
+        self.frame = frame
+        self.label = ''
+        self.percent = 0
+
+    def SetValue(self, value):
+        """重写：wx 传入模型第 5 列的文字，例如“50% · 1/2”；分片行为空。"""
+        self.label = value
+        self.percent = max(0, min(100, int(value.split('%', 1)[0]))) if value else 0
+        return True
+
+    def GetValue(self):
+        """重写：返回当前单元格的进度文字，保持模型的 string 类型不变。"""
+        return self.label
+
+    def GetSize(self):
+        """重写：绘制宽度跟随所属列，避免居中布局把进度条限制在固定宽度内。"""
+        column = self.GetOwner()
+        width = column.GetWidth() if column is not None else self.frame.FromDIP(180)
+        return wx.Size(max(1, width - self.frame.FromDIP(8)), self.frame.FromDIP(24))
+
+    def Render(self, cell, dc, state):
+        """重写：wx 重绘时调用；按完成分片比例填充，不表示 MP4 合并进度。"""
+        if not self.label:
+            return True
+        rect = wx.Rect(cell)
+        rect.Deflate(self.frame.FromDIP(3), self.frame.FromDIP(2))
+        if rect.width <= 0 or rect.height <= 0:
+            return True
+        font = wx.Font(self.frame.mcTree.GetFont())
+        font.SetWeight(wx.FONTWEIGHT_NORMAL)
+        dc.SetFont(font)
+        # 进度条只占行内 16 DIP 高度，垂直居中，避免色块撑满整行。
+        bar_height = min(rect.height, self.frame.FromDIP(16))
+        bar = wx.Rect(rect.x, rect.y + (rect.height - bar_height) // 2, rect.width, bar_height)
+        dc.SetPen(wx.TRANSPARENT_PEN)
+        dc.SetBrush(wx.Brush('#E0E6EF'))
+        dc.DrawRectangle(bar)
+        filled = bar.width * self.percent // 100
+        if filled:
+            dc.SetBrush(wx.Brush('#008A36' if self.percent == 100 else '#0055FF'))
+            dc.DrawRectangle(bar.x, bar.y, filled, bar.height)
+        # 同一份文字始终在整条进度条中居中，避免随进度移动。
+        # 分区裁剪绘制：已填充区域用白字，未填充区域用深色字，跨界文字也能看清。
+        for region, colour in (
+            (wx.Rect(bar.x, bar.y, filled, bar.height), '#FFFFFF'),
+            (wx.Rect(bar.x + filled, bar.y, bar.width - filled, bar.height), '#172B4D'),
+        ):
+            if region.width <= 0:
+                continue
+            clip = wx.DCClipper(dc, region)
+            dc.SetTextForeground(wx.Colour(colour))
+            dc.DrawLabel(self.label, bar, wx.ALIGN_CENTER)
+            del clip  # 恢复之前的裁剪区域，不影响其他单元格。
+        return True
+
+
 class TaskActionRenderer(dv.DataViewCustomRenderer):
     """绘制“操作”列，并把单元格点击转换成具体任务操作。
 
@@ -327,8 +388,9 @@ class MainFrame(wx.Frame):
         # self.mcTree.AppendColumn(dv.DataViewColumn("文件名", renderer, 1, width=180, align=wx.ALIGN_LEFT))
         # self.mcTree.AppendTextColumn("文件名", 1, width=500)
         self.mcTree.AppendTextColumn("文件名", 1, width=250)
-        self.mcTree.AppendTextColumn("下载进度", 5, width=140)
-        self.mcTree.AppendTextColumn("状态", 6, width=140)
+        self.mcTree.AppendColumn(dv.DataViewColumn('下载进度', TaskProgressRenderer(self), 5,
+                                                 width=self.FromDIP(180), align=wx.ALIGN_CENTER))
+        self.mcTree.AppendTextColumn("状态", 6, width=self.FromDIP(80), align=wx.ALIGN_CENTER)
         self.mcTree.AppendTextColumn("文件大小", 2, width=90, align=wx.ALIGN_RIGHT)
         self.mcTree.AppendTextColumn("修改时间", 3, width=130)
         self.mcTree.AppendColumn(dv.DataViewColumn("操作", TaskActionRenderer(self), 4,
@@ -376,7 +438,7 @@ class MainFrame(wx.Frame):
         if available <= 0:
             return
         self._columnSizeKey = size_key
-        widths = [self.FromDIP(value) for value in (50, 0, 110, 115, 85, 125, 160)]
+        widths = [self.FromDIP(value) for value in (50, 0, 180, 80, 85, 125, 160)]
         widths[1] = max(1, available - sum(widths))
         if sum(widths) > available:
             # Also handle transient small sizes during window creation.
