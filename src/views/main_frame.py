@@ -175,8 +175,8 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         font = wx.Font(self.frame.mcTree.GetFont())
         font.SetWeight(wx.FONTWEIGHT_NORMAL)
         dc.SetFont(font)
-        colour = (wx.SYS_COLOUR_HIGHLIGHTTEXT if state & dv.DATAVIEW_CELL_SELECTED
-                  else wx.SYS_COLOUR_HOTLIGHT)
+        # 选中行使用浅蓝背景，操作仍用链接色，避免白字在浅底上看不清。
+        colour = wx.SYS_COLOUR_HOTLIGHT
         if self.label.startswith('['):
             # 固定绘制四项；不可用时只改成灰色，不删除该区域，防止布局跳动。
             for action, rect in zip(json.loads(self.label), self._ActionRects(cell)):
@@ -383,6 +383,9 @@ class MainFrame(wx.Frame):
         self.model = MultiColumnTreeModel(self)
         # 创建DataViewCtrl
         self.mcTree = dv.DataViewCtrl(panel, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
+        # Windows 下原生 RendererNative 不能通过 Python 重写其绘制回调。
+        # 在列表内部窗口的原生绘制结束后统一替换选中边框。
+        self.mcTree.GetMainWindow().Bind(wx.EVT_PAINT, self.OnTaskListPaint)
         self.mcTree.AssociateModel(self.model)
         # 添加多列
         self.mcTree.AppendTextColumn("序列", 0, width=60)
@@ -421,6 +424,30 @@ class MainFrame(wx.Frame):
         # 设置面板的sizer
         panel.SetSizer(sizer)
         wx.CallAfter(self._FitTaskColumns)
+
+    def OnTaskListPaint(self, event):
+        """先同步完成原生列表绘制，再覆盖黑色焦点边框，避免延迟补画闪烁。"""
+        window = self.mcTree.GetMainWindow()
+        # 暂时移除本处理函数，让同一个绘制事件进入控件自身的默认处理路径。
+        # finally 恢复绑定，避免递归进入自己，也保证滚动/切换选择后继续生效。
+        window.Unbind(wx.EVT_PAINT, handler=self.OnTaskListPaint)
+        try:
+            window.GetEventHandler().ProcessEvent(event)
+            event.Skip(False)
+            item = self.mcTree.GetSelection()
+            if not item.IsOk():
+                return
+            row = self.mcTree.GetItemRect(item)
+            # GetItemRect 使用列表坐标，内部绘图区位于表头下方，需要转换坐标。
+            top = window.ScreenToClient(self.mcTree.ClientToScreen(row.GetTopLeft())).y
+            if row.height <= 0 or top >= window.GetClientSize().height or top + row.height <= 0:
+                return
+            dc = wx.ClientDC(window)
+            dc.SetBrush(wx.TRANSPARENT_BRUSH)
+            dc.SetPen(wx.Pen('#99D1FF', 1))
+            dc.DrawRectangle(0, top, window.GetClientSize().width, row.height)
+        finally:
+            window.Bind(wx.EVT_PAINT, self.OnTaskListPaint)
 
     def OnTaskListSize(self, event):
         event.Skip()
