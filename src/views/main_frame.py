@@ -50,23 +50,51 @@ def toolbar_icon(name):
 
 
 class TaskActionRenderer(dv.DataViewCustomRenderer):
-    """Render a compact text action, aligned consistently across rows."""
+    """绘制“操作”列，并把单元格点击转换成具体任务操作。
+
+    这里没有创建四个按钮，而是将同一个单元格分成四个可点击区域。
+    模型 GetValue → SetValue 接收数据 → Render 绘制文字；
+    用户点击 → ActivateCell 判断区域 → 主窗口 OnTaskAction 执行业务操作。
+    """
     def __init__(self, frame):
+        # ACTIVATABLE 让 wx 将单元格的鼠标/键盘激活交给 ActivateCell。
         super().__init__('string', dv.DATAVIEW_CELL_ACTIVATABLE, wx.ALIGN_CENTER)
         self.frame = frame
         self.label = ''
 
     def SetValue(self, value):
+        """重写父类方法：wx 在准备单元格内容时调用，传入模型提供的值。
+
+        保存本次要绘制的数据；返回 True 表示成功接收，不是下载成功。
+        这不是模型的 SetValue，不负责修改任务数据，也不需要业务代码手动调用。
+        """
+        # wx 自动传入模型 GetValue(item, 4) 的结果。
+        # 任务行是包含 id、label、enabled 的 JSON 数组；分片行是“下载”或空串。
+        # 渲染器由整列共用，label 会随当前绘制的单元格更新，不属于某个固定任务。
         self.label = value
         return True
 
     def GetValue(self):
+        """重写父类方法：供 wx 读取渲染器当前保存的值。
+
+        返回值与本渲染器声明的 string 类型一致；不会重新查询模型或触发刷新。
+        """
         return self.label
 
     def GetSize(self):
+        """重写父类方法：wx 布局时查询内容所需尺寸，返回 wx.Size。
+
+        FromDIP 按屏幕缩放比例换算尺寸；实际绘制区域以 Render 的 cell 参数为准。
+        """
         return self.frame.FromDIP(wx.Size(152, 24))
 
     def _ActionRects(self, cell):
+        """左右留白后等分为：开始/继续、重试、删除、更多。
+
+        这是本类自定义的辅助方法，不是 wx 的重写回调，由 Render/ActivateCell 调用。
+        绘制与点击判断共用此方法，确保显示位置和点击区域始终对应。
+        用相邻边界之差计算宽度，避免整数取整导致区域之间出现缝隙。
+        """
         rect = wx.Rect(cell)
         rect.Deflate(self.frame.FromDIP(4), 0)
         return [wx.Rect(rect.x + rect.width * i // 4, rect.y,
@@ -74,6 +102,11 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
                 for i in range(4)]
 
     def Render(self, cell, dc, state):
+        """重写父类方法：wx 重绘单元格时自动调用，不需要手动绑定绘制事件。
+
+        cell 是绘制区域，dc 是绘图上下文，state 包含选中等显示状态。
+        使用 SetValue 保存的数据绘制，返回 True 表示绘制已处理；不执行任务操作。
+        """
         if not self.label:
             return True
         font = wx.Font(self.frame.mcTree.GetFont())
@@ -82,6 +115,7 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         colour = (wx.SYS_COLOUR_HIGHLIGHTTEXT if state & dv.DATAVIEW_CELL_SELECTED
                   else wx.SYS_COLOUR_HOTLIGHT)
         if self.label.startswith('['):
+            # 固定绘制四项；不可用时只改成灰色，不删除该区域，防止布局跳动。
             for action, rect in zip(json.loads(self.label), self._ActionRects(cell)):
                 dc.SetTextForeground(wx.SystemSettings.GetColour(
                     colour if action['enabled'] else wx.SYS_COLOUR_GRAYTEXT))
@@ -92,22 +126,36 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         return True
 
     def ActivateCell(self, cell, model, item, col, mouseEvent):
+        """重写父类方法：wx 在可激活单元格被鼠标或键盘激活时调用。
+
+        item/col 指明任务行和模型列，model 用于读取该行最新数据；
+        mouseEvent 为 None 表示没有鼠标事件，否则用其中的坐标判断具体操作。
+        返回 True 表示本次激活已处理，False 表示无操作或操作不可用，
+        不代表异步下载、合并等业务执行成功。
+        """
+        # 点击时重新读取当前行的最新状态，不能用上次绘制其他行留下的 self.label。
         value = model.GetValue(item, col)
         if not value:
             return False
         if model.IsContainer(item):
+            # 父节点是视频任务，拥有四个操作；子节点走下方的分片处理分支。
             actions = json.loads(value)
             if mouseEvent is None:
-                # Enter defaults to download, or More; never delete via a default action.
+                # 键盘激活没有鼠标坐标：优先开始/继续，否则打开更多，绝不默认删除。
                 action = actions[0] if actions[0]['enabled'] else actions[3]
             else:
-                point = mouseEvent.GetPosition()  # Relative to the cell.
+                # wx 提供的鼠标坐标相对于当前单元格左上角，因此区域也从 (0, 0) 算起。
+                point = mouseEvent.GetPosition()
                 rects = self._ActionRects(wx.Rect(0, 0, cell.width, cell.height))
+                # Contains 判断鼠标是否落在某一项的矩形内；左右留白没有对应操作。
                 action = next((entry for entry, rect in zip(actions, rects) if rect.Contains(point)), None)
             if action is None or not action['enabled']:
                 return False
+            # item 指明哪一行，id 指明做什么；不依赖选中行或显示文字。
+            # 主窗口还会重新检查 enabled，再分发下载、重试、删除或更多菜单。
             self.frame.OnTaskAction(item, action['id'])
         else:
+            # 分片只有一个“下载”操作，复用主窗口已有的行激活处理逻辑。
             event = dv.DataViewEvent(dv.wxEVT_DATAVIEW_ITEM_ACTIVATED, self.frame.mcTree, item)
             self.frame.OnActivatedChanged(event)
         return True

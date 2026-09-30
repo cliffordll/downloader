@@ -25,6 +25,16 @@ class AllDownloadEvent(wx.PyCommandEvent):
         return self.data
 
 class MultiColumnTreeModel(dv.PyDataViewModel):
+    """把文件任务数据转换为 wx.DataViewCtrl 可读取的树形模型。
+
+    AssociateModel 绑定后，wx 自动查询 GetChildren/GetParent 等方法构建树，
+    再通过 GetValue 读取单元格内容，交给对应列的渲染器显示。
+    本类不绘制按钮，也不执行下载；它提供数据、状态和操作是否可用的信息。
+
+    节点键使用零基索引：'0' 表示第一个任务，'0.1' 表示该任务的第二个子节点。
+    子节点先排列 outputs（MP4），再排列 childs（分片），不能直接把子节点索引
+    当成分片索引。刷新后任务顺序可能改变，异步回调应按文件路径重新定位节点。
+    """
     def __init__(self, parent=None):
         super().__init__()
         self.fileTree = FileManager.GetFileInfos()
@@ -36,12 +46,19 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         self.merge_failed = set()
 
     def TaskInfo(self, index):
+        """自定义方法：汇总指定任务的分片进度和运行状态，供界面和 GetValue 使用。
+
+        index 是 fileTree.items 的索引；进度按完成分片数计算，不是字节进度。
+        此方法只查询状态，不启动下载或合并。
+        """
         task = self.fileTree.items[index]
         total = len(task.childs)
         done = sum(child.fileSize != '-' for child in task.childs)
         keys = {Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
                 for child in task.childs if child.fileSize == '-'}
         snapshot = Downloader.Snapshot()
+        # 下载器管理全部任务；集合交集只取出属于当前任务的未完成文件。
+        # pending 包含排队/处理中任务，requesting 只包含尚未结束的网络请求。
         pending = keys & snapshot['pending']
         requesting = keys & snapshot['requesting']
         failed = keys & snapshot['failed']
@@ -69,6 +86,11 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                     progress=f'{int(done * 100 / total) if total else 0}% · {done}/{total}')
 
     def TaskActions(self, index):
+        """自定义方法：按固定位置返回四项操作的 id、显示文字和可用状态。
+
+        GetValue 将这些数据序列化后交给 TaskActionRenderer；渲染器根据 enabled
+        置灰，根据 id 分发点击，不通过中文显示文字判断要执行什么操作。
+        """
         task = self.fileTree.items[index]
         info = self.TaskInfo(index)
         idle = not info['pending'] and not info['merging']
@@ -82,7 +104,11 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         ]
 
     def _SendEvent(self, payload=None):
-        """发送自定义事件的方法"""
+        """自定义方法：分片全部完成时，将通知投递到父窗口的事件队列。
+
+        主窗口通过 Bind(EVT_ALL_DOWNLOAD, ...) 接收；PostEvent 不会在这里同步
+        执行窗口处理函数。返回 True 表示已投递，不代表后续 MP4 合并成功。
+        """
         if not self.parent:
             return False
         
@@ -104,6 +130,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
 
     # 自定义函数
     def _BuildKey(self, keys: tuple):
+        """自定义方法：把索引元组转为节点键，并缓存同一个字符串对象。
+
+        ObjectToItem 依赖对象身份；同一节点反复查询时需要复用缓存中的对象。
+        """
         _key = ".".join(map(str, keys))
         # 维护 obj 内存地址不变
         if _key not in self.keyMap.keys():
@@ -112,17 +142,27 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     
     # 自定义函数
     def ParseKey(self, keyStr: str):
+        """自定义方法：例如将 '2.3' 还原为 (2, 3)，用于定位任务和子节点。"""
         return tuple(map(int, keyStr.split(".")))
 
     def GetColumnCount(self):
+        """重写：wx 查询模型列数，模型列编号与界面显示顺序不一定相同。
+
+        0 序列、1 文件名、2 文件大小、3 修改时间、4 操作、5 下载进度、6 状态。
+        界面通过 DataViewColumn 的 model_column 参数绑定这些编号。
+        """
         return 7  # 原有列、进度、状态
     
     def GetColumnType(self, col):
+        """重写：wx 查询指定模型列的数据类型；此处所有列都按 string 传递。
+
+        操作列虽然包含多个操作，也以 JSON 字符串传给自定义渲染器。
+        """
         return "string"
     
     # 父类函数
     def IsContainer(self, item):
-        '''确定节点是否可以展开'''
+        """重写：wx 查询节点是否为容器；虚拟根和任务行是容器，文件行不是。"""
         if not item.IsOk():
             return True
         
@@ -139,11 +179,16 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
 
     # 父类函数
     def HasContainerColumns(self, item):
+        """重写：返回 True，让任务行也能显示文件名以外的进度、状态等列。"""
         return True
 
     # 父类函数
     def GetChildren(self, parent, children):
-        '''定义树形结构的父子关系'''
+        """重写：wx 查询子节点时调用，将 DataViewItem 追加到 children 并返回数量。
+
+        无效 parent 表示不可见的虚拟根，此时返回所有任务；任务下面则返回
+        MP4 和分片。ObjectToItem 把缓存的节点键转换为 wx 使用的节点标识。
+        """
         if not parent.IsOk():  # 根节点
             for idx, mu in enumerate(self.fileTree.items):
                 _key = self._BuildKey((idx,))
@@ -177,7 +222,11 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     
     # 父类函数
     def GetValue(self, item, col):
-        '''提供节点数据显示'''
+        """重写：wx 准备显示单元格时，按节点 item 和模型列 col 读取数据。
+
+        操作列的数据链是：本方法 → 渲染器 SetValue → 渲染器 Render。
+        GetValue 应只提供内容，不在这里下载文件或处理点击；空字符串表示无内容。
+        """
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         # print("GetValue keys:", keys)
@@ -219,6 +268,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                         return self.fileTree.items[idxi].outputs[idxj].modifyAt
                     return ''
                 else:
+                    # MP4 占据前面的子节点位置，减去其数量后才是 childs 的索引。
                     idxj -= coutputs
 
             # 处理 TS
@@ -242,7 +292,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     
     # 父类函数
     def GetParent(self, item):
-        '''建立节点的反向链接'''
+        """重写：wx 查询父节点时调用；文件返回所属任务，任务返回虚拟根。"""
         if not item.IsOk():
             return dv.NullDataViewItem
         
@@ -260,9 +310,13 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             return self.ObjectToItem(_key)
         return dv.NullDataViewItem          # 部门的父节点是根
     
-    # 修改TS文件大小，此时没有MP4文件
     def SetValue(self, variant, item, col):
-        '''设置item项col列的值为variant'''
+        """重写模型的数据写入接口，与渲染器的同名 SetValue 不是一回事。
+
+        wx 可编辑单元格通常通过此接口写回数据；本项目主要由下载完成回调主动
+        调用，传入 FileItem 更新分片大小、修改时间及完成数量。返回 True 表示
+        更新已处理。修改数据后，调用方仍需用 ItemChanged/ValueChanged 通知视图。
+        """
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         # print(f"MultiColumnTreeModel.SetValue", keys, col)
@@ -290,6 +344,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             if not 0 <= idxj < len(self.fileTree.items[idxi].childs):
                 return False
             was_missing = self.fileTree.items[idxi].childs[idxj].fileSize == '-'
+            # 记录更新前是否缺失，避免重复回调时重复发送“全部下载完成”事件。
             # self.fileTree.items[idxi].childs[idxj].fileSize = "--B"
             # self.fileTree.items[idxi].childs[idxj].modifyAt = "----:--:-- --:--"
             self.fileTree.items[idxi].childs[idxj].fileSize = variant.fileSize
@@ -306,6 +361,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
 
     # 动态插入数据的方法
     def InsertChildData(self, parent, newFile):
+        """自定义方法：将生成的 MP4 加入任务数据；视图刷新由调用方负责。
+
+        MP4 排在分片前面，插入后子节点索引会变化，需要重新通知视图读取树结构。
+        """
         if not parent.IsOk():
             return
         
@@ -330,7 +389,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
 
     # 展开使用
     def GetFirstChild(self, parent):
-        """获取第一个子节点"""
+        """自定义遍历辅助方法：返回首个子节点及下一项的索引 cookie。
+
+        供主窗口展开、折叠、搜索等遍历使用，不是 wx 自动查询树结构的回调。
+        """
         children = []
         count = self.GetChildren(parent, children)
 
@@ -340,7 +402,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     
     # 展开使用
     def GetNextChild(self, item, cookie):
-        """获取下一个子节点"""
+        """自定义遍历辅助方法：item 是父节点，cookie 是下一子节点的索引。
+
+        返回 (子节点, 下一索引)；遍历结束时返回无效节点。
+        """
         children = []
         count = self.GetChildren(item, children)
 
@@ -349,7 +414,11 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         return (dv.NullDataViewItem, 0)
 
     def GetAttr(self, item, col, attr):
-        """设置显示属性"""
+        """重写：wx 绘制时查询单元格样式，可在 attr 中设置文字颜色、粗体等。
+
+        返回 True 表示提供了自定义样式，False 表示使用默认样式。
+        操作列的自定义渲染器还会自行设置文字颜色，用来区分可用和置灰操作。
+        """
         keys = self.ItemToObject(item)
         if not keys:
             return False
