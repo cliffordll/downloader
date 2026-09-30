@@ -1,3 +1,5 @@
+from src.models import tree_model
+from src.models.tree_model import load_tree
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
@@ -10,15 +12,15 @@ from unittest.mock import Mock, patch
 
 import wx
 
-from src.managers.converter import Converter
-from src.managers.downloader import Downloader
-from src.managers.sys_setting import SysSetting
-from src.managers.task_repository import TaskRepository
-from src.managers.task_service import TaskService
+from src.core.converter import Converter
+from src.core.downloader import Downloader
+from src.config.sys_setting import SysSetting
+from src.storage.task_repository import TaskRepository
+from src.core.task_service import TaskService
 from src.schemas.task import FileStatus, TaskStatus
 from src.views.main_frame import MainFrame
-from src.views.tab_setting import SettingsDialog
-from src.views.downloads.dialog_mu import DownloadDialogMU
+from src.views.dialogs.settings_dialog import SettingsDialog
+from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 
 
 class TaskRuntimeTests(unittest.TestCase):
@@ -198,7 +200,7 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertEqual(failed.progress.completed_segments, 1)
         self.assertEqual(failed.progress.downloaded_bytes, 5)
         reopened = TaskService(TaskRepository(self.repository.path))
-        reopened.load_tree()
+        load_tree(reopened)
         restored = reopened.repository.get(task.id)
         self.assertEqual(restored.details.segments[1].last_error, 'HTTP 403')
         self.assertEqual(restored.status, TaskStatus.FAILED)
@@ -217,7 +219,7 @@ class TaskRuntimeTests(unittest.TestCase):
         partial = tasks[2].save_dir / 'output.mp4.part.mp4'
         partial.write_bytes(b'incomplete')
         with patch.object(Downloader, 'DownloadTSFile') as download:
-            tree = TaskService(TaskRepository(self.repository.path)).load_tree()
+            tree = load_tree(TaskService(TaskRepository(self.repository.path)))
         download.assert_not_called()
         self.assertEqual([item.task_status for item in tree.items],
                          [TaskStatus.INTERRUPTED] * 3 + [TaskStatus.PAUSED])
@@ -342,7 +344,7 @@ class TaskRuntimeTests(unittest.TestCase):
         frame.model.ApplyTaskRecord(record)
         frame.OnDestroy(SimpleNamespace(GetEventObject=lambda: frame, Skip=lambda: None))
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.INTERRUPTED)
-        restored = TaskService(TaskRepository(self.repository.path)).load_tree().items[0]
+        restored = load_tree(TaskService(TaskRepository(self.repository.path))).items[0]
         self.assertEqual(restored.task_status, TaskStatus.INTERRUPTED)
 
     def test_completion_waits_for_all_callbacks_and_only_notifies_once(self):
@@ -364,7 +366,7 @@ class TaskRuntimeTests(unittest.TestCase):
         path = self.write_segment(task, 0)
         self.service.finish_segment(task.id, 0, str(path), True)
         path.unlink()
-        TaskService(TaskRepository(self.repository.path)).load_tree()
+        load_tree(TaskService(TaskRepository(self.repository.path)))
         restored = self.repository.get(task.id)
         self.assertEqual(restored.progress.completed_segments, 0)
         self.assertEqual(restored.details.segments[0].status, FileStatus.MISSING)
@@ -385,7 +387,7 @@ class TaskRuntimeTests(unittest.TestCase):
         task = self.create(count=20)
         frame = self.frame()
         record = self.service.runtime_status(task.id, TaskStatus.QUEUED)
-        with patch.object(self.service, '_file', wraps=self.service._file) as read_file:
+        with patch('src.models.tree_model._file', wraps=tree_model._file) as read_file:
             frame.model.ApplyTaskRecord(record)
         self.assertEqual(read_file.call_count, 1)  # 只更新任务清单的显示信息，不再检查全部 20 个分片。
 
@@ -396,13 +398,13 @@ class TaskRuntimeTests(unittest.TestCase):
         self.service.begin_merge(task.id)
         output = task.save_dir / 'output.mp4'
         self.service.finish_merge(task.id, str(output), False)
-        failed = TaskService(TaskRepository(self.repository.path)).load_tree().items[0]
+        failed = load_tree(TaskService(TaskRepository(self.repository.path))).items[0]
         self.assertEqual(failed.task_status, TaskStatus.FAILED)
         self.assertEqual(failed.outputs, [])
         self.service.begin_merge(task.id)
         output.write_bytes(b'video')
         self.service.finish_merge(task.id, str(output), True)
-        restored = TaskService(TaskRepository(self.repository.path)).load_tree().items[0]
+        restored = load_tree(TaskService(TaskRepository(self.repository.path))).items[0]
         self.assertEqual(restored.task_status, TaskStatus.COMPLETED)
         self.assertEqual(len(restored.outputs), 1)
         self.assertEqual(self.repository.get(task.id).outputs[0].size_bytes, 5)

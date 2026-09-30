@@ -6,12 +6,12 @@ from unittest.mock import patch
 
 import wx
 
-from src.managers.downloader import Downloader
-from src.managers.converter import Converter
-from src.managers.path_manager import PathManager
-from src.managers.sys_setting import SysSetting
+from src.core.downloader import Downloader
+from src.core.converter import Converter
+from src.core.path_manager import PathManager
+from src.config.sys_setting import SysSetting
 from src.models.tree_model import MultiColumnTreeModel
-from src.schemas.file_base import FileItem, TreeItem, TreeData
+from src.models.file_base import FileItem, TreeItem, TreeData
 from src.views.main_frame import MainFrame
 
 
@@ -32,7 +32,8 @@ class TaskProgressTests(unittest.TestCase):
             patch.object(Downloader, '_paused_files', set()),
                         patch.object(Downloader, '_user_paused', threading.Event()),
                         patch.object(Converter, '_outputs', set()),
-                        patch('src.models.tree_model.TaskService.load_tree', return_value=self.tree)):
+                        patch('src.models.tree_model.load_tree', return_value=self.tree),
+                        patch('src.views.main_frame.load_tree', return_value=self.tree)):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.model = MultiColumnTreeModel()
@@ -108,9 +109,7 @@ class TaskProgressTests(unittest.TestCase):
         self.tree.items.insert(0, TreeItem(parent=FileItem(fileName='other/download.m3u8'),
                                         childs=[FileItem(fileName='other/a.ts')]))
         receiver = SimpleNamespace(model=self.model)
-        updated = FileItem(fileName='task/b.ts', fileSize=10)
-        with patch('src.views.main_frame.FileManager.GetFileItem', return_value=(True, updated)):
-            MainFrame._DownloadCall(receiver, True, PathManager.GetAbsPath('task/b.ts'), None)
+        MainFrame._DownloadCall(receiver, True, PathManager.GetAbsPath('task/b.ts'), None)
         self.assertEqual(self.tree.items[0].download, 0)
         self.assertEqual(self.tree.items[1].download, 1)
 
@@ -199,8 +198,7 @@ class TaskProgressTests(unittest.TestCase):
                 child = frame.model.ObjectToItem(frame.model._BuildKey((0, 0)))
                 frame.OnTaskMenu(child)
             Downloader._pending.clear()
-            with patch('src.views.main_frame.FileManager.TaskDeletionDirectory', return_value='task'), \
-                 patch('src.views.main_frame.FileManager.DeleteTaskDirectory') as delete, \
+            with patch.object(frame.model.tasks.repository, 'delete') as delete, \
                  patch('src.views.main_frame.wx.MessageDialog') as dialog:
                 dialog.return_value.ShowModal.return_value = wx.ID_NO
                 frame.OnDeleteTask(self.task)
@@ -386,7 +384,7 @@ class TaskProgressTests(unittest.TestCase):
             self.app.ProcessPendingEvents()
 
     def test_settings_picker_labels_are_chinese(self):
-        from src.views.tab_setting import TabSetting
+        from src.views.dialogs.settings_dialog import TabSetting
         frame = wx.Frame(None)
         try:
             panel = TabSetting(frame)

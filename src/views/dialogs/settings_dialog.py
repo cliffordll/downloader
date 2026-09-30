@@ -1,10 +1,10 @@
 import wx
 
-from src.managers.sys_setting import SysSetting
+from src.config.sys_setting import SysSetting
 
 
 class TabSetting(wx.Panel):
-    """Reusable settings form for the tab and the main window's dialog."""
+    """设置表单，由 SettingsDialog 承载，也可单独嵌入面板。"""
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -70,7 +70,6 @@ class TabSetting(wx.Panel):
         self.status.SetLabel('')
 
     def OnSave(self, event):
-        from src.managers.downloader import Downloader
         # 保留由查看菜单管理的偏好，避免保存下载设置时重置它们。
         values = SysSetting.GetAll()
         values.update({key: control.GetPath() if key in ('download_dir', 'ffmpeg_path') else control.GetValue()
@@ -86,9 +85,6 @@ class TabSetting(wx.Panel):
             self.GetParent().EndModal(wx.ID_OK)
         else:
             self.status.SetLabel('设置已保存。')
-            window = self.GetTopLevelParent()
-            if hasattr(window, 'tabIndex') and not Downloader.IsBusy():
-                window.tabIndex.OnRefresh(None)
 
 
 class SettingsDialog(wx.Dialog):

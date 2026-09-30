@@ -11,9 +11,9 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from src.managers.sys_setting import SysSetting
-from src.managers.downloader import Downloader
-from src.managers.converter import Converter
+from src.config.sys_setting import SysSetting
+from src.core.downloader import Downloader
+from src.core.converter import Converter
 
 
 class SettingsTests(unittest.TestCase):
@@ -62,7 +62,7 @@ class SettingsTests(unittest.TestCase):
     def test_failed_atomic_replace_preserves_previous_settings(self):
         SysSetting.Save(self.values())
         before = self.config.read_bytes()
-        with patch('src.managers.sys_setting.os.replace', side_effect=OSError('denied')):
+        with patch('src.config.sys_setting.os.replace', side_effect=OSError('denied')):
             with self.assertRaises(OSError):
                 SysSetting.Save(self.values(max_workers=1))
         self.assertEqual(self.config.read_bytes(), before)
@@ -87,8 +87,8 @@ class SettingsTests(unittest.TestCase):
         local.parent.mkdir()
         local.touch()
         module = str(self.root / 'src' / 'managers' / 'sys_setting.py')
-        with patch('src.managers.sys_setting.__file__', module), \
-             patch('src.managers.sys_setting.shutil.which', return_value='system-ffmpeg') as which:
+        with patch('src.config.sys_setting.__file__', module), \
+             patch('src.config.sys_setting.shutil.which', return_value='system-ffmpeg') as which:
             self.assertEqual(SysSetting.GetFFmpeg(), str(local))
             which.assert_not_called()
             local.unlink()
@@ -98,7 +98,7 @@ class SettingsTests(unittest.TestCase):
         custom = self.root / 'custom-ffmpeg.exe'
         custom.touch()
         SysSetting.Save(self.values(ffmpeg_path=str(custom)))
-        with patch('src.managers.sys_setting.shutil.which') as which:
+        with patch('src.config.sys_setting.shutil.which') as which:
             self.assertEqual(SysSetting.GetFFmpeg(), str(custom))
             which.assert_not_called()
 
@@ -403,8 +403,8 @@ class DownloadSettingsTests(unittest.TestCase):
     def test_auto_merge_runs_only_when_enabled(self):
         from src.views.main_frame import MainFrame
         event = Mock()
-        event.GetData.return_value = {'fileName': 'download.seed'}
-        task = SimpleNamespace(parent=SimpleNamespace(fileName='download.seed'), outputs=[])
+        event.GetData.return_value = {'fileName': 'download.m3u8'}
+        task = SimpleNamespace(parent=SimpleNamespace(fileName='download.m3u8'), outputs=[])
         model = Mock(fileTree=SimpleNamespace(items=[task]))
         frame = SimpleNamespace(model=model, _CreateM3U8File=Mock(), _CreateMP4File=Mock(),
                                 _RefreshWithState=Mock())

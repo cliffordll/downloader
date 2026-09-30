@@ -1,23 +1,14 @@
 import os
-from urllib.parse import urlparse, urlunparse, urljoin, urlsplit
+from urllib.parse import urlparse
 
-from src.managers.sys_setting import SysSetting
+from src.config.sys_setting import SysSetting
 
 class PathManager():
-    def __init__(self):
-        pass
 
     @classmethod
     def JoinPath(cls, filePath, fileName):
         return os.path.join(filePath, fileName)
     
-    @classmethod
-    def GetRltPath(cls, fileName):
-        '''获取文件的相对路径 RelativePath'''
-        if os.path.isabs(fileName):
-            workPath = SysSetting.GetWorkPath()
-            return fileName.replace(workPath, "")
-        return fileName
     
     @classmethod
     def GetAbsPath(cls, fileName: str):
@@ -33,22 +24,8 @@ class PathManager():
         absFile = cls.GetAbsPath(fileName)
         return absFile.rsplit(os.sep, 1)[0]
 
-    @classmethod
-    def GetRltDir(cls, fileName):
-        return fileName.rsplit(os.sep, 1)[0]
 
-    @classmethod
-    def MakeDirsByPath(cls, filePath: str):
-        # 判断保存文件夹 路径是否存在。无则创建
-        if not os.path.exists(filePath):
-            os.makedirs(filePath)
 
-    @classmethod
-    def MakeDirsByFile(cls, absFile: str):
-        absPath = absFile.rsplit(os.sep, 1)[0]
-        # 判断保存文件夹 路径是否存在。无则创建
-        if not os.path.exists(absPath):
-            os.makedirs(absPath)
     
     @classmethod
     def IsExists(cls, absFile:str):
@@ -73,7 +50,6 @@ class PathManager():
         filePath = os.path.join("", *saveDirs[1:-1])
         fileName = saveDirs[-1]
         absName = os.path.join("", *saveDirs[1:])
-        print(f"FileManager.GetPathFromURI filePath:{filePath} fileName:{fileName} absName:{absName}")
 
         # # 2. 判断保存文件夹 路径是否存在。无则创建
         # if not os.path.exists(savePath):

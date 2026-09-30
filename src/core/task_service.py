@@ -1,13 +1,12 @@
-"""连接新建任务、SQLite 和现有树形列表，不通过扫描目录发现任务。"""
+"""管理任务创建、持久化状态和恢复，不依赖窗口或列表模型。"""
 
 from pathlib import Path
 import math
 import os
 import tempfile
 
-from src.managers.m3m8_parser import M3U8Parser
-from src.managers.task_repository import TaskRepository
-from src.schemas.file_base import FileItem, TreeData, TreeItem
+from src.core.parsers.m3u8_parser import M3U8Parser
+from src.storage.task_repository import TaskRepository
 from src.schemas.task import M3U8Task, M3U8Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus
 
 
@@ -87,59 +86,19 @@ class TaskService:
             lines.extend([f'#EXTINF:{segment.duration or 0},', segment.relative_path])
         return '\n'.join(lines + ['#EXT-X-ENDLIST', ''])
 
-    @staticmethod
-    def _file(path, display_name, source_url=''):
-        """只检查已记录的确切路径；内部用绝对路径，显示名称单独保存。"""
-        item = FileItem(fileName=str(path), displayName=display_name, absUri=source_url or '')
-        if path.is_file():
-            stat = path.stat()
-            item = FileItem(fileName=str(path), displayName=display_name, absUri=source_url or '',
-                            fileSize=stat.st_size, modifyAt=stat.st_mtime)
-        return item
 
-    def to_tree_item(self, task, previous=None):
-        """将持久化记录投影到界面；磁盘上的正式文件才可显示为已下载。"""
-        if not isinstance(task, M3U8Task):
-            target = task.save_dir / task.details.target_path
-            parent = self._file(target, task.name, task.source_url)
-            parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
-            # 单文件任务不创建子节点；完成文件仍供“更多 → 播放视频”使用。
-            outputs = [self._file(target, task.details.target_path)] if (
-                task.status == TaskStatus.COMPLETED and target.is_file()) else []
-            return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
-                            progress=task.progress, task_status=task.status,
-                            last_error=task.last_error, parent=parent, outputs=outputs)
-        parent = self._file(task.save_dir / (task.details.playlist_path or 'download.m3u8'), task.name)
-        parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
-        children = []
-        previous_children = {child.sequence: child for child in previous.childs} if previous else {}
-        for segment in sorted(task.details.segments, key=lambda segment: segment.sequence):
-            path = task.save_dir / segment.relative_path
-            child = previous_children.get(segment.sequence)
-            # 状态回调复用未变化分片，避免每下载一片就在 UI 线程检查整份清单的文件。
-            # 显式刷新/启动恢复不传 previous，会重新核对全部登记文件。
-            if child is None or child.status != segment.status or child.fileName != str(path):
-                child = self._file(path, segment.relative_path, segment.source_url)
-            child.sequence, child.status = segment.sequence, segment.status
-            children.append(child)
-        outputs = [self._file(task.save_dir / output.relative_path, output.relative_path)
-                   for output in task.outputs if output.status == FileStatus.COMPLETED
-                   and (task.save_dir / output.relative_path).is_file()]
-        return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
-                        progress=task.progress, task_status=task.status, last_error=task.last_error,
-                        parent=parent, childs=children, outputs=outputs,
-                        download=sum(child.fileSize != '-' for child in children))
 
-    def load_tree(self):
-        """首次读取恢复中断状态，之后刷新只核对已登记文件，不重新中断活动任务。"""
+
+    def load_tasks(self):
+        """首次读取恢复中断状态，普通刷新只核对已登记文件，返回领域任务记录。"""
         recovering = not self._recovered
-        tree = TreeData()
+        records = []
         for original in self.repository.list_tasks():
             task = self.repository.mutate(original.id, lambda task: self._reconcile(task, recovering))
             if task is not None:
-                tree.items.append(self.to_tree_item(task))
+                records.append(task)
         self._recovered = True
-        return tree
+        return records
 
     @staticmethod
     def _progress(task):

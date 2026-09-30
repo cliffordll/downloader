@@ -6,6 +6,29 @@
 
 列表已支持按任务类型展示：M3U8 可展开查看分片，MP4/RTMP 仅显示一行。MP4 按字节显示进度（总大小未知时只显示已下载体积），RTMP 显示录制时长和体积。“展开/折叠”和“转 MP4”仅用于 M3U8。MP4/RTMP 暂未提供添加入口，其执行操作保持置灰，后续接入对应引擎。
 
+## 源码目录
+
+```text
+src/
+├─ config/       # sys_setting.py、app_paths.py：设置和应用路径
+├─ schemas/      # task.py、segment_base.py：业务数据结构及校验
+├─ storage/      # task_repository.py：SQLite 读写
+├─ core/         # 任务业务、下载、合并、M3U8 解析及清单生成
+│  └─ parsers/   # m3u8_parser.py：播放列表解析
+├─ models/       # tree_model.py、presentation.py、file_base.py：列表模型和展示数据
+└─ views/        # 主窗口（包含任务操作和回调）、渲染器及弹窗
+   ├─ components/ # icons.py、renderers.py：图标加载和单元格绘制
+   └─ dialogs/   # m3u8_dialog.py、ts_dialog.py、settings_dialog.py：弹窗
+      └─ panels/  # m3u8_form.py、ts_form.py、path_picker.py：表单和路径选择
+```
+
+当前入口使用 `views/main_frame.py`，旧界面和目录扫描实现已移除。核心任务服务返回任务记录，
+列表行转换由 `models/tree_model.py` 负责；树形行结构及文件大小、日期格式化位于
+`models/file_base.py`。任务操作和异步回调集中在 `views/main_frame.py`，
+回调绑定到主窗口，窗口销毁检查仍然有效。设置窗口位于 `views/dialogs/settings_dialog.py`，
+M3U8 添加界面使用 `m3u8_dialog.py`、`panels/m3u8_form.py`，FFmpeg 合并清单生成位于
+`core/concat_playlist.py`。此次整理保留原有类名和方法名。
+
 ## 安装与运行
 
 已验证环境：Windows、Python 3.10.11。建议使用 Python 3.10 创建独立环境，在项目根目录执行：

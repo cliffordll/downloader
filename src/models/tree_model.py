@@ -2,26 +2,63 @@ import wx
 import json
 # import wx.gizmos as gizmos
 import wx.dataview as dv
-from src.managers.task_service import TaskService
-from src.managers.path_manager import PathManager
-from src.managers.downloader import Downloader
-from src.managers.converter import Converter
+from src.core.task_service import TaskService
+from src.core.path_manager import PathManager
+from src.core.downloader import Downloader
+from src.core.converter import Converter
 import os
-from typing import TypedDict
-from src.schemas.task import FileStatus, TaskStatus, TaskType
+from src.models.presentation import TaskSummary, single_file_info
+from src.schemas.task import FileStatus, TaskStatus, TaskType, M3U8Task
+from src.models.file_base import FileItem, TreeData, TreeItem
 
 
-class TaskSummary(TypedDict):
-    """任务状态的字段类型，避免混合字典让 status 被推断成多种类型。"""
-    total: int
-    done: int
-    percent: int | None
-    status: str
-    failed: set[str]
-    pending: set[str]
-    merging: bool
-    paused: bool
-    progress: str
+def _file(path, display_name, source_url=''):
+    """只检查已记录的确切路径；内部用绝对路径，显示名称单独保存。"""
+    item = FileItem(fileName=str(path), displayName=display_name, absUri=source_url or '')
+    if path.is_file():
+        stat = path.stat()
+        item = FileItem(fileName=str(path), displayName=display_name, absUri=source_url or '',
+                        fileSize=stat.st_size, modifyAt=stat.st_mtime)
+    return item
+
+def to_tree_item(task, previous=None):
+    """将持久化记录投影到界面；磁盘上的正式文件才可显示为已下载。"""
+    if not isinstance(task, M3U8Task):
+        target = task.save_dir / task.details.target_path
+        parent = _file(target, task.name, task.source_url)
+        parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
+        # 单文件任务不创建子节点；完成文件仍供“更多 → 播放视频”使用。
+        outputs = [_file(target, task.details.target_path)] if (
+            task.status == TaskStatus.COMPLETED and target.is_file()) else []
+        return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                        progress=task.progress, task_status=task.status,
+                        last_error=task.last_error, parent=parent, outputs=outputs)
+    parent = _file(task.save_dir / (task.details.playlist_path or 'download.m3u8'), task.name)
+    parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
+    children = []
+    previous_children = {child.sequence: child for child in previous.childs} if previous else {}
+    for segment in sorted(task.details.segments, key=lambda segment: segment.sequence):
+        path = task.save_dir / segment.relative_path
+        child = previous_children.get(segment.sequence)
+        # 状态回调复用未变化分片，避免每下载一片就在 UI 线程检查整份清单的文件。
+        # 显式刷新/启动恢复不传 previous，会重新核对全部登记文件。
+        if child is None or child.status != segment.status or child.fileName != str(path):
+            child = _file(path, segment.relative_path, segment.source_url)
+        child.sequence, child.status = segment.sequence, segment.status
+        children.append(child)
+    outputs = [_file(task.save_dir / output.relative_path, output.relative_path)
+               for output in task.outputs if output.status == FileStatus.COMPLETED
+               and (task.save_dir / output.relative_path).is_file()]
+    return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                    progress=task.progress, task_status=task.status, last_error=task.last_error,
+                    parent=parent, childs=children, outputs=outputs,
+                    download=sum(child.fileSize != '-' for child in children))
+
+def load_tree(service):
+    """读取恢复后的任务记录，再转换成列表行；核心服务不依赖界面结构。"""
+    return TreeData(items=[to_tree_item(task) for task in service.load_tasks()])
+
+
 
 # 定义自定义事件类型
 ALL_DOWNLOAD_EVENT = wx.NewEventType()
@@ -53,7 +90,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     def __init__(self, parent=None):
         super().__init__()
         self.tasks = TaskService()
-        self.fileTree = self.tasks.load_tree()
+        self.fileTree = load_tree(self.tasks)
         # None 表示全部；筛选只改变根节点可见性，不删任务、不改变下载回调使用的索引。
         self.visible_tasks = None
         # 因为 ObjectToItem(obj) 在库内部维护一张map，key 为 id(obj)，所以 obj 对象不能变
@@ -69,7 +106,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             return None
         for index, task in enumerate(self.fileTree.items):
             if task.task_id == record.id:
-                self.fileTree.items[index] = self.tasks.to_tree_item(record, previous=task)
+                self.fileTree.items[index] = to_tree_item(record, previous=task)
                 return index
         return None
 
@@ -81,7 +118,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         """
         task = self.fileTree.items[index]
         if task.task_type != TaskType.M3U8:
-            return self._SingleFileInfo(task)
+            return single_file_info(task)
         total = len(task.childs)
         done = sum(child.fileSize != '-' for child in task.childs)
         keys = {Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
@@ -131,37 +168,6 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             'progress': f'{int(done * 100 / total) if total else 0}% · {done}/{total}',
         }
 
-    @staticmethod
-    def _SingleFileInfo(task) -> TaskSummary:
-        """MP4 按字节计进度；直播只展示时长和体积，不伪造完成百分比。"""
-        progress = task.progress
-        def size(value):
-            amount = float(value)
-            for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
-                if amount < 1024 or unit == 'TB':
-                    return f'{amount:.1f} {unit}'
-                amount /= 1024
-        live = task.task_type == TaskType.RTMP
-        total, done = progress.total_bytes or 0, progress.downloaded_bytes
-        percent = int(done * 100 / total) if total and not live else None
-        if live:
-            seconds = int(progress.recorded_seconds)
-            label = f'{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d} · {size(done)}'
-        else:
-            label = f'{size(done)} / {size(total) if total else "未知"}'
-            if percent is not None:
-                label = f'{percent}% · {label}'
-        status = {
-            TaskStatus.NEW: '未开始', TaskStatus.QUEUED: '等待下载',
-            TaskStatus.DOWNLOADING: '下载中', TaskStatus.PAUSING: '暂停中',
-            TaskStatus.PAUSED: '已暂停', TaskStatus.INTERRUPTED: '已中断',
-            TaskStatus.RECORDING: '录制中', TaskStatus.STOPPING: '停止中',
-            TaskStatus.COMPLETED: '已完成',
-            TaskStatus.FAILED: '录制失败' if live else '下载失败',
-        }.get(task.task_status, '未开始')
-        return dict(total=total, done=done, percent=percent, status=status, progress=label,
-                    failed=set(), pending=set(), merging=False,
-                    paused=task.task_status == TaskStatus.PAUSED)
 
     def TaskActions(self, index):
         """自定义方法：按任务类型返回操作的 id、显示文字和可用状态。
@@ -596,15 +602,3 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 attr.SetBold(True)
                 return True
         return False
-
-    # # 刷新整个模型
-    # def refresh_all(self):
-    #     self.Cleared()  # 通知视图模型已清空（触发重新加载）
-    #     # 或者逐项刷新：
-    #     self.fileTree = FileManager.GetFileInfo()
-    #     # for item in self.data:
-    #     #     self.ValueChanged(self.ItemToRow(item), 0)  # 刷新某一列
-
- 
-class MultiColumnDataViewCtrl(dv.DataViewCtrl):
-    pass

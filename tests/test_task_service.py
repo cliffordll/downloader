@@ -1,3 +1,4 @@
+from src.models.tree_model import load_tree
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
@@ -7,15 +8,14 @@ from unittest.mock import Mock, patch
 
 import wx
 
-from src.managers.downloader import Downloader
-from src.managers.file_manager import FileManager
-from src.managers.sys_setting import SysSetting
-from src.managers.task_repository import TaskRepository
-from src.managers.task_service import TaskService
+from src.core.downloader import Downloader
+from src.config.sys_setting import SysSetting
+from src.storage.task_repository import TaskRepository
+from src.core.task_service import TaskService
 from src.schemas.task import SourceType
 from src.views.main_frame import MainFrame
-from src.views.downloads.dialog_mu import DownloadDialogMU
-from src.views.downloads.dialog_ts import DownloadDialogTS
+from src.views.dialogs.m3u8_dialog import DownloadDialogMU
+from src.views.dialogs.ts_dialog import DownloadDialogTS
 
 
 CONTENT = '#EXTM3U\n#EXTINF:4,\na.ts?token=1\n#EXTINF:5,\na.ts?token=2\n#EXT-X-ENDLIST\n'
@@ -100,15 +100,15 @@ class TaskServiceTests(unittest.TestCase):
         unrelated.write_text(CONTENT)
         (self.directory / 'download.m3u8').unlink()
         reopened = TaskService(TaskRepository(self.repository.path))
-        with patch.object(FileManager, 'GetFileInfos', side_effect=AssertionError('must not scan')):
-            tree = reopened.load_tree()
+        with patch('os.walk', side_effect=AssertionError('must not scan')):
+            tree = load_tree(reopened)
             self.assertEqual(len(tree.items), 1)
             self.assertEqual(tree.items[0].task_id, task.id)
             self.assertEqual(len(tree.items[0].childs), 2)
         path = reopened.write_playlist(task.id)
         self.assertTrue(path.is_file())
         self.repository.delete(task.id)
-        self.assertEqual(reopened.load_tree().items, [])
+        self.assertEqual(load_tree(reopened).items, [])
         self.assertTrue(path.is_file())
 
     def test_download_uses_recorded_paths_after_default_directory_change(self):
@@ -116,7 +116,7 @@ class TaskServiceTests(unittest.TestCase):
         frame = self.frame()
         SysSetting._values['download_dir'] = str(self.root / 'new-default')
         (self.directory / 'download.m3u8').unlink()
-        with patch.object(FileManager, 'GetFileInfos', side_effect=AssertionError('must not scan')):
+        with patch('os.walk', side_effect=AssertionError('must not scan')):
             frame.OnRefresh(None)
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
         with patch.object(Downloader, 'DownloadTSFile', return_value=True) as download:
@@ -150,7 +150,7 @@ class TaskServiceTests(unittest.TestCase):
         self.create()
         frame = self.frame()
         previous = frame.model.fileTree
-        with patch.object(self.service, 'load_tree', side_effect=sqlite3.OperationalError('locked')), patch('wx.MessageBox'):
+        with patch.object(self.service, 'load_tasks', side_effect=sqlite3.OperationalError('locked')), patch('wx.MessageBox'):
             frame.OnRefresh(None)
         self.assertIs(frame.model.fileTree, previous)
 
@@ -200,6 +200,33 @@ class TaskServiceTests(unittest.TestCase):
             finally:
                 dialog.Destroy()
         self.app.ProcessPendingEvents()
+
+    def test_failed_manifest_generation_does_not_launch_converter(self):
+        task = self.create()
+        for segment in task.details.segments:
+            path = task.save_dir / segment.relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'data')
+        frame = self.frame()
+        item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+        with patch('src.views.main_frame.create_concat_playlist', return_value=False), \
+             patch('src.views.main_frame.Converter.ConvertTSFile') as convert, \
+             patch('wx.MessageBox') as message:
+            frame.OnTaskAction(item, 'merge')
+        convert.assert_not_called()
+        message.assert_called_once()
+        self.assertEqual(self.repository.get(task.id).status.value, 'waiting_merge')
+
+    def test_missing_segment_url_does_not_enqueue_request(self):
+        task = self.create()
+        self.repository.mutate(task.id, lambda record: setattr(record.details.segments[0], 'source_url', None))
+        frame = self.frame()
+        with patch.object(Downloader, 'DownloadTSFile') as download:
+            count = frame._DownloadFiles(str(self.directory / 'download.m3u8'), [(0, None)])
+        self.assertEqual(count, 0)
+        download.assert_not_called()
+        saved = self.repository.get(task.id)
+        self.assertEqual(saved.details.segments[0].last_error, '分片缺少下载地址。')
 
 
 if __name__ == '__main__':

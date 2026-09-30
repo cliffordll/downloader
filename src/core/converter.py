@@ -3,7 +3,7 @@ import os
 import subprocess
 import wx
 
-from src.managers.sys_setting import SysSetting
+from src.config.sys_setting import SysSetting
 
 
 class Converter:

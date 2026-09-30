@@ -3,9 +3,8 @@ import wx.adv
 from urllib.parse import urljoin, urlsplit
 import re
 
-from src.managers.file_manager import FileManager
-from src.views.downloads.download_path import DownloadHelpDialog
-from src.managers.m3m8_parser import M3U8Parser
+from src.views.dialogs.panels.path_picker import DownloadHelpDialog
+from src.core.parsers.m3u8_parser import M3U8Parser
 
 class DownloadEditTS(wx.Panel):
     def __init__(self, parent):

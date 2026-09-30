@@ -1,10 +1,10 @@
 import wx
 
-from src.views.downloads.edit_mu import DownloadEditMU
-from src.views.downloads.download_path import DownloadPath
+from src.views.dialogs.panels.m3u8_form import DownloadEditMU
+from src.views.dialogs.panels.path_picker import DownloadPath
 import sqlite3
-from src.managers.task_service import TaskService
-from src.managers.task_repository import TaskDataError
+from src.core.task_service import TaskService
+from src.storage.task_repository import TaskDataError
 
 class DownloadDialogMU(wx.Dialog):
     def __init__(self, parent, title, workPath, task_service=None):

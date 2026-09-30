@@ -1,10 +1,10 @@
 import wx
 
-from src.views.downloads.edit_ts import DownloadEditTS
-from src.views.downloads.download_path import DownloadPath
+from src.views.dialogs.panels.ts_form import DownloadEditTS
+from src.views.dialogs.panels.path_picker import DownloadPath
 import sqlite3
-from src.managers.task_service import TaskService
-from src.managers.task_repository import TaskDataError
+from src.core.task_service import TaskService
+from src.storage.task_repository import TaskDataError
 from src.schemas.task import SourceType
 
 class DownloadDialogTS(wx.Dialog):

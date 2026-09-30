@@ -11,7 +11,7 @@ from typing import TypedDict
 import requests
 import wx
 
-from src.managers.sys_setting import SysSetting
+from src.config.sys_setting import SysSetting
 
 
 class DownloadSnapshot(TypedDict):

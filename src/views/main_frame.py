@@ -4,238 +4,22 @@ from pathlib import Path
 
 import wx 
 import wx.dataview as dv
-from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD
+from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD, load_tree
 
-from src.views.downloads.dialog_mu import DownloadDialogMU
-from src.views.downloads.dialog_ts import DownloadDialogTS
+from src.views.dialogs.m3u8_dialog import DownloadDialogMU
+from src.views.dialogs.ts_dialog import DownloadDialogTS
 
 
-from src.managers.file_manager import FileManager
-from src.managers.downloader import Downloader
-from src.managers.converter import Converter
-from src.managers.sys_setting import SysSetting
-from src.managers.path_manager import PathManager
-from src.managers.task_repository import TaskDataError, TaskConflictError
+from src.core.downloader import Downloader
+from src.core.converter import Converter
+from src.core.concat_playlist import create_concat_playlist
+from src.config.sys_setting import SysSetting
+from src.core.path_manager import PathManager
+from src.storage.task_repository import TaskDataError, TaskConflictError
 from src.schemas.task import TaskStatus, TaskType
 
-ICON_ROOT = Path(__file__).resolve().parents[2] / "icons"
-ICON_FILES = {
-    "open": "tools/open.png",
-    "playlist": "files/m3u8.png",
-    "segment": "files/ts.png",
-    "expand": "tools/expand.png",
-    "collapse": "tools/collapse.png",
-    "refresh": "tools/refresh.png",
-    "pause": "tools/pause.png",
-    "start": "tools/start.png",
-    "settings": "tools/settings.png",
-    "help": "tools/help.png",
-    "about": "tools/about.png",
-}
-ICON_SIZES = (24, 30, 36, 48)
-
-
-def icon_image(filename, size):
-    """Load an exact-size PNG, or scale the shared source for other sizes."""
-    path = ICON_ROOT / str(size) / filename
-    if not path.is_file():
-        path = ICON_ROOT / "source" / filename
-    image = wx.Image(str(path), wx.BITMAP_TYPE_PNG)
-    if not image.IsOk():
-        raise ValueError(f"Cannot load icon: {path}")
-    if image.GetSize() != wx.Size(size, size):
-        image = image.Scale(size, size, wx.IMAGE_QUALITY_HIGH)
-    return image
-
-
-def toolbar_icon(name):
-    filename = ICON_FILES[name]
-    return wx.BitmapBundle.FromBitmaps([
-        wx.Bitmap(icon_image(filename, size)) for size in ICON_SIZES
-    ])
-
-
-class TaskProgressRenderer(dv.DataViewCustomRenderer):
-    """在任务行内绘制进度条及居中的进度文字，不创建独立的 wx.Gauge 控件。"""
-
-    def __init__(self, frame):
-        super().__init__('string', dv.DATAVIEW_CELL_INERT, wx.ALIGN_CENTER)
-        self.frame = frame
-        self.label = ''
-        self.percent = 0
-
-    def SetValue(self, value):
-        """重写：wx 传入模型第 5 列的文字，例如“50% · 1/2”；分片行为空。"""
-        self.label = value
-        # 未知总大小和直播时长没有百分比，仅显示文字。
-        prefix, separator, _ = value.partition('%')
-        self.percent = max(0, min(100, int(prefix))) if separator and prefix.isdigit() else None
-        return True
-
-    def GetValue(self):
-        """重写：返回当前单元格的进度文字，保持模型的 string 类型不变。"""
-        return self.label
-
-    def GetSize(self):
-        """重写：绘制宽度跟随所属列，避免居中布局把进度条限制在固定宽度内。"""
-        column = self.GetOwner()
-        width = column.GetWidth() if column is not None else self.frame.FromDIP(180)
-        return wx.Size(max(1, width - self.frame.FromDIP(8)), self.frame.FromDIP(24))
-
-    def Render(self, cell, dc, state):
-        """重写：按模型提供的百分比填充；未知总量/直播仅绘制文字，不表示合并进度。"""
-        if not self.label:
-            return True
-        rect = wx.Rect(cell)
-        rect.Deflate(self.frame.FromDIP(3), self.frame.FromDIP(2))
-        if rect.width <= 0 or rect.height <= 0:
-            return True
-        font = wx.Font(self.frame.mcTree.GetFont())
-        font.SetWeight(wx.FONTWEIGHT_NORMAL)
-        dc.SetFont(font)
-        if self.percent is None:
-            dc.SetTextForeground(wx.Colour('#172B4D'))
-            clip = wx.DCClipper(dc, rect)
-            dc.DrawLabel(self.label, rect, wx.ALIGN_CENTER)
-            del clip
-            return True
-        # 进度条只占行内 16 DIP 高度，垂直居中，避免色块撑满整行。
-        bar_height = min(rect.height, self.frame.FromDIP(16))
-        bar = wx.Rect(rect.x, rect.y + (rect.height - bar_height) // 2, rect.width, bar_height)
-        dc.SetPen(wx.TRANSPARENT_PEN)
-        dc.SetBrush(wx.Brush('#E0E6EF'))
-        dc.DrawRectangle(bar)
-        filled = bar.width * self.percent // 100
-        if filled:
-            dc.SetBrush(wx.Brush('#008A36' if self.percent == 100 else '#0055FF'))
-            dc.DrawRectangle(bar.x, bar.y, filled, bar.height)
-        # 同一份文字始终在整条进度条中居中，避免随进度移动。
-        # 分区裁剪绘制：已填充区域用白字，未填充区域用深色字，跨界文字也能看清。
-        for region, colour in (
-            (wx.Rect(bar.x, bar.y, filled, bar.height), '#FFFFFF'),
-            (wx.Rect(bar.x + filled, bar.y, bar.width - filled, bar.height), '#172B4D'),
-        ):
-            if region.width <= 0:
-                continue
-            clip = wx.DCClipper(dc, region)
-            dc.SetTextForeground(wx.Colour(colour))
-            dc.DrawLabel(self.label, bar, wx.ALIGN_CENTER)
-            del clip  # 恢复之前的裁剪区域，不影响其他单元格。
-        return True
-
-
-class TaskActionRenderer(dv.DataViewCustomRenderer):
-    """绘制“操作”列，并把单元格点击转换成具体任务操作。
-
-    这里没有创建按钮，而是按模型的操作数量划分单元格内的可点击区域。
-    模型 GetValue → SetValue 接收数据 → Render 绘制文字；
-    用户点击 → ActivateCell 判断区域 → 主窗口 OnTaskAction 执行业务操作。
-    """
-    def __init__(self, frame):
-        # ACTIVATABLE 让 wx 将单元格的鼠标/键盘激活交给 ActivateCell。
-        super().__init__('string', dv.DATAVIEW_CELL_ACTIVATABLE, wx.ALIGN_CENTER)
-        self.frame = frame
-        self.label = ''
-
-    def SetValue(self, value):
-        """重写父类方法：wx 在准备单元格内容时调用，传入模型提供的值。
-
-        保存本次要绘制的数据；返回 True 表示成功接收，不是下载成功。
-        这不是模型的 SetValue，不负责修改任务数据，也不需要业务代码手动调用。
-        """
-        # wx 自动传入模型 GetValue(item, 4) 的结果。
-        # 任务行是包含 id、label、enabled 的 JSON 数组；分片行是“下载”或空串。
-        # 渲染器由整列共用，label 会随当前绘制的单元格更新，不属于某个固定任务。
-        self.label = value
-        return True
-
-    def GetValue(self):
-        """重写父类方法：供 wx 读取渲染器当前保存的值。
-
-        返回值与本渲染器声明的 string 类型一致；不会重新查询模型或触发刷新。
-        """
-        return self.label
-
-    def GetSize(self):
-        """重写父类方法：wx 布局时查询内容所需尺寸，返回 wx.Size。
-
-        FromDIP 按屏幕缩放比例换算尺寸；实际绘制区域以 Render 的 cell 参数为准。
-        """
-        column = self.GetOwner()
-        width = column.GetWidth() if column is not None else self.frame.FromDIP(200)
-        return wx.Size(max(1, width - self.frame.FromDIP(8)), self.frame.FromDIP(24))
-
-    def _ActionRects(self, cell, count=5):
-        """左右留白后按 count 等分；M3U8 五项、MP4/RTMP 四项。
-
-        这是本类自定义的辅助方法，不是 wx 的重写回调，由 Render/ActivateCell 调用。
-        绘制与点击判断共用此方法，确保显示位置和点击区域始终对应。
-        用相邻边界之差计算宽度，避免整数取整导致区域之间出现缝隙。
-        """
-        rect = wx.Rect(cell)
-        rect.Deflate(self.frame.FromDIP(4), 0)
-        return [wx.Rect(rect.x + rect.width * i // count, rect.y,
-                        rect.width * (i + 1) // count - rect.width * i // count, rect.height)
-                for i in range(count)]
-
-    def Render(self, cell, dc, state):
-        """重写父类方法：wx 重绘单元格时自动调用，不需要手动绑定绘制事件。
-
-        cell 是绘制区域，dc 是绘图上下文，state 包含选中等显示状态。
-        使用 SetValue 保存的数据绘制，返回 True 表示绘制已处理；不执行任务操作。
-        """
-        if not self.label:
-            return True
-        font = wx.Font(self.frame.mcTree.GetFont())
-        font.SetWeight(wx.FONTWEIGHT_NORMAL)
-        dc.SetFont(font)
-        # 选中行使用浅蓝背景，操作仍用链接色，避免白字在浅底上看不清。
-        colour = wx.SYS_COLOUR_HOTLIGHT
-        if self.label.startswith('['):
-            # 按该类型的操作数量等分；置灰不移除区域，防止状态变化时布局跳动。
-            actions = json.loads(self.label)
-            for action, rect in zip(actions, self._ActionRects(cell, len(actions))):
-                dc.SetTextForeground(wx.SystemSettings.GetColour(
-                    colour if action['enabled'] else wx.SYS_COLOUR_GRAYTEXT))
-                dc.DrawLabel(action['label'], rect, wx.ALIGN_CENTER)
-        else:
-            dc.SetTextForeground(wx.SystemSettings.GetColour(colour))
-            dc.DrawLabel(self.label, cell, wx.ALIGN_CENTER)
-        return True
-
-    def ActivateCell(self, cell, model, item, col, mouseEvent):
-        """重写父类方法：wx 在可激活单元格被鼠标或键盘激活时调用。
-
-        item/col 指明任务行和模型列，model 用于读取该行最新数据；
-        mouseEvent 为 None 表示没有鼠标事件，否则用其中的坐标判断具体操作。
-        返回 True 表示本次激活已处理，False 表示无操作或操作不可用，
-        不代表异步下载、合并等业务执行成功。
-        """
-        # 点击时重新读取当前行的最新状态，不能用上次绘制其他行留下的 self.label。
-        value = model.GetValue(item, col)
-        if not value:
-            return False
-        if value.startswith('['):
-            # 单文件任务也是任务行，但不可展开；按数据协议识别，不能按容器判断。
-            actions = json.loads(value)
-            if mouseEvent is None:
-                # 键盘激活没有鼠标坐标：优先开始/继续，否则打开更多，绝不默认删除。
-                action = actions[0] if actions[0]['enabled'] else actions[-1]
-            else:
-                # wx 提供的鼠标坐标相对于当前单元格左上角，因此区域也从 (0, 0) 算起。
-                point = mouseEvent.GetPosition()
-                rects = self._ActionRects(wx.Rect(0, 0, cell.width, cell.height), len(actions))
-                # Contains 判断鼠标是否落在某一项的矩形内；左右留白没有对应操作。
-                action = next((entry for entry, rect in zip(actions, rects) if rect.Contains(point)), None)
-            if action is None or not action['enabled']:
-                return False
-            # item 指明哪一行，id 指明做什么；不依赖选中行或显示文字。
-            # 主窗口还会重新检查 enabled，再分发下载、重试、删除或更多菜单。
-            self.frame.OnTaskAction(item, action['id'])
-        else:
-            # 分片下载只从操作文字触发，双击普通单元格不再启动网络请求。
-            self.frame.OnSegmentDownload(item)
-        return True
+from src.views.components.icons import icon_image, toolbar_icon
+from src.views.components.renderers import TaskProgressRenderer, TaskActionRenderer
 
 
 class MainFrame(wx.Frame):
@@ -619,108 +403,6 @@ class MainFrame(wx.Frame):
         if status_changed and self.statusFilter.GetSelection() > 0:
             self._ApplyTaskFilter()
 
-    def _PersistTask(self, operation, *args):
-        """保存成功才更新行内快照；写库失败暂停后续请求，并且只提示一次。"""
-        try:
-            record = operation(*args)
-            self._storage_error = ''
-            self.model.ApplyTaskRecord(record)
-            return record
-        except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
-            Downloader.Pause()
-            message = str(error)
-            if self._storage_error != message:
-                self._storage_error = message
-                wx.MessageBox(f'任务数据保存失败，已暂停后续下载：{error}', '保存失败',
-                              wx.OK | wx.ICON_ERROR, parent=self)
-            return None
-
-    def _SyncTaskRuntime(self):
-        """只在排队/请求/暂停状态变化时写库；500ms 定时刷新不会重复写相同状态。"""
-        snapshot = Downloader.Snapshot()
-        for task in list(self.model.fileTree.items):
-            if task.task_type != TaskType.M3U8 or task.task_id is None or task.task_status == TaskStatus.MERGING or task.outputs:
-                continue
-            keys = {Downloader.FileKey(child.fileName) for child in task.childs}
-            pending = keys & snapshot['pending']
-            if not pending:
-                continue
-            requesting = bool(pending & snapshot['requesting'])
-            paused = snapshot['paused'] or pending <= snapshot['paused_files']
-            status = ((TaskStatus.PAUSING if requesting else TaskStatus.PAUSED) if paused
-                      else (TaskStatus.DOWNLOADING if requesting else TaskStatus.QUEUED))
-            if task.task_status != status:
-                if self._PersistTask(self.model.tasks.runtime_status, task.task_id, status) is None:
-                    break
-
-    def OnTaskAction(self, item, action_id='start'):
-        """自定义操作分发入口，不是 wx 自动调用的重写方法。
-
-        行内渲染器识别点击区域后传入 item 和操作 id；“转 MP4”菜单传入 merge。
-        item 指明具体任务行，不依赖当前选中行；默认 start 表示开始/暂停/继续。
-        start 表示开始/暂停/继续，retry 重试失败，delete 删除，toggle 展开/折叠，more 打开菜单。
-        """
-        if not item.IsOk():
-            return
-        keys = self.model.ParseKey(self.model.ItemToObject(item))
-        # 只有任务父节点使用这组操作；分片子节点由另一个处理函数负责。
-        if len(keys) != 1:
-            return
-        index = keys[0]
-        task = self.model.fileTree.items[index]
-        info = self.model.TaskInfo(index)
-        # 点击与绘制之间状态可能改变，所以在执行前重新读取当前任务状态。
-        if action_id == 'merge':
-            if task.task_type != TaskType.M3U8:
-                return
-            # 合并位于“更多”菜单内：分片必须完整，不能正在下载/合并或已有输出。
-            if info['pending'] or info['merging'] or task.outputs or not info['total'] or info['done'] != info['total']:
-                return
-            self._CreateMP4File(task.parent.fileName, item)
-        else:
-            # 按稳定的操作 id 匹配，不依赖“开始”“继续”等会随状态变化的显示文字。
-            # 再检查 enabled，防止过期的界面状态触发已不可用的操作。
-            action = next((entry for entry in self.model.TaskActions(index) if entry['id'] == action_id), None)
-            if action is None or not action['enabled']:
-                return
-            if action_id == 'toggle':
-                if self.mcTree.IsExpanded(item):
-                    self.mcTree.Collapse(item)
-                else:
-                    self.mcTree.Expand(item)
-                return
-            if action_id == 'more':
-                self.OnTaskMenu(item)
-                return
-            if action_id == 'delete':
-                # 删除处理函数会再次检查运行状态，并确认只删除任务记录。
-                self.OnDeleteTask(task)
-                return
-        if action_id in ('start', 'retry'):
-            if action_id == 'start' and info['pending']:
-                # 当前任务已有排队/处理中的分片：切换暂停状态，不重新提交下载。
-                # 只传入当前任务的 pending 文件键，不暂停其他任务。
-                if info['paused']:
-                    Downloader.ResumeFiles(info['pending'])
-                else:
-                    Downloader.PauseFiles(info['pending'])
-                self._SyncTaskRuntime()
-                self.model.ItemChanged(item)
-                return
-            # 无待处理队列时才创建下载请求。开始/继续下载所有缺失分片，
-            # 重试仅选择失败集合中的缺失分片，已经存在的分片一律跳过。
-            tasks = []
-            for segment_index, child in enumerate(task.childs):
-                key = Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
-                if child.fileSize == '-' and (action_id != 'retry' or key in info['failed']):
-                    child_item = self.model.ObjectToItem(self.model._BuildKey(
-                        (index, len(task.outputs) + segment_index)))
-                    # 子节点中 MP4 排在分片前面，因此界面节点索引需加 outputs 偏移；
-                    # 提交给下载逻辑的 segment_index 仍是播放列表中的分片索引。
-                    tasks.append((segment_index, child_item))
-            self._DownloadFiles(task.parent.fileName, tasks)
-        # 通知 wx 重新读取本行数据，使操作文字、置灰状态和任务状态及时更新。
-        self.model.ItemChanged(item)
 
     def OnTaskExpansionChanged(self, event):
         # 行首箭头、行内操作和全部展开/折叠共用通知，及时更新操作文字。
@@ -769,37 +451,6 @@ class MainFrame(wx.Frame):
         finally:
             menu.Destroy()
 
-    def OnDeleteTask(self, task):
-        """本阶段只删除数据库记录；下载文件保留，不再递归删除任务目录。"""
-        def busy():
-            if task.task_type != TaskType.M3U8:
-                return task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING,
-                    TaskStatus.PAUSING, TaskStatus.RECORDING, TaskStatus.STOPPING)
-            keys = {Downloader.FileKey(child.fileName) for child in task.childs}
-            output = str(Path(task.parent.fileName).parent / 'output.mp4')
-            return bool(keys & Downloader.Snapshot()['pending']) or Converter.IsConverting(output)
-
-        if busy():
-            wx.MessageBox('任务仍在下载、排队或合并中，暂时不能删除。', '无法删除',
-                          wx.OK | wx.ICON_WARNING, parent=self)
-            return
-        dialog = wx.MessageDialog(self, '', '删除任务', wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
-        dialog.SetExtendedMessage('将从列表和数据库中删除此任务，已下载的文件会保留。')
-        dialog.SetYesNoLabels('删除任务', '取消')
-        try:
-            if dialog.ShowModal() != wx.ID_YES:
-                return
-        finally:
-            dialog.Destroy()
-        try:
-            if busy():
-                raise ValueError('任务状态已变化，请停止下载后再删除。')
-            self.model.tasks.repository.delete(task.task_id)
-            self.model.merge_failed.discard(task.parent.fileName)
-        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(f'删除未完成：{error}', '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
-            return
-        self.OnRefresh(None)
 
     ###################################
     ### 事件所需函数
@@ -936,7 +587,7 @@ class MainFrame(wx.Frame):
         dlg.Destroy()
     
     def OnSetting(self, event):
-        from src.views.tab_setting import SettingsDialog
+        from src.views.dialogs.settings_dialog import SettingsDialog
         dlg = SettingsDialog(self)
         try:
             # 设置只影响之后新建任务的默认目录，已有行及其绝对路径保持不变。
@@ -956,33 +607,6 @@ class MainFrame(wx.Frame):
         elif can_resume:
             self.OnResumeAllDownloads(event)
 
-    def _GlobalDownloadActions(self):
-        """固定菜单项各自判定可用状态；混合运行/暂停时两项均可用。"""
-        snapshot = Downloader.Snapshot()
-        can_pause = not snapshot['paused'] and bool(snapshot['pending'] - snapshot['paused_files'])
-        tasks = self.model.fileTree.items if hasattr(self, 'model') else []
-        can_resume = snapshot['paused'] or bool(snapshot['pending'] & snapshot['paused_files']) or any(
-            task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED)
-            and any(child.fileSize == '-' for child in task.childs) for task in tasks)
-        return can_pause, can_resume
-
-    def OnPauseAllDownloads(self, event):
-        if self._GlobalDownloadActions()[0]:
-            Downloader.Pause()
-        self._SyncTaskRuntime()
-        self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
-
-    def OnResumeAllDownloads(self, event):
-        if self._GlobalDownloadActions()[1]:
-            Downloader.Resume()  # 同时清除全局暂停和单个任务的暂停标记。
-            pending = Downloader.Snapshot()['pending']
-            for task in list(self.model.fileTree.items):
-                if task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) and not any(
-                        Downloader.FileKey(child.fileName) in pending for child in task.childs):
-                    self._DownloadFiles(task.parent.fileName,
-                                        [(index, None) for index, child in enumerate(task.childs) if child.fileSize == '-'])
-        self._SyncTaskRuntime()
-        self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
 
     def OnUpdateGlobalDownloadAction(self, event):
         can_pause, can_resume = self._GlobalDownloadActions()
@@ -1141,7 +765,7 @@ class MainFrame(wx.Frame):
     def OnRefresh(self, event):
         # 只从数据库恢复任务；读取失败保留当前列表，不退回扫描目录。
         try:
-            tree = self.model.tasks.load_tree()
+            tree = load_tree(self.model.tasks)
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'读取任务失败：{error}', '刷新失败', wx.OK | wx.ICON_WARNING, parent=self)
             return
@@ -1169,6 +793,170 @@ class MainFrame(wx.Frame):
         if len(objs) == 1:
             self.OnTaskAction(item, 'toggle')
 
+    # 任务操作和异步回调直接由主窗口处理，使用同一窗口的模型与控件。
+    def _PersistTask(self, operation, *args):
+        """保存成功才更新行内快照；写库失败暂停后续请求，并且只提示一次。"""
+        try:
+            record = operation(*args)
+            self._storage_error = ''
+            self.model.ApplyTaskRecord(record)
+            return record
+        except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
+            Downloader.Pause()
+            message = str(error)
+            if self._storage_error != message:
+                self._storage_error = message
+                wx.MessageBox(f'任务数据保存失败，已暂停后续下载：{error}', '保存失败',
+                              wx.OK | wx.ICON_ERROR, parent=self)
+            return None
+
+    def _SyncTaskRuntime(self):
+        """只在排队/请求/暂停状态变化时写库；500ms 定时刷新不会重复写相同状态。"""
+        snapshot = Downloader.Snapshot()
+        for task in list(self.model.fileTree.items):
+            if task.task_type != TaskType.M3U8 or task.task_id is None or task.task_status == TaskStatus.MERGING or task.outputs:
+                continue
+            keys = {Downloader.FileKey(child.fileName) for child in task.childs}
+            pending = keys & snapshot['pending']
+            if not pending:
+                continue
+            requesting = bool(pending & snapshot['requesting'])
+            paused = snapshot['paused'] or pending <= snapshot['paused_files']
+            status = ((TaskStatus.PAUSING if requesting else TaskStatus.PAUSED) if paused
+                      else (TaskStatus.DOWNLOADING if requesting else TaskStatus.QUEUED))
+            if task.task_status != status:
+                if self._PersistTask(self.model.tasks.runtime_status, task.task_id, status) is None:
+                    break
+
+    def OnTaskAction(self, item, action_id='start'):
+        """自定义操作分发入口，不是 wx 自动调用的重写方法。
+
+        行内渲染器识别点击区域后传入 item 和操作 id；“转 MP4”菜单传入 merge。
+        item 指明具体任务行，不依赖当前选中行；默认 start 表示开始/暂停/继续。
+        start 表示开始/暂停/继续，retry 重试失败，delete 删除，toggle 展开/折叠，more 打开菜单。
+        """
+        if not item.IsOk():
+            return
+        keys = self.model.ParseKey(self.model.ItemToObject(item))
+        # 只有任务父节点使用这组操作；分片子节点由另一个处理函数负责。
+        if len(keys) != 1:
+            return
+        index = keys[0]
+        task = self.model.fileTree.items[index]
+        info = self.model.TaskInfo(index)
+        # 点击与绘制之间状态可能改变，所以在执行前重新读取当前任务状态。
+        if action_id == 'merge':
+            if task.task_type != TaskType.M3U8:
+                return
+            # 合并位于“更多”菜单内：分片必须完整，不能正在下载/合并或已有输出。
+            if info['pending'] or info['merging'] or task.outputs or not info['total'] or info['done'] != info['total']:
+                return
+            self._CreateMP4File(task.parent.fileName, item)
+        else:
+            # 按稳定的操作 id 匹配，不依赖“开始”“继续”等会随状态变化的显示文字。
+            # 再检查 enabled，防止过期的界面状态触发已不可用的操作。
+            action = next((entry for entry in self.model.TaskActions(index) if entry['id'] == action_id), None)
+            if action is None or not action['enabled']:
+                return
+            if action_id == 'toggle':
+                if self.mcTree.IsExpanded(item):
+                    self.mcTree.Collapse(item)
+                else:
+                    self.mcTree.Expand(item)
+                return
+            if action_id == 'more':
+                self.OnTaskMenu(item)
+                return
+            if action_id == 'delete':
+                # 删除处理函数会再次检查运行状态，并确认只删除任务记录。
+                self.OnDeleteTask(task)
+                return
+        if action_id in ('start', 'retry'):
+            if action_id == 'start' and info['pending']:
+                # 当前任务已有排队/处理中的分片：切换暂停状态，不重新提交下载。
+                # 只传入当前任务的 pending 文件键，不暂停其他任务。
+                if info['paused']:
+                    Downloader.ResumeFiles(info['pending'])
+                else:
+                    Downloader.PauseFiles(info['pending'])
+                self._SyncTaskRuntime()
+                self.model.ItemChanged(item)
+                return
+            # 无待处理队列时才创建下载请求。开始/继续下载所有缺失分片，
+            # 重试仅选择失败集合中的缺失分片，已经存在的分片一律跳过。
+            tasks = []
+            for segment_index, child in enumerate(task.childs):
+                key = Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
+                if child.fileSize == '-' and (action_id != 'retry' or key in info['failed']):
+                    child_item = self.model.ObjectToItem(self.model._BuildKey(
+                        (index, len(task.outputs) + segment_index)))
+                    # 子节点中 MP4 排在分片前面，因此界面节点索引需加 outputs 偏移；
+                    # 提交给下载逻辑的 segment_index 仍是播放列表中的分片索引。
+                    tasks.append((segment_index, child_item))
+            self._DownloadFiles(task.parent.fileName, tasks)
+        # 通知 wx 重新读取本行数据，使操作文字、置灰状态和任务状态及时更新。
+        self.model.ItemChanged(item)
+
+    def OnDeleteTask(self, task):
+        """本阶段只删除数据库记录；下载文件保留，不再递归删除任务目录。"""
+        def busy():
+            if task.task_type != TaskType.M3U8:
+                return task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING,
+                    TaskStatus.PAUSING, TaskStatus.RECORDING, TaskStatus.STOPPING)
+            keys = {Downloader.FileKey(child.fileName) for child in task.childs}
+            output = str(Path(task.parent.fileName).parent / 'output.mp4')
+            return bool(keys & Downloader.Snapshot()['pending']) or Converter.IsConverting(output)
+
+        if busy():
+            wx.MessageBox('任务仍在下载、排队或合并中，暂时不能删除。', '无法删除',
+                          wx.OK | wx.ICON_WARNING, parent=self)
+            return
+        dialog = wx.MessageDialog(self, '', '删除任务', wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
+        dialog.SetExtendedMessage('将从列表和数据库中删除此任务，已下载的文件会保留。')
+        dialog.SetYesNoLabels('删除任务', '取消')
+        try:
+            if dialog.ShowModal() != wx.ID_YES:
+                return
+        finally:
+            dialog.Destroy()
+        try:
+            if busy():
+                raise ValueError('任务状态已变化，请停止下载后再删除。')
+            self.model.tasks.repository.delete(task.task_id)
+            self.model.merge_failed.discard(task.parent.fileName)
+        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(f'删除未完成：{error}', '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
+            return
+        self.OnRefresh(None)
+
+    def _GlobalDownloadActions(self):
+        """固定菜单项各自判定可用状态；混合运行/暂停时两项均可用。"""
+        snapshot = Downloader.Snapshot()
+        can_pause = not snapshot['paused'] and bool(snapshot['pending'] - snapshot['paused_files'])
+        tasks = self.model.fileTree.items if hasattr(self, 'model') else []
+        can_resume = snapshot['paused'] or bool(snapshot['pending'] & snapshot['paused_files']) or any(
+            task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED)
+            and any(child.fileSize == '-' for child in task.childs) for task in tasks)
+        return can_pause, can_resume
+
+    def OnPauseAllDownloads(self, event):
+        if self._GlobalDownloadActions()[0]:
+            Downloader.Pause()
+        self._SyncTaskRuntime()
+        self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+
+    def OnResumeAllDownloads(self, event):
+        if self._GlobalDownloadActions()[1]:
+            Downloader.Resume()  # 同时清除全局暂停和单个任务的暂停标记。
+            pending = Downloader.Snapshot()['pending']
+            for task in list(self.model.fileTree.items):
+                if task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) and not any(
+                        Downloader.FileKey(child.fileName) in pending for child in task.childs):
+                    self._DownloadFiles(task.parent.fileName,
+                                        [(index, None) for index, child in enumerate(task.childs) if child.fileSize == '-'])
+        self._SyncTaskRuntime()
+        self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+
     def OnSegmentDownload(self, item):
         """只由分片的“下载”操作调用，重新核对索引和是否仍需要下载。"""
         if not item.IsOk():
@@ -1181,10 +969,8 @@ class MainFrame(wx.Frame):
         if 0 <= index < len(task.childs) and task.childs[index].fileSize == '-' and task.parent:
             self._DownloadFiles(task.parent.fileName, [(index, item)])
 
-    
     def OnAllTSDownload(self, event):
         '''所有TS文件都已经下载完毕，修改操作文本'''
-        print("OnAllTSDownload", event.GetData())
         payload = event.GetData()
         if not payload:
             return
@@ -1306,11 +1092,8 @@ class MainFrame(wx.Frame):
             wx.MessageBox(f"视频文件已经存在。", "提示")
             return
 
-        print("absSeed", absSeed)
-        print("absDir", absDir)
-        print("playlist", playlist)
-        # 写palylist文件
-        if not FileManager.CreatePlaylist(absSeed=absSeed, playDir=absDir, playlist=playlist):
+        # 从本地 M3U8 生成 FFmpeg 合并清单。
+        if not create_concat_playlist(absSeed=absSeed, playDir=absDir, playlist=playlist):
             wx.MessageBox("播放列表无效，无法生成合并清单。", "提示")
             return
 

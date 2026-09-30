@@ -1,8 +1,7 @@
 import wx
 from pathlib import Path
-from src.managers.sys_setting import SysSetting
-from src.managers.file_manager import FileManager
-from src.managers.path_manager import PathManager
+from src.config.sys_setting import SysSetting
+from src.core.path_manager import PathManager
 
 class DownloadHelpDialog(wx.MessageDialog):
     def __init__(self, parent, title, text):

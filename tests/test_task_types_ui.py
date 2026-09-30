@@ -1,3 +1,4 @@
+from src.models.tree_model import load_tree
 """混合类型任务的列表投影及事件分发；不请求网络、不修改用户任务库。"""
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,8 +8,8 @@ from unittest.mock import Mock, patch
 
 import wx
 
-from src.managers.task_repository import TaskRepository
-from src.managers.task_service import TaskService
+from src.storage.task_repository import TaskRepository
+from src.core.task_service import TaskService
 from src.models.tree_model import MultiColumnTreeModel
 from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskProgress, TaskStatus
 from src.views.main_frame import MainFrame, TaskActionRenderer, TaskProgressRenderer
@@ -83,13 +84,13 @@ class TaskTypesUITests(unittest.TestCase):
     def test_restart_recovers_live_and_mp4_without_losing_progress(self):
         mp4 = self.mp4(status=TaskStatus.DOWNLOADING, progress=TaskProgress(downloaded_bytes=100))
         live = self.live(status=TaskStatus.RECORDING, progress=TaskProgress(recorded_seconds=42))
-        self.service.load_tree()
+        load_tree(self.service)
         for task in (mp4, live):
             saved = self.repo.get(task.id)
             self.assertEqual(saved.status, TaskStatus.INTERRUPTED)
             self.assertEqual(saved.progress, task.progress)
         self.repo.mutate(live.id, lambda task: setattr(task, 'status', TaskStatus.RECORDING))
-        tree = self.service.load_tree()
+        tree = load_tree(self.service)
         self.assertEqual(tree.items[1].task_status, TaskStatus.RECORDING)
         model = self.model()
         self.assertEqual(model.TaskInfo(1)['status'], '录制中')
@@ -100,15 +101,15 @@ class TaskTypesUITests(unittest.TestCase):
         target = task.save_dir / task.details.target_path
         target.parent.mkdir(parents=True)
         target.write_bytes(b'partial')
-        row = self.service.load_tree().items[0]
+        row = load_tree(self.service).items[0]
         self.assertEqual(row.task_status, TaskStatus.NEW)
         self.assertFalse(row.outputs)
         self.repo.mutate(task.id, lambda task: setattr(task, 'status', TaskStatus.COMPLETED))
-        row = self.service.load_tree().items[0]
+        row = load_tree(self.service).items[0]
         self.assertEqual(len(row.outputs), 1)
         self.assertEqual(row.save_dir, task.save_dir)
         target.unlink()
-        self.assertEqual(self.service.load_tree().items[0].task_status, TaskStatus.INTERRUPTED)
+        self.assertEqual(load_tree(self.service).items[0].task_status, TaskStatus.INTERRUPTED)
 
     def test_segment_and_merge_operations_reject_single_file_tasks(self):
         for task in (self.mp4(), self.live()):

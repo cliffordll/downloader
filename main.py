@@ -1,16 +1,14 @@
 import wx
 import sqlite3
-from src.views.main_window import MainWindow
 from src.views.main_frame import MainFrame
-from src.managers.downloader import Downloader
-from src.managers.task_repository import TaskDataError
+from src.core.downloader import Downloader
+from src.storage.task_repository import TaskDataError
  
 if __name__ == "__main__":
     # https://m3u8player.org/
 
     # print(wx.version())
     app = wx.App()
-    # sample = MainWindow(None, "AVDownloader")
     try:
         sample = MainFrame(None, "AVDownloader")
     except (OSError, ValueError, sqlite3.Error, TaskDataError) as error:
