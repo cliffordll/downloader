@@ -18,8 +18,9 @@ class TabSetting(wx.Panel):
             grid.Add(control, 1, wx.EXPAND)
             self.controls[key] = control
 
-        row('download_dir', '下载目录', wx.DirPickerCtrl(self, message='选择下载文件夹', style=wx.DIRP_USE_TEXTCTRL))
+        row('download_dir', '默认下载目录', wx.DirPickerCtrl(self, message='选择默认下载文件夹', style=wx.DIRP_USE_TEXTCTRL))
         self.controls['download_dir'].GetPickerCtrl().SetLabel('选择文件夹')
+        self.controls['download_dir'].SetToolTip('用于之后新建任务；已有任务仍保存到各自的原目录。')
         row('max_workers', '最大并发数（1～16）', wx.SpinCtrl(self, min=1, max=16))
         row('request_interval', '请求启动间隔（秒）', wx.SpinCtrlDouble(self, min=0, max=60, inc=0.1))
         self.controls['request_interval'].SetDigits(1)
@@ -35,7 +36,7 @@ class TabSetting(wx.Panel):
         layout.Add(grid, 0, wx.EXPAND | wx.TOP | wx.LEFT | wx.RIGHT, 12)
         note = wx.StaticText(self, label=(
             '设置对后续请求生效，正在进行的请求正常完成。\n'
-            '下载或转换进行中不能切换下载目录。\n'
+            '默认下载目录仅影响新任务，可在下载或合并期间修改。\n'
             '遇到 429 自动等待；403 不自动重试。自动合并默认关闭。'))
         layout.Add(note, 0, wx.ALL, 12)
         self.status = wx.StaticText(self)
@@ -70,15 +71,13 @@ class TabSetting(wx.Panel):
 
     def OnSave(self, event):
         from src.managers.downloader import Downloader
-        from src.managers.converter import Converter
         # 保留由查看菜单管理的偏好，避免保存下载设置时重置它们。
         values = SysSetting.GetAll()
         values.update({key: control.GetPath() if key in ('download_dir', 'ffmpeg_path') else control.GetValue()
                        for key, control in self.controls.items()})
         try:
             values = SysSetting.Validate(values)
-            if values['download_dir'] != SysSetting.GetAll()['download_dir'] and (Downloader.IsBusy() or Converter.IsBusy()):
-                raise ValueError('下载或转换正在进行，请完成后再切换下载目录。')
+            # 新版任务已固定保存绝对目录；这里修改默认值，不移动文件或重建活动队列。
             SysSetting.Save(values)
         except (ValueError, OSError) as error:
             wx.MessageBox(str(error), '设置未保存', wx.OK | wx.ICON_WARNING, self)

@@ -110,7 +110,8 @@ class SysSetting:
 
     @classmethod
     def GetWorkPath(cls):
-        # Keep a trailing separator for existing relative-path handling.
+        # 新建任务使用的默认根目录；已有任务必须使用其 save_dir，不能重新拼接此路径。
+        # 保留尾部分隔符，供现有添加任务表单显示。
         return os.path.join(cls.GetAll()['download_dir'], '')
 
     @classmethod

@@ -17,6 +17,8 @@ from src.managers.task_repository import TaskRepository
 from src.managers.task_service import TaskService
 from src.schemas.task import FileStatus, TaskStatus
 from src.views.main_frame import MainFrame
+from src.views.tab_setting import SettingsDialog
+from src.views.downloads.dialog_mu import DownloadDialogMU
 
 
 class TaskRuntimeTests(unittest.TestCase):
@@ -32,6 +34,7 @@ class TaskRuntimeTests(unittest.TestCase):
         self.service = TaskService(self.repository)
         values = dict(SysSetting.Defaults(), download_dir=str(self.root / 'files'), request_interval=0)
         for patcher in (patch.object(SysSetting, '_values', values),
+                        patch.object(SysSetting, 'ConfigPath', return_value=self.root / 'settings.json'),
                         patch('src.models.tree_model.TaskService', return_value=self.service),
                         patch.object(Downloader, '_pending', set()),
                         patch.object(Downloader, '_requesting', set()),
@@ -67,6 +70,122 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertEqual(self.repository.get(context[0]).status, TaskStatus.QUEUED)
         Downloader._pending.add(Downloader.FileKey(filename))
         return True
+
+    def save_default_directory(self, frame, directory):
+        dialog = SettingsDialog(frame)
+        try:
+            dialog.form.controls['download_dir'].SetPath(str(directory))
+            with patch.object(dialog, 'EndModal') as end, patch('wx.MessageBox') as message:
+                dialog.form.OnSave(None)
+            end.assert_called_once_with(wx.ID_OK)
+            message.assert_not_called()
+        finally:
+            dialog.Destroy()
+
+    def test_switch_default_while_downloading_preserves_callbacks_and_retry_paths(self):
+        task = self.create()
+        frame = self.frame()
+        item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+        with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue):
+            frame.OnTaskAction(item, 'start')
+        first_path = task.save_dir / task.details.segments[0].relative_path
+        key = Downloader.FileKey(first_path)
+        Downloader._requesting.add(key)
+        frame._SyncTaskRuntime()
+        before = self.repository.get(task.id)
+        pending = Downloader.Snapshot()['pending']
+        new_default = self.root / 'new-default'
+        self.save_default_directory(frame, new_default)
+        self.assertEqual(self.repository.get(task.id), before)
+        self.assertEqual(Downloader.Snapshot()['pending'], pending)
+        self.assertFalse(Downloader.IsPaused())
+        SysSetting._values = None  # 从设置文件重新读取，验证默认目录确实已保存。
+        self.assertEqual(Path(SysSetting.GetWorkPath()), new_default)
+        self.write_segment(task, 0)
+        Downloader._requesting.clear()
+        Downloader._pending.discard(key)
+        frame._DownloadCall(True, str(first_path), (task.id, 0))
+        second_path = task.save_dir / task.details.segments[1].relative_path
+        Downloader._pending.clear()
+        frame._DownloadCall(False, str(second_path), (task.id, 1))
+        with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue) as retry:
+            frame.OnTaskAction(item, 'retry')
+        self.assertEqual(Path(retry.call_args.args[1]), second_path)
+        self.assertEqual(self.repository.get(task.id).save_dir, task.save_dir)
+        self.assertFalse((new_default / 'segments').exists())
+
+        # 从实际添加入口取得新默认目录，并通过表单创建新任务。
+        dialog = DownloadDialogMU(frame, 'test', SysSetting.GetWorkPath(), task_service=self.service)
+        try:
+            dialog.downPath.tcDown.SetValue('new-task')
+            dialog.downEdit.tcURI.SetValue('https://example.com/new.m3u8')
+            dialog.downEdit.tsList.SetValue('#EXTM3U\n#EXTINF:4,\na.ts\n')
+            with patch.object(dialog, 'EndModal') as end:
+                dialog.OnDownBtnClicked(None)
+            end.assert_called_once_with(wx.OK)
+        finally:
+            dialog.Destroy()
+        self.assertEqual({record.save_dir for record in self.repository.list_tasks()},
+                         {task.save_dir, new_default / 'new-task'})
+
+    def test_switch_default_while_merging_preserves_output_and_folder_actions(self):
+        task = self.create()
+        for sequence in range(2):
+            self.write_segment(task, sequence)
+        frame = self.frame()
+        item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+        with patch.object(Converter, 'ConvertTSFile') as convert:
+            frame.OnTaskAction(item, 'merge')
+        output = Path(convert.call_args.args[1])
+        Converter._outputs.add(str(output))
+        self.assertTrue(Converter.IsBusy())
+        new_default = self.root / 'new-default'
+        self.save_default_directory(frame, new_default)
+        self.assertEqual(output, task.save_dir / 'output.mp4')
+        self.assertEqual(self.repository.get(task.id).status, TaskStatus.MERGING)
+        output.write_bytes(b'video')
+        frame._CreateMP4Call(True, str(output), task.id)
+        Converter._outputs.clear()
+        frame.OnRefresh(None)
+        self.assertEqual(self.repository.get(task.id).save_dir, task.save_dir)
+        self.assertFalse((new_default / 'output.mp4').exists())
+
+        def choose_folder(menu):
+            entry = next(entry for entry in menu.GetMenuItems() if entry.GetItemLabelText() == '打开文件夹')
+            event = wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId())
+            menu.ProcessEvent(event)
+
+        with patch.object(frame, '_OpenLocalPath') as open_path:
+            frame.OnOpen(None)
+            self.assertEqual(Path(open_path.call_args.args[0]), new_default)
+            with patch.object(frame.mcTree, 'PopupMenu', side_effect=choose_folder):
+                frame.OnTaskMenu(frame.model.ObjectToItem(frame.model._BuildKey((0,))))
+            self.assertEqual(Path(open_path.call_args.args[0]), task.save_dir)
+
+    def test_invalid_default_directory_does_not_disrupt_running_task(self):
+        task = self.create()
+        frame = self.frame()
+        item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+        with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue):
+            frame.OnTaskAction(item, 'start')
+        original_settings = SysSetting.GetAll()
+        original_task = self.repository.get(task.id)
+        pending = Downloader.Snapshot()['pending']
+        invalid = self.root / 'not-a-directory'
+        invalid.write_bytes(b'keep')
+        dialog = SettingsDialog(frame)
+        try:
+            dialog.form.controls['download_dir'].SetPath(str(invalid))
+            with patch.object(dialog, 'EndModal') as end, patch('wx.MessageBox') as message:
+                dialog.form.OnSave(None)
+            end.assert_not_called()
+            message.assert_called_once()
+        finally:
+            dialog.Destroy()
+        self.assertEqual(SysSetting.GetAll(), original_settings)
+        self.assertEqual(self.repository.get(task.id), original_task)
+        self.assertEqual(Downloader.Snapshot()['pending'], pending)
+        self.assertFalse(Downloader.IsPaused())
 
     def test_segment_success_failure_retry_survive_restart(self):
         task = self.create()
