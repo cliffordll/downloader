@@ -2,7 +2,7 @@
 import os
 import unittest
 
-from src.core.parsers.m3u8_parser import M3U8Parser
+from src.media.m3u8.m3u8_parser import M3U8Parser
 
 
 def playlist(*uris):

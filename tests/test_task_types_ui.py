@@ -78,7 +78,7 @@ class TaskTypesUITests(unittest.TestCase):
         for action, rect in zip(actions, renderer._ActionRects(cell, len(actions))):
             mouse = Mock(GetPosition=Mock(return_value=wx.Point(rect.x + rect.width // 2, 12)))
             self.assertEqual(renderer.ActivateCell(cell, model, item, 4, mouse), action['enabled'])
-        self.assertEqual([call.args[1] for call in frame.OnTaskAction.call_args_list], ['delete', 'more'])
+        self.assertEqual([call.args[1] for call in frame.OnTaskAction.call_args_list], ['start', 'delete', 'more'])
         frame.OnSegmentDownload.assert_not_called()
 
     def test_restart_recovers_live_and_mp4_without_losing_progress(self):
@@ -132,10 +132,12 @@ class TaskTypesUITests(unittest.TestCase):
             entry = menu.GetMenuItems()[0]
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=inspect_menu),
-                                _OpenLocalPath=opened, _CreateMP4File=Mock(), _DownloadFiles=Mock())
+                                _OpenLocalPath=opened, _CreateMP4File=Mock(), _DownloadFiles=Mock(),
+                                mp4=Mock(busy=Mock(return_value=False)), _StartMP4=Mock(), _SyncMP4=Mock())
         MainFrame.OnTaskMenu(frame, item)
         opened.assert_called_once_with(task.save_dir)
         for action in ('merge', 'start', 'retry', 'toggle'):
             MainFrame.OnTaskAction(frame, item, action)
         frame._CreateMP4File.assert_not_called()
         frame._DownloadFiles.assert_not_called()
+        frame._StartMP4.assert_called_once_with(task.id)

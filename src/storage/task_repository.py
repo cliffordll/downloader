@@ -13,7 +13,7 @@ import sqlite3
 from uuid import UUID
 from typing import Callable
 
-from src.config.app_paths import database_path
+from src.core.app_paths import database_path
 from src.schemas.task import TASK_ADAPTER, Task
 
 

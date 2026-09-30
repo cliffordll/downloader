@@ -5,11 +5,11 @@ import math
 import os
 import tempfile
 import subprocess
-from src.core.duration_probe import probe_duration
+from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 
-from src.core.parsers.m3u8_parser import M3U8Parser
+from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.storage.task_repository import TaskRepository
-from src.schemas.task import M3U8Task, M3U8Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus
+from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus
 
 
 class TaskService:
@@ -23,6 +23,23 @@ class TaskService:
         if self._repository is None:
             self._repository = TaskRepository()
         return self._repository
+
+    def create_mp4(self, save_dir, source_url):
+        """直链任务使用独立目录和临时文件；建任务不请求网络。"""
+        directory = Path(save_dir).expanduser().resolve()
+        task = MP4Task(name=directory.name, save_dir=directory, source_url=source_url.strip(),
+                       details=MP4Details(target_path='video.mp4', temporary_path='video.mp4.part'),
+                       outputs=[TaskOutput(relative_path='video.mp4', kind='download')])
+        for existing in self.repository.list_tasks():
+            saved = existing.save_dir.resolve()
+            if saved == directory or saved in directory.parents or directory in saved.parents:
+                raise ValueError('保存目录与已有任务重叠，请换一个独立的任务子目录。')
+        directory.mkdir(parents=True, exist_ok=False)
+        try:
+            return self.repository.create(task)
+        except Exception:
+            directory.rmdir()  # 仅移除此调用刚创建的空目录。
+            raise
 
     def create_m3u8(self, save_dir, source_url, content, base_path='', *,
                     source_type=SourceType.M3U8, ts_pattern=None, detect_duration=False, request_headers=None):
@@ -130,12 +147,29 @@ class TaskService:
     @classmethod
     def _reconcile(cls, task, recovering):
         if not isinstance(task, M3U8Task):
-            # 尚未接入单文件引擎：保留已登记的字节/时长，不凭文件存在推断完成。
+            # MP4 按 .part 实际长度恢复；只有经过完整性检查的文件才可恢复成已完成。
+            if isinstance(task, MP4Task) and recovering:
+                target = task.save_dir / task.details.target_path
+                partial = task.save_dir / task.details.temporary_path
+                verified = task.details.verified_bytes
+                if verified is not None and target.is_file() and target.stat().st_size == verified:
+                    task.status, task.last_error = TaskStatus.COMPLETED, None
+                    task.progress = TaskProgress(downloaded_bytes=verified, total_bytes=verified)
+                    for output in task.outputs:
+                        output.status, output.size_bytes = FileStatus.COMPLETED, verified
+                elif partial.is_file():
+                    done = partial.stat().st_size
+                    total = task.progress.total_bytes
+                    task.progress = TaskProgress(downloaded_bytes=done,
+                        total_bytes=total if total is None or done <= total else None)
             if recovering and task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING,
                     TaskStatus.PAUSING, TaskStatus.RECORDING, TaskStatus.STOPPING):
                 task.status, task.last_error = TaskStatus.INTERRUPTED, '上次任务未正常结束。'
             if task.status == TaskStatus.COMPLETED and not (task.save_dir / task.details.target_path).is_file():
                 task.status, task.last_error = TaskStatus.INTERRUPTED, '已完成的视频文件不存在。'
+                if isinstance(task, MP4Task):
+                    task.details.verified_bytes = None
+                    task.progress = TaskProgress()
                 for output in task.outputs:
                     if not (task.save_dir / output.relative_path).is_file():
                         output.status, output.size_bytes = FileStatus.MISSING, None
@@ -260,7 +294,7 @@ class TaskService:
             duration, error = None, None
             try:
                 before = path.stat()
-                duration = probe_duration(path)
+                duration = FFmpegConverter.ProbeDuration(path)
             except (OSError, ValueError, subprocess.SubprocessError) as exc:
                 error = str(exc)
             if stop is not None and stop.is_set():

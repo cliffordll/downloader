@@ -6,10 +6,10 @@ from unittest.mock import patch
 
 import wx
 
-from src.core.downloader import Downloader
-from src.core.converter import Converter
+from src.media.m3u8.m3u8_downloader import M3U8Downloader
+from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.core.path_manager import PathManager
-from src.config.sys_setting import SysSetting
+from src.core.sys_setting import SysSetting
 from src.models.tree_model import MultiColumnTreeModel
 from src.models.file_base import FileItem, TreeItem, TreeData
 from src.views.main_frame import MainFrame
@@ -24,36 +24,36 @@ class TaskProgressTests(unittest.TestCase):
         self.task = TreeItem(parent=FileItem(fileName='task/download.m3u8'), childs=[
             FileItem(fileName='task/a.ts', fileSize=10), FileItem(fileName='task/b.ts')], download=1)
         self.tree = TreeData(items=[self.task])
-        for patcher in (patch.object(Downloader, '_pending', set()),
+        for patcher in (patch.object(M3U8Downloader, '_pending', set()),
                         patch.object(SysSetting, '_values', dict(SysSetting.GetAll(), default_expand_tasks=False)),
-                        patch.object(Downloader, '_requesting', set()),
-                        patch.object(Downloader, '_failed', set()),
-                        patch.object(Downloader, '_errors', {}),
-            patch.object(Downloader, '_paused_files', set()),
-                        patch.object(Downloader, '_user_paused', threading.Event()),
-                        patch.object(Converter, '_outputs', set()),
+                        patch.object(M3U8Downloader, '_requesting', set()),
+                        patch.object(M3U8Downloader, '_failed', set()),
+                        patch.object(M3U8Downloader, '_errors', {}),
+            patch.object(M3U8Downloader, '_paused_files', set()),
+                        patch.object(M3U8Downloader, '_user_paused', threading.Event()),
+                        patch.object(FFmpegConverter, '_outputs', set()),
                         patch('src.models.tree_model.load_tree', return_value=self.tree),
                         patch('src.views.main_frame.load_tree', return_value=self.tree)):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.model = MultiColumnTreeModel()
         self.addCleanup(self.model.DecRef)
-        self.key = Downloader.FileKey(PathManager.GetAbsPath('task/b.ts'))
+        self.key = M3U8Downloader.FileKey(PathManager.GetAbsPath('task/b.ts'))
 
     def test_progress_and_pause_transitions(self):
         self.assertEqual(self.model.TaskInfo(0)['progress'], '50% · 1/2')
         self.assertEqual(self.model.TaskInfo(0)['status'], '待继续')
-        Downloader._pending.add(self.key)
+        M3U8Downloader._pending.add(self.key)
         self.assertEqual(self.model.TaskInfo(0)['status'], '等待下载')
-        Downloader._requesting.add(self.key)
+        M3U8Downloader._requesting.add(self.key)
         self.assertEqual(self.model.TaskInfo(0)['status'], '下载中')
-        Downloader.Pause()
+        M3U8Downloader.Pause()
         self.assertEqual(self.model.TaskInfo(0)['status'], '暂停中')
-        Downloader._requesting.clear()
+        M3U8Downloader._requesting.clear()
         self.assertEqual(self.model.TaskInfo(0)['status'], '已暂停')
-        Downloader.Resume()
-        Downloader._pending.clear()
-        Downloader._failed.add(self.key)
+        M3U8Downloader.Resume()
+        M3U8Downloader._pending.clear()
+        M3U8Downloader._failed.add(self.key)
         self.assertEqual(self.model.TaskInfo(0)['status'], '下载失败 · 1 个失败')
 
     def test_completion_is_idempotent_and_accounts_for_mp4_rows(self):
@@ -72,9 +72,9 @@ class TaskProgressTests(unittest.TestCase):
         self.task.childs[1].fileSize = '10 B'
         self.assertEqual(self.model.TaskInfo(0)['status'], '待合并')
         output = os.path.join(os.path.dirname(PathManager.GetAbsPath(self.task.parent.fileName)), 'output.mp4')
-        Converter._outputs.add(os.path.abspath(output))
+        FFmpegConverter._outputs.add(os.path.abspath(output))
         self.assertEqual(self.model.TaskInfo(0)['status'], '合并中')
-        Converter._outputs.clear()
+        FFmpegConverter._outputs.clear()
         self.model.merge_failed.add(self.task.parent.fileName)
         self.assertEqual(self.model.TaskInfo(0)['status'], '合并失败')
         self.model.merge_failed.clear()
@@ -85,21 +85,21 @@ class TaskProgressTests(unittest.TestCase):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test')
         try:
-            other = Downloader.FileKey(PathManager.GetAbsPath('other/a.ts'))
-            Downloader._pending.update({self.key, other})
-            Downloader._requesting.add(self.key)
+            other = M3U8Downloader.FileKey(PathManager.GetAbsPath('other/a.ts'))
+            M3U8Downloader._pending.update({self.key, other})
+            M3U8Downloader._requesting.add(self.key)
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
             self.assertEqual(frame.model.TaskActions(0)[0]['label'], '暂停')
             frame.OnTaskAction(item, 'start')
-            self.assertEqual(Downloader.Snapshot()['paused_files'], {self.key})
+            self.assertEqual(M3U8Downloader.Snapshot()['paused_files'], {self.key})
             self.assertEqual(frame.model.TaskInfo(0)['status'], '暂停中')
-            Downloader._requesting.clear()
+            M3U8Downloader._requesting.clear()
             self.assertEqual(frame.model.TaskInfo(0)['status'], '已暂停')
             self.assertEqual(frame.model.TaskActions(0)[0]['label'], '继续')
             with patch.object(frame, '_DownloadFiles') as enqueue:
                 frame.OnTaskAction(item, 'start')
                 enqueue.assert_not_called()
-            self.assertFalse(Downloader.Snapshot()['paused_files'])
+            self.assertFalse(M3U8Downloader.Snapshot()['paused_files'])
             self.assertEqual(frame.model.TaskActions(0)[0]['label'], '暂停')
         finally:
             frame.Destroy()
@@ -134,7 +134,7 @@ class TaskProgressTests(unittest.TestCase):
             self.assertEqual([a['label'] for a in actions], ['继续', '重试', '删除', '展开', '更多'])
             self.assertEqual([a['enabled'] for a in actions], [True, False, True, True, True])
             self.assertFalse(click(1))
-            Downloader._failed.add(self.key)
+            M3U8Downloader._failed.add(self.key)
             with patch.object(frame, '_DownloadFiles', return_value=1) as download:
                 self.assertTrue(click(1))
                 self.assertEqual([i for i, _ in download.call_args.args[1]], [1])
@@ -158,12 +158,12 @@ class TaskProgressTests(unittest.TestCase):
             renderer.SetValue(frame.model.GetValue(item, 4))
             self.assertTrue(renderer.Render(cell, dc, 0))
             dc.SelectObject(wx.NullBitmap)
-            Downloader._pending.add(self.key)
-            Downloader.Pause()
+            M3U8Downloader._pending.add(self.key)
+            M3U8Downloader.Pause()
             self.assertEqual([a['enabled'] for a in frame.model.TaskActions(0)], [True, False, False, True, True])
             for index in (1, 2):
                 self.assertFalse(click(index))
-            Downloader._pending.clear()
+            M3U8Downloader._pending.clear()
             self.task.childs[1].fileSize = '10 B'
             with patch.object(frame, '_CreateMP4File') as merge:
                 frame.OnTaskAction(item, 'merge')
@@ -192,12 +192,12 @@ class TaskProgressTests(unittest.TestCase):
                 self.assertFalse(entries['转 MP4'].IsEnabled())
 
 
-            Downloader._pending.add(self.key)
+            M3U8Downloader._pending.add(self.key)
             with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect_menu):
                 frame.OnTaskMenu(item)
                 child = frame.model.ObjectToItem(frame.model._BuildKey((0, 0)))
                 frame.OnTaskMenu(child)
-            Downloader._pending.clear()
+            M3U8Downloader._pending.clear()
             with patch.object(frame.model.tasks.repository, 'delete') as delete, \
                  patch('src.views.main_frame.wx.MessageDialog') as dialog:
                 dialog.return_value.ShowModal.return_value = wx.ID_NO
@@ -247,8 +247,8 @@ class TaskProgressTests(unittest.TestCase):
             frame.statusFilter.SetStringSelection('待继续')
             frame.OnStatusFilter(None)
             self.assertEqual(frame.model.visible_tasks, {0})
-            Downloader._pending.add(self.key)
-            Downloader._requesting.add(self.key)
+            M3U8Downloader._pending.add(self.key)
+            M3U8Downloader._requesting.add(self.key)
             frame.OnTaskProgress(None)
             self.assertEqual(frame.model.visible_tasks, set())
             frame.statusFilter.SetStringSelection('下载中')
@@ -274,7 +274,7 @@ class TaskProgressTests(unittest.TestCase):
             self.assertEqual([frame.menuBar.GetMenuLabelText(i) for i in range(4)],
                              ['文件', '任务', '查看', '帮助'])
             for index, expected in enumerate((
-                ['打开下载文件夹', '下载M3U8', '下载TS', '设置', '退出'],
+                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '退出'],
                 ['全部暂停', '全部继续'],
                 ['全部展开', '全部折叠', '刷新', '查找', '默认展开任务', '显示工具栏', '显示状态栏'],
                 ['使用说明', '关于'],
@@ -286,10 +286,10 @@ class TaskProgressTests(unittest.TestCase):
             for label in ('全部展开', '全部折叠', '全部暂停', '刷新', '设置'):
                 self.assertIn(label, tools)
             self.assertFalse(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
-            Downloader._pending.add(self.key)
+            M3U8Downloader._pending.add(self.key)
             frame._UpdatePauseTool()
             self.assertTrue(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
-            Downloader.Pause()
+            M3U8Downloader.Pause()
             frame._UpdatePauseTool()
             self.assertEqual(frame._pauseTool.GetLabel(), '全部继续')
         finally:
@@ -301,20 +301,20 @@ class TaskProgressTests(unittest.TestCase):
             frame = MainFrame(None, 'test')
         try:
             self.assertEqual(frame._GlobalDownloadActions(), (False, False))
-            other = Downloader.FileKey(PathManager.GetAbsPath('other/a.ts'))
-            Downloader._pending.update({self.key, other})
-            Downloader.PauseFiles({self.key})
+            other = M3U8Downloader.FileKey(PathManager.GetAbsPath('other/a.ts'))
+            M3U8Downloader._pending.update({self.key, other})
+            M3U8Downloader.PauseFiles({self.key})
             self.assertEqual(frame._GlobalDownloadActions(), (True, True))
             frame.OnResumeAllDownloads(None)
-            self.assertFalse(Downloader.Snapshot()['paused_files'])
+            self.assertFalse(M3U8Downloader.Snapshot()['paused_files'])
             self.assertEqual(frame._GlobalDownloadActions(), (True, False))
             frame.OnPauseAllDownloads(None)
             self.assertEqual(frame._GlobalDownloadActions(), (False, True))
             # 再次调用暂停不能意外切换成继续。
             frame.OnPauseAllDownloads(None)
-            self.assertTrue(Downloader.IsPaused())
+            self.assertTrue(M3U8Downloader.IsPaused())
             frame.OnResumeAllDownloads(None)
-            Downloader.PauseFiles({self.key, other})
+            M3U8Downloader.PauseFiles({self.key, other})
             frame._UpdatePauseTool()
             self.assertEqual(frame._pauseTool.GetLabel(), '全部继续')
             frame.OnPauseDownloads(None)

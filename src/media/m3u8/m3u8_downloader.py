@@ -1,17 +1,15 @@
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 import os
 from pathlib import Path
 from queue import Queue, Empty
 import threading
-import time
 from typing import TypedDict
 
 import requests
 import wx
 
-from src.config.sys_setting import SysSetting
+from src.core.sys_setting import SysSetting
+from src.media.downloader import Downloader
 
 
 class DownloadSnapshot(TypedDict):
@@ -28,7 +26,7 @@ class _TaskPaused(Exception):
     """让尚未发出请求的分片回到队列，释放线程给其他任务。"""
 
 
-class Downloader:
+class M3U8Downloader:
     """管理所有任务的分片队列、并发请求和完成通知。
 
     界面调用 DownloadTSFile 入队 → 调度线程分配线程池 → _DownLoadFile 下载保存
@@ -47,10 +45,6 @@ class Downloader:
     _master = None  # 后台调度线程；有任务时按需启动。
     _shutdown = threading.Event()  # 程序退出信号；wait(timeout) 可在退出时提前结束等待。
     _user_paused = threading.Event()  # 全部暂停开关，与单任务暂停集合分开维护。
-    _rate_lock = threading.Lock()  # 保护请求间隔和服务器限流截止时间。
-    _next_request = 0.0  # 下一次请求允许启动的 monotonic 时间。
-    _paused_until = 0.0  # HTTP 429 要求停止发起请求的截止时间，不是用户暂停。
-
     @classmethod
     def IsBusy(cls):
         """队列、处理中或等待界面回调的文件仍存在时返回 True；暂停不等于空闲。"""
@@ -119,39 +113,24 @@ class Downloader:
         """
         while not cls._shutdown.is_set():
             if respect_pause and cls.IsPaused():
+                if request_key is not None:
+                    raise _TaskPaused()  # 释放传输额度，单独继续的 MP4 不被暂停 TS 占位。
                 cls._shutdown.wait(0.1)
                 continue
             with cls.threadLock:
                 if respect_pause and request_key in cls._paused_files:
                     raise _TaskPaused()
                 if respect_pause and cls.IsPaused():
+                    if request_key is not None:
+                        raise _TaskPaused()
                     continue
-                with cls._rate_lock:
-                    # 同时受请求启动间隔与 HTTP 429 冷却约束，取更晚的截止时间。
-                    # monotonic 不受用户调整系统时间影响。
-                    now = time.monotonic()
-                    delay = max(cls._next_request, cls._paused_until) - now
-                    if delay <= 0:
-                        cls._next_request = now + SysSetting.GetAll()['request_interval']
-                        if request_key is not None:
-                            cls._requesting.add(request_key)
-                        return True
+                delay = Downloader.RequestDelay()
+                if delay <= 0:
+                    if request_key is not None:
+                        cls._requesting.add(request_key)
+                    return True
             cls._shutdown.wait(min(delay, 0.2))
         return False
-
-    @classmethod
-    def _RetryAfter(cls, value, fallback):
-        """解析 Retry-After：支持等待秒数和 HTTP 日期，非法值使用退避时间。"""
-        try:
-            return max(0, float(value))
-        except (TypeError, ValueError):
-            try:
-                date = parsedate_to_datetime(value)
-                if date.tzinfo is None:
-                    date = date.replace(tzinfo=timezone.utc)
-                return max(0, (date - datetime.now(timezone.utc)).total_seconds())
-            except (TypeError, ValueError, OverflowError):
-                return fallback
 
     @classmethod
     def DownloadContent(cls, baseUrl, respect_pause=False, request_key=None, headers=None):
@@ -179,9 +158,8 @@ class Downloader:
                     error = f'HTTP {status}'
                     if status == 429:
                         # 限流等待影响后续所有请求，而不只是当前失败的分片。
-                        delay = cls._RetryAfter(response.headers.get('Retry-After'), backoff)
-                        with cls._rate_lock:
-                            cls._paused_until = max(cls._paused_until, time.monotonic() + delay)
+                        delay = Downloader.RetryAfter(response.headers.get('Retry-After'), backoff)
+                        Downloader.DeferRequests(delay)
                     elif status < 500:
                         return False, error
                 finally:
@@ -202,6 +180,21 @@ class Downloader:
 
     @classmethod
     def _DownLoadFile(cls, baseUrl, fileName, headers=None):
+        """TS 与 MP4 共用并发额度；实际文件写入由 _SaveFile 完成。"""
+        def check():
+            if cls._shutdown.is_set():
+                raise _TaskPaused()
+            with cls.threadLock:
+                if cls.IsPaused() or cls.FileKey(fileName) in cls._paused_files:
+                    raise _TaskPaused()
+        Downloader.AcquireTransfer(check)
+        try:
+            return cls._SaveFile(baseUrl, fileName, headers)
+        finally:
+            Downloader.ReleaseTransfer()
+
+    @classmethod
+    def _SaveFile(cls, baseUrl, fileName, headers=None):
         """线程池执行的单文件任务：跳过已有文件，下载完整内容后再写盘。
 
         先写同目录 .part 临时文件，再用 os.replace 替换目标，避免未写完的文件

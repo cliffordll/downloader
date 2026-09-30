@@ -9,8 +9,8 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-from src.config.app_paths import data_dir, database_path
-from src.config.sys_setting import SysSetting
+from src.core.app_paths import data_dir, database_path
+from src.core.sys_setting import SysSetting
 from src.storage.task_repository import TaskConflictError, TaskDataError, TaskRepository
 from src.schemas.task import (
     M3U8Details, M3U8Task, MP4Details, MP4Task, RTMPDetails, RTMPTask,
@@ -158,7 +158,7 @@ class TaskRepositoryTests(unittest.TestCase):
         legacy = self.root / 'M3U8Downloader' / 'settings.json'
         legacy.parent.mkdir()
         legacy.write_text('{old config}', encoding='utf-8')
-        with patch('src.config.app_paths.Path.home', return_value=self.root):
+        with patch('src.core.app_paths.Path.home', return_value=self.root):
             self.assertEqual(data_dir(), self.root / '.avdownloader')
             self.assertEqual(SysSetting.ConfigPath(), data_dir() / 'settings.json')
             self.assertEqual(database_path(), data_dir() / 'downloads.db')

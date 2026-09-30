@@ -4,7 +4,7 @@ from urllib.parse import urljoin, urlsplit
 import re
 
 from src.views.dialogs.panels.path_picker import DownloadHelpDialog
-from src.core.parsers.m3u8_parser import M3U8Parser
+from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.views.components.playlist_editor import PlaylistEditor
 
 class DownloadEditTS(wx.Panel):

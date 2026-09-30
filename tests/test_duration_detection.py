@@ -6,7 +6,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from src.core.duration_probe import probe_duration
+from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.core.task_service import TaskService
 from src.storage.task_repository import TaskRepository
 from src.schemas.task import FileStatus, TaskStatus
@@ -32,7 +32,7 @@ class DurationDetectionTests(unittest.TestCase):
 
     def test_persists_actual_duration_and_failure_fallback_without_redetecting(self):
         task = self.create()
-        with patch('src.core.task_service.probe_duration', side_effect=[6.25, ValueError('bad media')]) as probe:
+        with patch('src.core.task_service.FFmpegConverter.ProbeDuration', side_effect=[6.25, ValueError('bad media')]) as probe:
             record = self.service.detect_durations(task.id)
             self.service.detect_durations(task.id)
             self.assertEqual(probe.call_count, 2)
@@ -55,7 +55,7 @@ class DurationDetectionTests(unittest.TestCase):
 
     def test_unchecked_skips_probe_and_allows_merge(self):
         task = self.create(False)
-        with patch('src.core.task_service.probe_duration') as probe:
+        with patch('src.core.task_service.FFmpegConverter.ProbeDuration') as probe:
             self.service.detect_durations(task.id)
             probe.assert_not_called()
         self.service.begin_merge(task.id)
@@ -66,10 +66,10 @@ class DurationDetectionTests(unittest.TestCase):
         def finish(_):
             stop.set()
             return 4.2
-        with patch('src.core.task_service.probe_duration', side_effect=finish):
+        with patch('src.core.task_service.FFmpegConverter.ProbeDuration', side_effect=finish):
             self.service.detect_durations(task.id, stop)
         self.assertEqual(self.repository.get(task.id).details.segments[0].duration_status, 'pending')
-        with patch('src.core.task_service.probe_duration', return_value=4.2):
+        with patch('src.core.task_service.FFmpegConverter.ProbeDuration', return_value=4.2):
             TaskService(self.repository).detect_durations(task.id)
         self.assertEqual(self.repository.get(task.id).details.segments[0].duration, 4.2)
 
@@ -78,7 +78,7 @@ class DurationDetectionTests(unittest.TestCase):
         def finish(_):
             self.repository.delete(task.id)
             return 4.2
-        with patch('src.core.task_service.probe_duration', side_effect=finish):
+        with patch('src.core.task_service.FFmpegConverter.ProbeDuration', side_effect=finish):
             self.assertIsNone(self.service.detect_durations(task.id))
         self.assertIsNone(self.repository.get(task.id))
 
@@ -87,23 +87,23 @@ class DurationDetectionTests(unittest.TestCase):
         def finish(path):
             path.write_bytes(b'changed media')
             return 4.2
-        with patch('src.core.task_service.probe_duration', side_effect=finish):
+        with patch('src.core.task_service.FFmpegConverter.ProbeDuration', side_effect=finish):
             record = self.service.detect_durations(task.id)
         self.assertTrue(all(s.duration_status == 'pending' for s in record.details.segments))
 
     def test_ffprobe_parsing_and_invalid_results(self):
-        with patch('src.core.duration_probe.SysSetting.GetFFprobe', return_value='ffprobe'), \
-                patch('src.core.duration_probe.subprocess.run') as run:
+        with patch('src.media.m3u8.ffmpeg_converter.SysSetting.GetFFprobe', return_value='ffprobe'), \
+                patch('src.media.m3u8.ffmpeg_converter.subprocess.run') as run:
             run.return_value = SimpleNamespace(returncode=0, stdout='{"format":{"duration":"4.25"}}', stderr='')
-            self.assertEqual(probe_duration(self.root / 'a.ts'), 4.25)
+            self.assertEqual(FFmpegConverter.ProbeDuration(self.root / 'a.ts'), 4.25)
             self.assertEqual(run.call_args.kwargs['timeout'], 15)
             for value in ('NaN', '-1', '0'):
                 run.return_value.stdout = '{"format":{"duration":"' + value + '"}}'
                 with self.assertRaises(ValueError):
-                    probe_duration(self.root / 'a.ts')
+                    FFmpegConverter.ProbeDuration(self.root / 'a.ts')
             run.side_effect = subprocess.TimeoutExpired('ffprobe', 15)
             with self.assertRaises(subprocess.TimeoutExpired):
-                probe_duration(self.root / 'a.ts')
+                FFmpegConverter.ProbeDuration(self.root / 'a.ts')
 
 
 if __name__ == '__main__':

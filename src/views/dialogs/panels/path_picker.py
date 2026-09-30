@@ -1,6 +1,6 @@
 import wx
 from pathlib import Path
-from src.config.sys_setting import SysSetting
+from src.core.sys_setting import SysSetting
 from src.core.path_manager import PathManager
 
 class DownloadHelpDialog(wx.MessageDialog):

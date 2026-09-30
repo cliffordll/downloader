@@ -4,8 +4,8 @@ import json
 import wx.dataview as dv
 from src.core.task_service import TaskService
 from src.core.path_manager import PathManager
-from src.core.downloader import Downloader
-from src.core.converter import Converter
+from src.media.m3u8.m3u8_downloader import M3U8Downloader
+from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 import os
 from src.models.presentation import TaskSummary, single_file_info
 from src.schemas.task import FileStatus, TaskStatus, TaskType, M3U8Task
@@ -124,19 +124,19 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             return single_file_info(task)
         total = len(task.childs)
         done = sum(child.fileSize != '-' for child in task.childs)
-        keys = {Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
+        keys = {M3U8Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
                 for child in task.childs if child.fileSize == '-'}
-        snapshot = Downloader.Snapshot()
+        snapshot = M3U8Downloader.Snapshot()
         # 下载器管理全部任务；集合交集只取出属于当前任务的未完成文件。
         # pending 包含排队/处理中任务，requesting 只包含尚未结束的网络请求。
         pending = keys & snapshot['pending']
         requesting = keys & snapshot['requesting']
-        stored_failed = {Downloader.FileKey(child.fileName) for child in task.childs
+        stored_failed = {M3U8Downloader.FileKey(child.fileName) for child in task.childs
                          if child.status == FileStatus.FAILED and child.fileSize == '-'}
         failed = ((keys & snapshot['failed']) | stored_failed) - snapshot['pending']
         paused = snapshot['paused'] or bool(pending and pending <= snapshot['paused_files'])
         output = os.path.join(os.path.dirname(PathManager.GetAbsPath(task.parent.fileName)), 'output.mp4')
-        merging = Converter.IsConverting(output)
+        merging = FFmpegConverter.IsConverting(output)
         if task.duration_pending and total and done == total:
             status = '检测时长'
             merging = True  # 检测结束前暂不可合并或删除，避免与后台检测交叉。
@@ -182,6 +182,17 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         置灰，根据 id 分发点击，不通过中文显示文字判断要执行什么操作。
         """
         task = self.fileTree.items[index]
+        if task.task_type == TaskType.MP4:
+            active = task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING)
+            finished = task.task_status == TaskStatus.COMPLETED
+            label = '暂停' if active else ('继续' if task.progress.downloaded_bytes or
+                task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) else '开始')
+            return [
+                dict(id='start', label=label, enabled=not finished and task.task_status != TaskStatus.PAUSING),
+                dict(id='retry', label='重试', enabled=task.task_status == TaskStatus.FAILED),
+                dict(id='delete', label='删除', enabled=not active),
+                dict(id='more', label='更多', enabled=True),
+            ]
         if task.task_type != TaskType.M3U8:
             # 引擎在后续步骤接入；此处提供稳定布局，禁用尚不可执行的操作。
             live = task.task_type == TaskType.RTMP
@@ -195,7 +206,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             ]
         info = self.TaskInfo(index)
         idle = not info['pending'] and not info['merging']
-        downloadable = idle and not Downloader.IsPaused() and not task.outputs
+        downloadable = idle and not M3U8Downloader.IsPaused() and not task.outputs
         # 第一项在排队/下载期间可暂停；暂停后恢复当前任务，不重新提交分片。
         running = bool(info['pending']) and not info['merging']
         label = ('继续' if info['paused'] else '暂停') if running else (

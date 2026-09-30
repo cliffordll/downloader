@@ -6,7 +6,7 @@ import sqlite3
 from src.core.task_service import TaskService
 from src.storage.task_repository import TaskDataError
 from src.schemas.task import SourceType
-from src.config.sys_setting import SysSetting
+from src.core.sys_setting import SysSetting
 
 class DownloadDialogTS(wx.Dialog):
     def __init__(self, parent, title, workPath, task_service=None):

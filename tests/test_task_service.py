@@ -8,14 +8,15 @@ from unittest.mock import Mock, patch
 
 import wx
 
-from src.core.downloader import Downloader
-from src.config.sys_setting import SysSetting
+from src.media.m3u8.m3u8_downloader import M3U8Downloader
+from src.core.sys_setting import SysSetting
 from src.storage.task_repository import TaskRepository
 from src.core.task_service import TaskService
 from src.schemas.task import SourceType
 from src.views.main_frame import MainFrame
 from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 from src.views.dialogs.ts_dialog import DownloadDialogTS
+from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 
 
 CONTENT = '#EXTM3U\n#EXTINF:4,\na.ts?token=1\n#EXTINF:5,\na.ts?token=2\n#EXT-X-ENDLIST\n'
@@ -41,6 +42,22 @@ class TaskServiceTests(unittest.TestCase):
 
     def create(self):
         return self.service.create_m3u8(self.directory, 'https://example.com/media/index.m3u8', CONTENT)
+
+    def test_mp4_dialog_creates_record_and_returns_task_id(self):
+        dialog = DownloadDialogMP4(None, str(self.root), self.service)
+        try:
+            dialog.url.SetValue('https://example.com/movie.mp4')
+            dialog.downPath.tcDown.SetValue('direct-video')
+            with patch.object(dialog, 'EndModal') as end:
+                dialog.OnDownload(None)
+                end.assert_called_once_with(wx.OK)
+            task = self.repository.get(dialog.task_id)
+            self.assertEqual(task.source_url, 'https://example.com/movie.mp4')
+            self.assertEqual(task.save_dir, self.root / 'direct-video')
+            self.assertFalse((task.save_dir / task.details.target_path).exists())
+        finally:
+            dialog.Destroy()
+        self.app.ProcessPendingEvents()
 
     def frame(self):
         with patch.object(MainFrame, 'Show'):
@@ -119,7 +136,7 @@ class TaskServiceTests(unittest.TestCase):
         with patch('os.walk', side_effect=AssertionError('must not scan')):
             frame.OnRefresh(None)
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch.object(Downloader, 'DownloadTSFile', return_value=True) as download:
+        with patch.object(M3U8Downloader, 'DownloadTSFile', return_value=True) as download:
             frame.OnTaskAction(item, 'start')
         self.assertEqual([call.args[0] for call in download.call_args_list],
                          [segment.source_url for segment in task.details.segments])
@@ -131,7 +148,7 @@ class TaskServiceTests(unittest.TestCase):
     def test_invalid_download_index_does_not_enqueue(self):
         self.create()
         frame = self.frame()
-        with patch('wx.MessageBox') as message, patch.object(Downloader, 'DownloadTSFile') as download:
+        with patch('wx.MessageBox') as message, patch.object(M3U8Downloader, 'DownloadTSFile') as download:
             self.assertEqual(frame._DownloadFiles(str(self.directory / 'download.m3u8'), [(99, None)]), 0)
         download.assert_not_called()
         message.assert_called_once()
@@ -173,7 +190,7 @@ class TaskServiceTests(unittest.TestCase):
         (self.directory / 'download.m3u8').unlink()
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch('src.views.main_frame.Converter.ConvertTSFile') as convert:
+        with patch('src.views.main_frame.FFmpegConverter.ConvertTSFile') as convert:
             frame.OnTaskAction(item, 'merge')
         self.assertEqual(Path(convert.call_args.args[1]), self.directory / 'output.mp4')
         manifest = Path(convert.call_args.args[0]).read_text()
@@ -209,8 +226,8 @@ class TaskServiceTests(unittest.TestCase):
             path.write_bytes(b'data')
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch('src.views.main_frame.create_concat_playlist', return_value=False), \
-             patch('src.views.main_frame.Converter.ConvertTSFile') as convert, \
+        with patch('src.views.main_frame.FFmpegConverter.ConcatPlaylist', return_value=False), \
+             patch('src.views.main_frame.FFmpegConverter.ConvertTSFile') as convert, \
              patch('wx.MessageBox') as message:
             frame.OnTaskAction(item, 'merge')
         convert.assert_not_called()
@@ -243,7 +260,7 @@ class TaskServiceTests(unittest.TestCase):
         task = self.create()
         self.repository.mutate(task.id, lambda record: setattr(record.details.segments[0], 'source_url', None))
         frame = self.frame()
-        with patch.object(Downloader, 'DownloadTSFile') as download:
+        with patch.object(M3U8Downloader, 'DownloadTSFile') as download:
             count = frame._DownloadFiles(str(self.directory / 'download.m3u8'), [(0, None)])
         self.assertEqual(count, 0)
         download.assert_not_called()

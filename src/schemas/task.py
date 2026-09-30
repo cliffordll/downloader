@@ -144,6 +144,7 @@ class MP4Details(TaskModel):
     etag: str | None = None
     last_modified: str | None = None
     supports_ranges: bool | None = None
+    verified_bytes: NonNegativeInt | None = None  # 完整内容已落盘；用于恢复重命名与写库之间的退出。
 
     @model_validator(mode='after')
     def distinct_paths(self):

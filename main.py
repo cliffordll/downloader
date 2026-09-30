@@ -1,7 +1,7 @@
 import wx
 import sqlite3
 from src.views.main_frame import MainFrame
-from src.core.downloader import Downloader
+from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.storage.task_repository import TaskDataError
  
 if __name__ == "__main__":
@@ -17,4 +17,4 @@ if __name__ == "__main__":
         raise SystemExit(1)
     sample.Show()
     app.MainLoop()
-    Downloader.Shutdown()
+    M3U8Downloader.Shutdown()

@@ -1,6 +1,6 @@
 import wx
 
-from src.config.sys_setting import SysSetting
+from src.core.sys_setting import SysSetting
 
 
 class TabSetting(wx.Panel):

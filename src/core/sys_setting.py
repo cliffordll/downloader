@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import threading
 
-from src.config.app_paths import data_dir
+from src.core.app_paths import data_dir
 
 
 class SysSetting:

@@ -1,20 +1,37 @@
 # AVDownloader
 
-基于 Python 和 wxPython 的桌面下载器，支持 M3U8 播放列表、按命名规则添加 TS 分片，以及使用 FFmpeg 合并 MP4。
+基于 Python 和 wxPython 的桌面下载器，支持 M3U8 播放列表、按命名规则添加 TS 分片、MP4 直链下载，以及使用 FFmpeg 合并 MP4。
 
-最近发布版本：**v0.1.0**。当前正在开发 AVDownloader 新版，新建 M3U8/TS 任务和任务列表已接入 SQLite，不再扫描下载目录发现任务。MP4 直链下载、RTMP 直播录制尚未实现。
+最近发布版本：**v0.1.0**。当前正在开发 AVDownloader 新版，新建 M3U8/TS/MP4 任务和任务列表已接入 SQLite，不再扫描下载目录发现任务。MP4 直链下载已接入，RTMP 直播录制尚未实现。
 
-列表已支持按任务类型展示：M3U8 可展开查看分片，MP4/RTMP 仅显示一行。MP4 按字节显示进度（总大小未知时只显示已下载体积），RTMP 显示录制时长和体积。“展开/折叠”和“转 MP4”仅用于 M3U8。MP4/RTMP 暂未提供添加入口，其执行操作保持置灰，后续接入对应引擎。
+列表按任务类型展示：M3U8 可展开查看分片，MP4/RTMP 仅显示一行。MP4 按字节显示进度（总大小未知时只显示已下载体积），RTMP 显示录制时长和体积。“展开/折叠”和“转 MP4”仅用于 M3U8。RTMP 暂未提供添加入口，其执行操作保持置灰。
+
+通过“文件 → 下载 MP4”（Ctrl+P）或工具栏添加 HTTP/HTTPS 视频直链，指定独立任务子目录后开始下载。
+行内支持暂停、继续、失败重试及删除，全部暂停/继续也包含 MP4；删除仅移除记录，保留文件。
+MP4 和 TS 共用设置中的并发上限及请求间隔。下载中保存为 `video.mp4.part`，完成后发布为 `video.mp4`，无需 FFmpeg。
+续传使用 Range 和 If-Range 校验；无文件标识、服务器不支持续传或文件已改变时重新下载，避免错误拼接。
+MP4 暂停会保留已写入内容；等待网络响应期间可能要等到响应返回或配置的超时后才显示“已暂停”。
+退出保存中断状态，重启后手动继续；完整文件重命名与数据库更新之间发生退出，也可在启动时恢复。
 
 ## 源码目录
 
 ```text
 src/
-├─ config/       # sys_setting.py、app_paths.py：设置和应用路径
 ├─ schemas/      # task.py、segment_base.py：业务数据结构及校验
 ├─ storage/      # task_repository.py：SQLite 读写
-├─ core/         # 任务业务、下载、合并、M3U8 解析及清单生成
-│  └─ parsers/   # m3u8_parser.py：播放列表解析
+├─ core/         # 应用配置、路径与任务管理
+│  ├─ app_paths.py           # 应用数据目录和数据库路径
+│  ├─ sys_setting.py         # 设置读取、校验和保存
+│  ├─ task_service.py        # 任务创建、状态更新和恢复
+│  └─ path_manager.py        # 下载路径处理
+├─ media/        # 媒体下载、解析、检测与转换
+│  ├─ downloader.py         # 公共并发、请求间隔与服务器限流
+│  ├─ mp4/
+│  │  └─ mp4_downloader.py
+│  └─ m3u8/
+│     ├─ m3u8_downloader.py
+│     ├─ m3u8_parser.py
+│     └─ ffmpeg_converter.py     # 时长检测、合并清单与 MP4 转换
 ├─ models/       # tree_model.py、presentation.py、file_base.py：列表模型和展示数据
 └─ views/        # 主窗口（包含任务操作和回调）、渲染器及弹窗
    ├─ components/ # icons.py、renderers.py：图标加载和单元格绘制
@@ -27,7 +44,8 @@ src/
 `models/file_base.py`。任务操作和异步回调集中在 `views/main_frame.py`，
 回调绑定到主窗口，窗口销毁检查仍然有效。设置窗口位于 `views/dialogs/settings_dialog.py`，
 M3U8 添加界面使用 `m3u8_dialog.py`、`panels/m3u8_form.py`，FFmpeg 合并清单生成位于
-`core/concat_playlist.py`。此次整理保留原有类名和方法名。
+`media/m3u8/ffmpeg_converter.py`，由 `FFmpegConverter` 类统一封装清单生成、分片时长检测与后台转换。
+两个具体下载器共用 `media/downloader.py` 的并发与限流控制。
 
 ## 安装与运行
 
@@ -64,6 +82,7 @@ py -3.10 -m venv .venv
 | 刷新 / 查找筛选框 | F5 / Ctrl+F |
 | 全部暂停 / 继续 | Ctrl+Shift+P / Ctrl+Shift+R |
 | 全部展开 / 折叠 | Ctrl+Shift+E / Ctrl+Shift+C |
+| 下载 MP4 | Ctrl+P |
 | 使用说明 | F1 |
 | 清空关键词（筛选框内） | Esc |
 

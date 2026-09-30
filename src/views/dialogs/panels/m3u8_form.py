@@ -4,8 +4,8 @@ from threading import Thread
 from urllib.parse import urljoin, urlsplit
 
 from src.views.dialogs.panels.path_picker import DownloadHelpDialog
-from src.core.parsers.m3u8_parser import M3U8Parser
-from src.core.downloader import Downloader
+from src.media.m3u8.m3u8_parser import M3U8Parser
+from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.views.components.playlist_editor import PlaylistEditor
 
 class DownloadEditMU(wx.Panel):
@@ -155,7 +155,7 @@ class DownloadEditMU(wx.Panel):
         # 网络请求和限流等待放在后台；工作线程不访问 wx 控件。
         def fetch():
             try:
-                flag, content = Downloader.DownloadContent(m3u8Url)
+                flag, content = M3U8Downloader.DownloadContent(m3u8Url)
                 if flag and isinstance(content, bytes):
                     content = content.decode('utf-8-sig', errors='replace')
             except Exception as error:

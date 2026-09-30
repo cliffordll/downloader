@@ -12,9 +12,9 @@ from unittest.mock import Mock, patch
 
 import wx
 
-from src.core.converter import Converter
-from src.core.downloader import Downloader
-from src.config.sys_setting import SysSetting
+from src.media.m3u8.ffmpeg_converter import FFmpegConverter
+from src.media.m3u8.m3u8_downloader import M3U8Downloader
+from src.core.sys_setting import SysSetting
 from src.storage.task_repository import TaskRepository
 from src.core.task_service import TaskService
 from src.schemas.task import FileStatus, TaskStatus
@@ -38,15 +38,15 @@ class TaskRuntimeTests(unittest.TestCase):
         for patcher in (patch.object(SysSetting, '_values', values),
                         patch.object(SysSetting, 'ConfigPath', return_value=self.root / 'settings.json'),
                         patch('src.models.tree_model.TaskService', return_value=self.service),
-                        patch.object(Downloader, '_pending', set()),
-                        patch.object(Downloader, '_requesting', set()),
-                        patch.object(Downloader, '_paused_files', set()),
-                        patch.object(Downloader, '_failed', set()),
-                        patch.object(Downloader, '_errors', {}),
-                        patch.object(Downloader, '_user_paused', threading.Event()),
-                        patch.object(Downloader, '_shutdown', threading.Event()),
-                        patch.object(Downloader, 'threadQueue', Queue()),
-                        patch.object(Converter, '_outputs', set())):
+                        patch.object(M3U8Downloader, '_pending', set()),
+                        patch.object(M3U8Downloader, '_requesting', set()),
+                        patch.object(M3U8Downloader, '_paused_files', set()),
+                        patch.object(M3U8Downloader, '_failed', set()),
+                        patch.object(M3U8Downloader, '_errors', {}),
+                        patch.object(M3U8Downloader, '_user_paused', threading.Event()),
+                        patch.object(M3U8Downloader, '_shutdown', threading.Event()),
+                        patch.object(M3U8Downloader, 'threadQueue', Queue()),
+                        patch.object(FFmpegConverter, '_outputs', set())):
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -70,7 +70,7 @@ class TaskRuntimeTests(unittest.TestCase):
 
     def enqueue(self, uri, filename, callback, context):
         self.assertEqual(self.repository.get(context[0]).status, TaskStatus.QUEUED)
-        Downloader._pending.add(Downloader.FileKey(filename))
+        M3U8Downloader._pending.add(M3U8Downloader.FileKey(filename))
         return True
 
     def save_default_directory(self, frame, directory):
@@ -88,29 +88,29 @@ class TaskRuntimeTests(unittest.TestCase):
         task = self.create()
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue):
+        with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue):
             frame.OnTaskAction(item, 'start')
         first_path = task.save_dir / task.details.segments[0].relative_path
-        key = Downloader.FileKey(first_path)
-        Downloader._requesting.add(key)
+        key = M3U8Downloader.FileKey(first_path)
+        M3U8Downloader._requesting.add(key)
         frame._SyncTaskRuntime()
         before = self.repository.get(task.id)
-        pending = Downloader.Snapshot()['pending']
+        pending = M3U8Downloader.Snapshot()['pending']
         new_default = self.root / 'new-default'
         self.save_default_directory(frame, new_default)
         self.assertEqual(self.repository.get(task.id), before)
-        self.assertEqual(Downloader.Snapshot()['pending'], pending)
-        self.assertFalse(Downloader.IsPaused())
+        self.assertEqual(M3U8Downloader.Snapshot()['pending'], pending)
+        self.assertFalse(M3U8Downloader.IsPaused())
         SysSetting._values = None  # 从设置文件重新读取，验证默认目录确实已保存。
         self.assertEqual(Path(SysSetting.GetWorkPath()), new_default)
         self.write_segment(task, 0)
-        Downloader._requesting.clear()
-        Downloader._pending.discard(key)
+        M3U8Downloader._requesting.clear()
+        M3U8Downloader._pending.discard(key)
         frame._DownloadCall(True, str(first_path), (task.id, 0))
         second_path = task.save_dir / task.details.segments[1].relative_path
-        Downloader._pending.clear()
+        M3U8Downloader._pending.clear()
         frame._DownloadCall(False, str(second_path), (task.id, 1))
-        with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue) as retry:
+        with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue) as retry:
             frame.OnTaskAction(item, 'retry')
         self.assertEqual(Path(retry.call_args.args[1]), second_path)
         self.assertEqual(self.repository.get(task.id).save_dir, task.save_dir)
@@ -136,18 +136,18 @@ class TaskRuntimeTests(unittest.TestCase):
             self.write_segment(task, sequence)
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch.object(Converter, 'ConvertTSFile') as convert:
+        with patch.object(FFmpegConverter, 'ConvertTSFile') as convert:
             frame.OnTaskAction(item, 'merge')
         output = Path(convert.call_args.args[1])
-        Converter._outputs.add(str(output))
-        self.assertTrue(Converter.IsBusy())
+        FFmpegConverter._outputs.add(str(output))
+        self.assertTrue(FFmpegConverter.IsBusy())
         new_default = self.root / 'new-default'
         self.save_default_directory(frame, new_default)
         self.assertEqual(output, task.save_dir / 'output.mp4')
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.MERGING)
         output.write_bytes(b'video')
         frame._CreateMP4Call(True, str(output), task.id)
-        Converter._outputs.clear()
+        FFmpegConverter._outputs.clear()
         frame.OnRefresh(None)
         self.assertEqual(self.repository.get(task.id).save_dir, task.save_dir)
         self.assertFalse((new_default / 'output.mp4').exists())
@@ -168,11 +168,11 @@ class TaskRuntimeTests(unittest.TestCase):
         task = self.create()
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue):
+        with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue):
             frame.OnTaskAction(item, 'start')
         original_settings = SysSetting.GetAll()
         original_task = self.repository.get(task.id)
-        pending = Downloader.Snapshot()['pending']
+        pending = M3U8Downloader.Snapshot()['pending']
         invalid = self.root / 'not-a-directory'
         invalid.write_bytes(b'keep')
         dialog = SettingsDialog(frame)
@@ -186,8 +186,8 @@ class TaskRuntimeTests(unittest.TestCase):
             dialog.Destroy()
         self.assertEqual(SysSetting.GetAll(), original_settings)
         self.assertEqual(self.repository.get(task.id), original_task)
-        self.assertEqual(Downloader.Snapshot()['pending'], pending)
-        self.assertFalse(Downloader.IsPaused())
+        self.assertEqual(M3U8Downloader.Snapshot()['pending'], pending)
+        self.assertFalse(M3U8Downloader.IsPaused())
 
     def test_segment_success_failure_retry_survive_restart(self):
         task = self.create()
@@ -218,7 +218,7 @@ class TaskRuntimeTests(unittest.TestCase):
         self.write_segment(tasks[0], 0)  # 文件已写完，但退出前尚未来得及保存回调。
         partial = tasks[2].save_dir / 'output.mp4.part.mp4'
         partial.write_bytes(b'incomplete')
-        with patch.object(Downloader, 'DownloadTSFile') as download:
+        with patch.object(M3U8Downloader, 'DownloadTSFile') as download:
             tree = load_tree(TaskService(TaskRepository(self.repository.path)))
         download.assert_not_called()
         self.assertEqual([item.task_status for item in tree.items],
@@ -250,16 +250,16 @@ class TaskRuntimeTests(unittest.TestCase):
         task = self.create()
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue) as download:
+        with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue) as download:
             frame.OnTaskAction(item, 'start')
         self.assertEqual([call.args[3] for call in download.call_args_list], [(task.id, 0), (task.id, 1)])
-        key = Downloader.FileKey(task.save_dir / task.details.segments[0].relative_path)
-        Downloader._requesting.add(key)
+        key = M3U8Downloader.FileKey(task.save_dir / task.details.segments[0].relative_path)
+        M3U8Downloader._requesting.add(key)
         frame.OnTaskProgress(None)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.DOWNLOADING)
         frame.OnTaskAction(item, 'start')
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.PAUSING)
-        Downloader._requesting.clear()
+        M3U8Downloader._requesting.clear()
         frame.OnTaskProgress(None)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.PAUSED)
         with patch.object(self.repository, 'mutate', wraps=self.repository.mutate) as mutate:
@@ -290,15 +290,15 @@ class TaskRuntimeTests(unittest.TestCase):
         task = self.create()
         frame = self.frame()
         path = str(task.save_dir / task.details.segments[1].relative_path)
-        Downloader._errors[Downloader.FileKey(path)] = 'HTTP 500'
+        M3U8Downloader._errors[M3U8Downloader.FileKey(path)] = 'HTTP 500'
         frame._DownloadCall(False, path, (task.id, 1))
         self.assertEqual(self.repository.get(task.id).last_error, 'HTTP 500')
-        Downloader._errors.clear()
+        M3U8Downloader._errors.clear()
         frame.OnRefresh(None)
         info = frame.model.TaskInfo(0)
-        self.assertEqual(info['failed'], {Downloader.FileKey(path)})
+        self.assertEqual(info['failed'], {M3U8Downloader.FileKey(path)})
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue) as download:
+        with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue) as download:
             frame.OnTaskAction(item, 'retry')
         self.assertEqual([call.args[3] for call in download.call_args_list], [(task.id, 1)])
 
@@ -307,7 +307,7 @@ class TaskRuntimeTests(unittest.TestCase):
         self.service.runtime_status(paused.id, TaskStatus.PAUSED)
         frame = self.frame()
         self.assertTrue(frame._GlobalDownloadActions()[1])
-        with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue) as download:
+        with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue) as download:
             frame.OnResumeAllDownloads(None)
         self.assertEqual({call.args[3][0] for call in download.call_args_list}, {paused.id})
         self.assertEqual(self.repository.get(untouched.id).status, TaskStatus.NEW)
@@ -317,20 +317,20 @@ class TaskRuntimeTests(unittest.TestCase):
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
         with patch.object(self.repository, 'mutate', side_effect=sqlite3.OperationalError('disk full')), \
-             patch('wx.MessageBox') as message, patch.object(Downloader, 'DownloadTSFile') as download:
+             patch('wx.MessageBox') as message, patch.object(M3U8Downloader, 'DownloadTSFile') as download:
             frame.OnTaskAction(item, 'start')
         download.assert_not_called()
         message.assert_called_once()
-        self.assertTrue(Downloader.IsPaused())
+        self.assertTrue(M3U8Downloader.IsPaused())
 
     def test_all_resume_keeps_existing_queue_scope(self):
         task = self.create()
         frame = self.frame()
-        key = Downloader.FileKey(task.save_dir / task.details.segments[0].relative_path)
-        Downloader._pending.add(key)
-        Downloader.Pause()
+        key = M3U8Downloader.FileKey(task.save_dir / task.details.segments[0].relative_path)
+        M3U8Downloader._pending.add(key)
+        M3U8Downloader.Pause()
         frame._SyncTaskRuntime()
-        with patch.object(Downloader, 'DownloadTSFile') as enqueue:
+        with patch.object(M3U8Downloader, 'DownloadTSFile') as enqueue:
             frame.OnResumeAllDownloads(None)
         enqueue.assert_not_called()  # 本来只下载第一片，继续不能擅自把第二片加入队列。
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.QUEUED)
@@ -354,10 +354,10 @@ class TaskRuntimeTests(unittest.TestCase):
         SysSetting._values['auto_merge'] = True
         with patch.object(frame, '_CreateMP4File') as merge:
             for cycle in range(2):
-                with patch.object(Downloader, 'DownloadTSFile', side_effect=self.enqueue):
+                with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue):
                     frame.OnTaskAction(item, 'start')
                 path = self.write_segment(task, 0)
-                Downloader._pending.clear()
+                M3U8Downloader._pending.clear()
                 frame._DownloadCall(True, str(path), (task.id, 0))
                 frame._DownloadCall(True, str(path), (task.id, 0))
                 self.app.ProcessPendingEvents()
@@ -369,11 +369,11 @@ class TaskRuntimeTests(unittest.TestCase):
         task = self.create()
         frame = self.frame()
         paths = [self.write_segment(task, index) for index in range(2)]
-        Downloader._pending.add(Downloader.FileKey(paths[1]))
+        M3U8Downloader._pending.add(M3U8Downloader.FileKey(paths[1]))
         with patch.object(frame.model, '_SendEvent') as event:
             frame._DownloadCall(True, str(paths[0]), (task.id, 0))
             event.assert_not_called()
-            Downloader._pending.clear()
+            M3U8Downloader._pending.clear()
             frame._DownloadCall(True, str(paths[1]), (task.id, 1))
             frame._DownloadCall(True, str(paths[1]), (task.id, 1))
             event.assert_called_once()
@@ -389,7 +389,7 @@ class TaskRuntimeTests(unittest.TestCase):
             queue.assert_called_once()
             event.assert_not_called()
             self.assertEqual(frame.model.TaskInfo(0)['status'], '检测时长')
-            with patch('src.core.task_service.probe_duration', return_value=3.5):
+            with patch('src.core.task_service.FFmpegConverter.ProbeDuration', return_value=3.5):
                 record = self.service.detect_durations(task.id)
             frame._DurationChecked(task.id, record, None)
             frame._DurationChecked(task.id, record, None)
@@ -402,9 +402,32 @@ class TaskRuntimeTests(unittest.TestCase):
         headers = {'Referer': 'https://example.com/watch', 'Cookie': 'session=test'}
         self.repository.mutate(task.id, lambda record: setattr(record.details, 'request_headers', headers))
         frame = self.frame()
-        with patch.object(Downloader, 'DownloadTSFile', return_value=True) as enqueue:
+        with patch.object(M3U8Downloader, 'DownloadTSFile', return_value=True) as enqueue:
             frame._DownloadFiles(frame.model.fileTree.items[0].parent.fileName, [(0, None)])
         self.assertEqual(enqueue.call_args.kwargs['headers'], headers)
+
+    def test_mp4_row_and_global_actions_use_direct_engine(self):
+        task = self.service.create_mp4(self.root / 'direct', 'https://example.com/video.mp4')
+        frame = self.frame()
+        item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+        with patch.object(frame, '_StartMP4') as start, patch.object(frame.mp4, 'busy', return_value=False):
+            frame.OnTaskAction(item, 'start')
+            start.assert_called_once_with(task.id)
+        record = self.repository.mutate(task.id, lambda r: setattr(r, 'status', TaskStatus.DOWNLOADING))
+        frame.model.ApplyTaskRecord(record)
+        self.assertTrue(frame._GlobalDownloadActions()[0])
+        with patch.object(frame.mp4, 'pause') as pause, patch.object(frame.mp4, 'busy', return_value=True):
+            frame.OnTaskAction(item, 'start')
+            pause.assert_called_once_with(task.id)
+            pause.reset_mock()
+            frame.OnPauseAllDownloads(None)
+            pause.assert_called_once_with(task.id)
+        record = self.repository.mutate(task.id, lambda r: setattr(r, 'status', TaskStatus.PAUSED))
+        frame.model.ApplyTaskRecord(record)
+        with patch.object(frame, '_StartMP4') as start:
+            frame.OnResumeAllDownloads(None)
+            start.assert_called_once_with(task.id)
+        self.assertFalse(frame.model.IsContainer(item))
 
     def test_missing_completed_segment_downgrades_saved_progress(self):
         task = self.create()
@@ -422,7 +445,7 @@ class TaskRuntimeTests(unittest.TestCase):
         frame = self.frame()
         paths = [self.write_segment(task, index) for index in range(2)]
         frame.model.ApplyTaskRecord(self.service.begin_merge(task.id))
-        Downloader._pending.add(Downloader.FileKey(paths[1]))
+        M3U8Downloader._pending.add(M3U8Downloader.FileKey(paths[1]))
         with patch.object(frame.model, '_SendEvent'):
             frame._DownloadCall(True, str(paths[0]), (task.id, 0))
         frame.OnTaskProgress(None)
@@ -464,7 +487,7 @@ class TaskRuntimeTests(unittest.TestCase):
                 return SimpleNamespace(stdout=iter([]), wait=lambda: returncode)
 
             with patch('subprocess.Popen', side_effect=launch), patch('wx.CallAfter') as deliver:
-                Converter._ConvertTSFile('playlist.txt', str(output), Mock(), None)
+                FFmpegConverter._ConvertTSFile('playlist.txt', str(output), Mock(), None)
             self.assertEqual(output.exists(), returncode == 0)
             self.assertFalse(temporary.exists())
             self.assertEqual(deliver.call_args.args[1], returncode == 0)
@@ -473,12 +496,12 @@ class TaskRuntimeTests(unittest.TestCase):
         task = self.create()
         frame = self.frame()
         filename = str(task.save_dir / task.details.segments[0].relative_path)
-        key = Downloader.FileKey(filename)
-        Downloader._pending.add(key)
-        with patch.object(Downloader, 'DownloadContent', return_value=(False, 'HTTP 403')):
-            success, _ = Downloader._DownLoadFile('https://example.com/a.ts', filename)
-        Downloader._Deliver(('url', filename, frame._DownloadCall, (task.id, 0), key), success)
-        self.assertNotIn(key, Downloader.Snapshot()['pending'])
+        key = M3U8Downloader.FileKey(filename)
+        M3U8Downloader._pending.add(key)
+        with patch.object(M3U8Downloader, 'DownloadContent', return_value=(False, 'HTTP 403')):
+            success, _ = M3U8Downloader._DownLoadFile('https://example.com/a.ts', filename)
+        M3U8Downloader._Deliver(('url', filename, frame._DownloadCall, (task.id, 0), key), success)
+        self.assertNotIn(key, M3U8Downloader.Snapshot()['pending'])
         self.assertEqual(self.repository.get(task.id).details.segments[0].last_error, 'HTTP 403')
 
 

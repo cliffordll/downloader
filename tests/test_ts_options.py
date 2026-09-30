@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import wx
-from src.core.downloader import Downloader
+from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.core.task_service import TaskService
 from src.schemas.task import M3U8Details
 from src.storage.task_repository import TaskRepository
@@ -45,24 +45,24 @@ class TSOptionsTests(unittest.TestCase):
         response = Mock(status_code=503)
         success = Mock(status_code=200, content=b'media')
         headers = {'Referer': 'https://example.com/watch', 'Cookie': 'session=test'}
-        with patch.object(Downloader, '_WaitForRequest', return_value=True), \
-                patch.object(Downloader, '_shutdown') as shutdown, \
-                patch('src.core.downloader.SysSetting.GetAll', return_value={'max_retries': 1, 'connect_timeout': 10, 'read_timeout': 30}), \
-                patch('src.core.downloader.requests.get', side_effect=[response, success, success]) as get:
+        with patch.object(M3U8Downloader, '_WaitForRequest', return_value=True), \
+                patch.object(M3U8Downloader, '_shutdown') as shutdown, \
+                patch('src.media.m3u8.m3u8_downloader.SysSetting.GetAll', return_value={'max_retries': 1, 'connect_timeout': 10, 'read_timeout': 30}), \
+                patch('src.media.m3u8.m3u8_downloader.requests.get', side_effect=[response, success, success]) as get:
             shutdown.wait.return_value = False
-            self.assertEqual(Downloader.DownloadContent('https://example.com/a.ts', headers=headers), (True, b'media'))
-            Downloader.DownloadContent('https://example.com/b.ts')
+            self.assertEqual(M3U8Downloader.DownloadContent('https://example.com/a.ts', headers=headers), (True, b'media'))
+            M3U8Downloader.DownloadContent('https://example.com/b.ts')
             self.assertEqual(get.call_args_list[0].kwargs['headers'], headers)
             self.assertEqual(get.call_args_list[1].kwargs['headers'], headers)
             self.assertNotIn('headers', get.call_args_list[2].kwargs)
 
     def test_queue_copies_task_headers(self):
         queue = Queue()
-        with patch.object(Downloader, 'threadQueue', queue), patch.object(Downloader, 'isStop', False), \
-                patch.object(Downloader, '_pending', set()), patch.object(Downloader, '_shutdown') as shutdown:
+        with patch.object(M3U8Downloader, 'threadQueue', queue), patch.object(M3U8Downloader, 'isStop', False), \
+                patch.object(M3U8Downloader, '_pending', set()), patch.object(M3U8Downloader, '_shutdown') as shutdown:
             shutdown.is_set.return_value = False
             headers = {'Cookie': 'a=b'}
-            self.assertTrue(Downloader.DownloadTSFile('https://example.com/a.ts', 'a.ts', Mock(), None, headers))
+            self.assertTrue(M3U8Downloader.DownloadTSFile('https://example.com/a.ts', 'a.ts', Mock(), None, headers))
             headers['Cookie'] = 'changed'
             self.assertEqual(queue.get_nowait()[5], {'Cookie': 'a=b'})
 

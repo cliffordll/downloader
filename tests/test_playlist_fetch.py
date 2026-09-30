@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import wx
 
-from src.core.downloader import Downloader
+from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 
 
@@ -32,7 +32,7 @@ class PlaylistFetchTests(unittest.TestCase):
             started.set()
             release.wait(3)
             return True, b'#EXTM3U\n#EXTINF:4,\na.ts\n'
-        with patch.object(Downloader, 'DownloadContent', side_effect=download) as request, \
+        with patch.object(M3U8Downloader, 'DownloadContent', side_effect=download) as request, \
              patch('wx.CallAfter', side_effect=lambda *args: queued.put(args)):
             try:
                 self.panel.OnBtnM3U8Clicked(Mock())
