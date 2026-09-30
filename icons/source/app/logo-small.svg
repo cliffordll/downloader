@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Two parallel diagonal cuts, centered as a group, with balanced end panels. -->
+  <g fill="#00a0e4">
+    <path d="M2 1H3.5L6.5 4H1V2Q1 1 2 1Z"/>
+    <path d="M4.5 1H8.5L11.5 4H7.5Z"/>
+    <path d="M9.5 1H14Q15 1 15 2V4H12.5Z"/>
+    <path fill-rule="evenodd" d="M1 5H15V14Q15 15 14 15H2Q1 15 1 14Z
+      M7 7H9V10L11 8L12 9L8 13L4 9L5 8L7 10Z"/>
+  </g>
+</svg>

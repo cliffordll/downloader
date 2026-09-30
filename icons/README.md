@@ -1,5 +1,13 @@
 # 统一 PNG 图标库
 
+## 定版应用 Logo（2026-09-30）
+
+- `source/app/logo.svg` / `logo.png`：三条平行斜杠的大图，PNG 为 512×512 透明背景。
+- `source/app/logo-small.svg` / `logo-small.png`：标题栏专用简化版，保留加宽的中间蓝色块，PNG 为 512×512 透明背景。
+- `source/app/logo1.png`：原始四斜杠蓝色 Logo，作为旧版备份保留，不参与运行时图标加载。
+- 只保留图标库使用的 24、30、36、48 四档目录；各档不再保存 `logo.png`、`logo2.png` 或 `logo-small.png`。图标预览页的 Logo 统一读取 `source/app`，定版 PNG 也保留在该目录。
+- Windows 标题栏单独使用小图；任务栏使用大图。SVG 源文件继续保留，程序当前仍直接从 SVG 绘制应用图标。
+
 共 156 个命名图标：116 个文件类型、33 个工具操作、7 个应用／导航图标。
 本目录是程序唯一使用的图标库。原图、旧工具栏资源和设计稿已归档到 `../backups/icons-before-consolidation.zip`。
 
@@ -26,7 +34,7 @@ gallery.html                     可搜索、切换分类和显示尺寸的本�
 
 程序统一从本目录读取 PNG，不再使用 `icons/toolbar/`、`icons/unified/` 或旧的根目录图标。
 工具栏读取 24、30、36、48 四档图片；窗口及导航的其他尺寸从 `source` 缩放。路径相对于项目目录解析，不依赖启动时的工作目录。
-替换图标时，请同步替换四档 PNG 和 `source` 中的同名 PNG。工具栏 M3U8 对应 `files/m3u8.png`，TS 对应 `files/ts.png`。
+替换普通图标时，请同步替换四档 PNG 和 `source` 中的同名 PNG；Logo 仅维护 `source/app` 中的资源。工具栏 M3U8 对应 `files/m3u8.png`，TS 对应 `files/ts.png`。
 
 折叠图标统一使用 `tools/collapse.png`。
 TS 统一保留紫色色块版本，文件名为 `files/ts.png`。

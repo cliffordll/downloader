@@ -22,7 +22,7 @@ from src.core.path_manager import PathManager
 from src.storage.task_repository import TaskDataError, TaskConflictError
 from src.schemas.task import TaskStatus, TaskType
 
-from src.views.components.icons import app_icons, icon_image, toolbar_icon
+from src.views.components.icons import app_icons, icon_image, toolbar_icon, set_titlebar_icon
 from src.views.components.renderers import TaskProgressRenderer, TaskActionRenderer
 
 
@@ -34,6 +34,8 @@ class MainFrame(wx.Frame):
         self.SetMinSize(self.FromDIP(wx.Size(780, 420)))
         
         self.SetIcons(app_icons())
+        set_titlebar_icon(self)
+        self.Bind(wx.EVT_DPI_CHANGED, self.OnIconDPIChanged)
 
         self._createMenuBar()
         self._createToolBar()
@@ -69,6 +71,14 @@ class MainFrame(wx.Frame):
 
         self.Center()
         self.Show()
+
+    def OnIconDPIChanged(self, event):
+        event.Skip()
+        wx.CallAfter(self._UpdateTitlebarIcon)
+
+    def _UpdateTitlebarIcon(self):
+        if self and not self.IsBeingDeleted():
+            set_titlebar_icon(self)
 
     def _createMenuBar(self):
         # 创建菜单栏
