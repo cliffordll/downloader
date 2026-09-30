@@ -100,7 +100,15 @@ class TaskService:
     def to_tree_item(self, task, previous=None):
         """将持久化记录投影到界面；磁盘上的正式文件才可显示为已下载。"""
         if not isinstance(task, M3U8Task):
-            raise ValueError('当前列表尚未接入 MP4/RTMP 任务。')
+            target = task.save_dir / task.details.target_path
+            parent = self._file(target, task.name, task.source_url)
+            parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
+            # 单文件任务不创建子节点；完成文件仍供“更多 → 播放视频”使用。
+            outputs = [self._file(target, task.details.target_path)] if (
+                task.status == TaskStatus.COMPLETED and target.is_file()) else []
+            return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                            progress=task.progress, task_status=task.status,
+                            last_error=task.last_error, parent=parent, outputs=outputs)
         parent = self._file(task.save_dir / (task.details.playlist_path or 'download.m3u8'), task.name)
         parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
         children = []
@@ -117,7 +125,8 @@ class TaskService:
         outputs = [self._file(task.save_dir / output.relative_path, output.relative_path)
                    for output in task.outputs if output.status == FileStatus.COMPLETED
                    and (task.save_dir / output.relative_path).is_file()]
-        return TreeItem(task_id=task.id, task_status=task.status, last_error=task.last_error,
+        return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                        progress=task.progress, task_status=task.status, last_error=task.last_error,
                         parent=parent, childs=children, outputs=outputs,
                         download=sum(child.fileSize != '-' for child in children))
 
@@ -158,7 +167,16 @@ class TaskService:
     @classmethod
     def _reconcile(cls, task, recovering):
         if not isinstance(task, M3U8Task):
-            raise ValueError('当前列表尚未接入 MP4/RTMP 任务。')
+            # 尚未接入单文件引擎：保留已登记的字节/时长，不凭文件存在推断完成。
+            if recovering and task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING,
+                    TaskStatus.PAUSING, TaskStatus.RECORDING, TaskStatus.STOPPING):
+                task.status, task.last_error = TaskStatus.INTERRUPTED, '上次任务未正常结束。'
+            if task.status == TaskStatus.COMPLETED and not (task.save_dir / task.details.target_path).is_file():
+                task.status, task.last_error = TaskStatus.INTERRUPTED, '已完成的视频文件不存在。'
+                for output in task.outputs:
+                    if not (task.save_dir / output.relative_path).is_file():
+                        output.status, output.size_bytes = FileStatus.MISSING, None
+            return
         previous = task.status
         previous_error = task.last_error
         active = previous in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING, TaskStatus.MERGING)
@@ -197,6 +215,7 @@ class TaskService:
     def begin_download(self, task_id, sequences):
         """先登记排队，再提交网络请求；只清除本次重试分片的错误。"""
         def change(task):
+            self._require_m3u8(task)
             self._reconcile(task, False)
             selected = set(sequences)
             if not selected or not selected <= {segment.sequence for segment in task.details.segments}:
@@ -216,6 +235,7 @@ class TaskService:
     def finish_segment(self, task_id, sequence, filename, success, error=None):
         """回调身份是任务 UUID + 分片序号，并校验文件路径，绝不按旧行号定位。"""
         def change(task):
+            self._require_m3u8(task)
             segment = next((segment for segment in task.details.segments if segment.sequence == sequence), None)
             if segment is None or (task.save_dir / segment.relative_path).resolve() != Path(filename).resolve():
                 raise ValueError('分片回调身份或保存路径不匹配。')
@@ -232,6 +252,7 @@ class TaskService:
 
     def begin_merge(self, task_id):
         def change(task):
+            self._require_m3u8(task)
             self._reconcile(task, False)
             if not task.details.segments or task.progress.completed_segments != task.progress.total_segments:
                 raise ValueError('分片尚未全部下载，不能合并。')
@@ -245,6 +266,7 @@ class TaskService:
 
     def finish_merge(self, task_id, filename, success):
         def change(task):
+            self._require_m3u8(task)
             output = next((output for output in task.outputs if output.kind == 'merged'
                            and (task.save_dir / output.relative_path).resolve() == Path(filename).resolve()), None)
             if output is None:
@@ -256,6 +278,11 @@ class TaskService:
                 output.status, output.size_bytes = FileStatus.FAILED, None
                 task.status, task.last_error = TaskStatus.FAILED, 'FFmpeg 合并失败，请检查分片或重新合并。'
         return self.repository.mutate(task_id, change)
+
+    @staticmethod
+    def _require_m3u8(task):
+        if not isinstance(task, M3U8Task):
+            raise ValueError('此操作仅适用于 M3U8 分片任务。')
 
     def interrupt(self, task_id):
         def change(task):

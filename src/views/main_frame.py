@@ -16,7 +16,7 @@ from src.managers.converter import Converter
 from src.managers.sys_setting import SysSetting
 from src.managers.path_manager import PathManager
 from src.managers.task_repository import TaskDataError, TaskConflictError
-from src.schemas.task import TaskStatus
+from src.schemas.task import TaskStatus, TaskType
 
 ICON_ROOT = Path(__file__).resolve().parents[2] / "icons"
 ICON_FILES = {
@@ -67,7 +67,9 @@ class TaskProgressRenderer(dv.DataViewCustomRenderer):
     def SetValue(self, value):
         """重写：wx 传入模型第 5 列的文字，例如“50% · 1/2”；分片行为空。"""
         self.label = value
-        self.percent = max(0, min(100, int(value.split('%', 1)[0]))) if value else 0
+        # 未知总大小和直播时长没有百分比，仅显示文字。
+        prefix, separator, _ = value.partition('%')
+        self.percent = max(0, min(100, int(prefix))) if separator and prefix.isdigit() else None
         return True
 
     def GetValue(self):
@@ -81,7 +83,7 @@ class TaskProgressRenderer(dv.DataViewCustomRenderer):
         return wx.Size(max(1, width - self.frame.FromDIP(8)), self.frame.FromDIP(24))
 
     def Render(self, cell, dc, state):
-        """重写：wx 重绘时调用；按完成分片比例填充，不表示 MP4 合并进度。"""
+        """重写：按模型提供的百分比填充；未知总量/直播仅绘制文字，不表示合并进度。"""
         if not self.label:
             return True
         rect = wx.Rect(cell)
@@ -91,6 +93,12 @@ class TaskProgressRenderer(dv.DataViewCustomRenderer):
         font = wx.Font(self.frame.mcTree.GetFont())
         font.SetWeight(wx.FONTWEIGHT_NORMAL)
         dc.SetFont(font)
+        if self.percent is None:
+            dc.SetTextForeground(wx.Colour('#172B4D'))
+            clip = wx.DCClipper(dc, rect)
+            dc.DrawLabel(self.label, rect, wx.ALIGN_CENTER)
+            del clip
+            return True
         # 进度条只占行内 16 DIP 高度，垂直居中，避免色块撑满整行。
         bar_height = min(rect.height, self.frame.FromDIP(16))
         bar = wx.Rect(rect.x, rect.y + (rect.height - bar_height) // 2, rect.width, bar_height)
@@ -119,7 +127,7 @@ class TaskProgressRenderer(dv.DataViewCustomRenderer):
 class TaskActionRenderer(dv.DataViewCustomRenderer):
     """绘制“操作”列，并把单元格点击转换成具体任务操作。
 
-    这里没有创建五个按钮，而是将同一个单元格分成五个可点击区域。
+    这里没有创建按钮，而是按模型的操作数量划分单元格内的可点击区域。
     模型 GetValue → SetValue 接收数据 → Render 绘制文字；
     用户点击 → ActivateCell 判断区域 → 主窗口 OnTaskAction 执行业务操作。
     """
@@ -157,8 +165,8 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         width = column.GetWidth() if column is not None else self.frame.FromDIP(200)
         return wx.Size(max(1, width - self.frame.FromDIP(8)), self.frame.FromDIP(24))
 
-    def _ActionRects(self, cell):
-        """左右留白后等分为：开始/暂停/继续、重试、删除、展开/折叠、更多。
+    def _ActionRects(self, cell, count=5):
+        """左右留白后按 count 等分；M3U8 五项、MP4/RTMP 四项。
 
         这是本类自定义的辅助方法，不是 wx 的重写回调，由 Render/ActivateCell 调用。
         绘制与点击判断共用此方法，确保显示位置和点击区域始终对应。
@@ -166,9 +174,9 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         """
         rect = wx.Rect(cell)
         rect.Deflate(self.frame.FromDIP(4), 0)
-        return [wx.Rect(rect.x + rect.width * i // 5, rect.y,
-                        rect.width * (i + 1) // 5 - rect.width * i // 5, rect.height)
-                for i in range(5)]
+        return [wx.Rect(rect.x + rect.width * i // count, rect.y,
+                        rect.width * (i + 1) // count - rect.width * i // count, rect.height)
+                for i in range(count)]
 
     def Render(self, cell, dc, state):
         """重写父类方法：wx 重绘单元格时自动调用，不需要手动绑定绘制事件。
@@ -184,8 +192,9 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         # 选中行使用浅蓝背景，操作仍用链接色，避免白字在浅底上看不清。
         colour = wx.SYS_COLOUR_HOTLIGHT
         if self.label.startswith('['):
-            # 固定绘制五项；不可用时只改成灰色，不删除该区域，防止布局跳动。
-            for action, rect in zip(json.loads(self.label), self._ActionRects(cell)):
+            # 按该类型的操作数量等分；置灰不移除区域，防止状态变化时布局跳动。
+            actions = json.loads(self.label)
+            for action, rect in zip(actions, self._ActionRects(cell, len(actions))):
                 dc.SetTextForeground(wx.SystemSettings.GetColour(
                     colour if action['enabled'] else wx.SYS_COLOUR_GRAYTEXT))
                 dc.DrawLabel(action['label'], rect, wx.ALIGN_CENTER)
@@ -206,8 +215,8 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         value = model.GetValue(item, col)
         if not value:
             return False
-        if model.IsContainer(item):
-            # 父节点是视频任务，拥有五个操作；子节点走下方的分片处理分支。
+        if value.startswith('['):
+            # 单文件任务也是任务行，但不可展开；按数据协议识别，不能按容器判断。
             actions = json.loads(value)
             if mouseEvent is None:
                 # 键盘激活没有鼠标坐标：优先开始/继续，否则打开更多，绝不默认删除。
@@ -215,7 +224,7 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
             else:
                 # wx 提供的鼠标坐标相对于当前单元格左上角，因此区域也从 (0, 0) 算起。
                 point = mouseEvent.GetPosition()
-                rects = self._ActionRects(wx.Rect(0, 0, cell.width, cell.height))
+                rects = self._ActionRects(wx.Rect(0, 0, cell.width, cell.height), len(actions))
                 # Contains 判断鼠标是否落在某一项的矩形内；左右留白没有对应操作。
                 action = next((entry for entry, rect in zip(actions, rects) if rect.Contains(point)), None)
             if action is None or not action['enabled']:
@@ -403,7 +412,7 @@ class MainFrame(wx.Frame):
         self.searchCtrl.SetDescriptiveText('筛选文件名或路径')
         self.searchCtrl.ShowCancelButton(True)
         self.statusFilter = wx.Choice(panel, choices=[
-            '全部状态', '未开始', '等待下载', '下载中', '暂停中', '已暂停', '已中断',
+            '全部状态', '未开始', '等待下载', '下载中', '暂停中', '已暂停', '已中断', '录制中', '停止中', '录制失败',
             '待继续', '下载失败', '待合并', '合并中', '合并失败', '已完成'])
         self.statusFilter.SetSelection(0)
         self.filterCount = wx.StaticText(panel, label='')
@@ -630,7 +639,7 @@ class MainFrame(wx.Frame):
         """只在排队/请求/暂停状态变化时写库；500ms 定时刷新不会重复写相同状态。"""
         snapshot = Downloader.Snapshot()
         for task in list(self.model.fileTree.items):
-            if task.task_id is None or task.task_status == TaskStatus.MERGING or task.outputs:
+            if task.task_type != TaskType.M3U8 or task.task_id is None or task.task_status == TaskStatus.MERGING or task.outputs:
                 continue
             keys = {Downloader.FileKey(child.fileName) for child in task.childs}
             pending = keys & snapshot['pending']
@@ -662,6 +671,8 @@ class MainFrame(wx.Frame):
         info = self.model.TaskInfo(index)
         # 点击与绘制之间状态可能改变，所以在执行前重新读取当前任务状态。
         if action_id == 'merge':
+            if task.task_type != TaskType.M3U8:
+                return
             # 合并位于“更多”菜单内：分片必须完整，不能正在下载/合并或已有输出。
             if info['pending'] or info['merging'] or task.outputs or not info['total'] or info['done'] != info['total']:
                 return
@@ -732,7 +743,7 @@ class MainFrame(wx.Frame):
             return
         index = self.model.ParseKey(self.model.ItemToObject(item))[0]
         task = self.model.fileTree.items[index]
-        directory = Path(PathManager.GetAbsPath(task.parent.fileName)).parent
+        directory = task.save_dir or Path(PathManager.GetAbsPath(task.parent.fileName)).parent
         menu = wx.Menu()
 
         def add(label, callback, enabled=True):
@@ -742,9 +753,10 @@ class MainFrame(wx.Frame):
 
         info = self.model.TaskInfo(index)
         parent_item = self.model.ObjectToItem(self.model._BuildKey((index,)))
-        add('转 MP4', lambda: self.OnTaskAction(parent_item, 'merge'),
-            bool(info['total']) and info['done'] == info['total'] and not task.outputs
-            and not info['pending'] and not info['merging'])
+        if task.task_type == TaskType.M3U8:
+            add('转 MP4', lambda: self.OnTaskAction(parent_item, 'merge'),
+                bool(info['total']) and info['done'] == info['total'] and not task.outputs
+                and not info['pending'] and not info['merging'])
         add('打开文件夹', lambda: self._OpenLocalPath(directory))
         if task.outputs:
             for output in task.outputs:
@@ -760,6 +772,9 @@ class MainFrame(wx.Frame):
     def OnDeleteTask(self, task):
         """本阶段只删除数据库记录；下载文件保留，不再递归删除任务目录。"""
         def busy():
+            if task.task_type != TaskType.M3U8:
+                return task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING,
+                    TaskStatus.PAUSING, TaskStatus.RECORDING, TaskStatus.STOPPING)
             keys = {Downloader.FileKey(child.fileName) for child in task.childs}
             output = str(Path(task.parent.fileName).parent / 'output.mp4')
             return bool(keys & Downloader.Snapshot()['pending']) or Converter.IsConverting(output)
@@ -947,7 +962,7 @@ class MainFrame(wx.Frame):
         can_pause = not snapshot['paused'] and bool(snapshot['pending'] - snapshot['paused_files'])
         tasks = self.model.fileTree.items if hasattr(self, 'model') else []
         can_resume = snapshot['paused'] or bool(snapshot['pending'] & snapshot['paused_files']) or any(
-            task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED)
+            task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED)
             and any(child.fileSize == '-' for child in task.childs) for task in tasks)
         return can_pause, can_resume
 
@@ -962,7 +977,7 @@ class MainFrame(wx.Frame):
             Downloader.Resume()  # 同时清除全局暂停和单个任务的暂停标记。
             pending = Downloader.Snapshot()['pending']
             for task in list(self.model.fileTree.items):
-                if task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) and not any(
+                if task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) and not any(
                         Downloader.FileKey(child.fileName) in pending for child in task.childs):
                     self._DownloadFiles(task.parent.fileName,
                                         [(index, None) for index, child in enumerate(task.childs) if child.fileSize == '-'])
@@ -1223,6 +1238,8 @@ class MainFrame(wx.Frame):
         """先保存排队状态，再提交带稳定身份的分片请求。"""
         task = next((task for task in self.model.fileTree.items
                      if task.parent and task.parent.fileName == tsSeed), None)
+        if task is not None and task.task_type != TaskType.M3U8:
+            return 0  # 单文件任务不能误入 TS 分片下载器。
         if task is None or any(index < 0 or index >= len(task.childs) for index, _ in tasks):
             wx.MessageBox('任务不存在或分片已变化，请刷新后重试。', '提示')
             return 0

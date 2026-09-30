@@ -2,7 +2,8 @@ import time
 from pydantic import BaseModel, Field, field_validator
 from typing import Union, List, Optional
 from uuid import UUID
-from src.schemas.task import FileStatus, TaskStatus
+from pathlib import Path
+from src.schemas.task import FileStatus, TaskStatus, TaskType, TaskProgress
 
 class FileItem(BaseModel):
     fileName: str
@@ -38,6 +39,9 @@ class FileItem(BaseModel):
         return v
 
 class TreeItem(BaseModel):
+    task_type: TaskType = TaskType.M3U8
+    save_dir: Optional[Path] = None
+    progress: TaskProgress = Field(default_factory=TaskProgress)
     task_id: Optional[UUID] = None  # 数据库身份，不使用行号作为持久化标识。
     task_status: Optional[TaskStatus] = None
     last_error: Optional[str] = None

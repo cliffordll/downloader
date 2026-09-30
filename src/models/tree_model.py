@@ -8,14 +8,14 @@ from src.managers.downloader import Downloader
 from src.managers.converter import Converter
 import os
 from typing import TypedDict
-from src.schemas.task import FileStatus, TaskStatus
+from src.schemas.task import FileStatus, TaskStatus, TaskType
 
 
 class TaskSummary(TypedDict):
     """任务状态的字段类型，避免混合字典让 status 被推断成多种类型。"""
     total: int
     done: int
-    percent: int
+    percent: int | None
     status: str
     failed: set[str]
     pending: set[str]
@@ -76,10 +76,12 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     def TaskInfo(self, index) -> TaskSummary:
         """自定义方法：汇总指定任务的分片进度和运行状态，供界面和 GetValue 使用。
 
-        index 是 fileTree.items 的索引；进度按完成分片数计算，不是字节进度。
+        index 是 fileTree.items 的索引；M3U8 按分片数、MP4 按字节、RTMP 按时长显示。
         此方法只查询状态，不启动下载或合并。
         """
         task = self.fileTree.items[index]
+        if task.task_type != TaskType.M3U8:
+            return self._SingleFileInfo(task)
         total = len(task.childs)
         done = sum(child.fileSize != '-' for child in task.childs)
         keys = {Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
@@ -129,13 +131,56 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             'progress': f'{int(done * 100 / total) if total else 0}% · {done}/{total}',
         }
 
+    @staticmethod
+    def _SingleFileInfo(task) -> TaskSummary:
+        """MP4 按字节计进度；直播只展示时长和体积，不伪造完成百分比。"""
+        progress = task.progress
+        def size(value):
+            amount = float(value)
+            for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
+                if amount < 1024 or unit == 'TB':
+                    return f'{amount:.1f} {unit}'
+                amount /= 1024
+        live = task.task_type == TaskType.RTMP
+        total, done = progress.total_bytes or 0, progress.downloaded_bytes
+        percent = int(done * 100 / total) if total and not live else None
+        if live:
+            seconds = int(progress.recorded_seconds)
+            label = f'{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d} · {size(done)}'
+        else:
+            label = f'{size(done)} / {size(total) if total else "未知"}'
+            if percent is not None:
+                label = f'{percent}% · {label}'
+        status = {
+            TaskStatus.NEW: '未开始', TaskStatus.QUEUED: '等待下载',
+            TaskStatus.DOWNLOADING: '下载中', TaskStatus.PAUSING: '暂停中',
+            TaskStatus.PAUSED: '已暂停', TaskStatus.INTERRUPTED: '已中断',
+            TaskStatus.RECORDING: '录制中', TaskStatus.STOPPING: '停止中',
+            TaskStatus.COMPLETED: '已完成',
+            TaskStatus.FAILED: '录制失败' if live else '下载失败',
+        }.get(task.task_status, '未开始')
+        return dict(total=total, done=done, percent=percent, status=status, progress=label,
+                    failed=set(), pending=set(), merging=False,
+                    paused=task.task_status == TaskStatus.PAUSED)
+
     def TaskActions(self, index):
-        """自定义方法：按固定位置返回五项操作的 id、显示文字和可用状态。
+        """自定义方法：按任务类型返回操作的 id、显示文字和可用状态。
 
         GetValue 将这些数据序列化后交给 TaskActionRenderer；渲染器根据 enabled
         置灰，根据 id 分发点击，不通过中文显示文字判断要执行什么操作。
         """
         task = self.fileTree.items[index]
+        if task.task_type != TaskType.M3U8:
+            # 引擎在后续步骤接入；此处提供稳定布局，禁用尚不可执行的操作。
+            live = task.task_type == TaskType.RTMP
+            active = task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING,
+                TaskStatus.PAUSING, TaskStatus.RECORDING, TaskStatus.STOPPING)
+            return [
+                dict(id='start', label='录制' if live else '开始', enabled=False),
+                dict(id='stop' if live else 'retry', label='停止' if live else '重试', enabled=False),
+                dict(id='delete', label='删除', enabled=not active),
+                dict(id='more', label='更多', enabled=True),
+            ]
         info = self.TaskInfo(index)
         idle = not info['pending'] and not info['merging']
         downloadable = idle and not Downloader.IsPaused() and not task.outputs
@@ -215,15 +260,16 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     
     # 父类函数
     def IsContainer(self, item):
-        """重写：wx 查询节点是否为容器；虚拟根和任务行是容器，文件行不是。"""
+        """重写：仅虚拟根和有子文件的 M3U8 可展开；MP4/RTMP 始终是单行。"""
         if not item.IsOk():
             return True
         
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         # print("IsContainer", keys)
-        if len(objs) <= 1:
-            return True
+        if len(objs) == 1:
+            task = self.fileTree.items[objs[0]]
+            return task.task_type == TaskType.M3U8 and bool(task.childs or task.outputs)
         elif len(objs) == 2:
             pass
         else:
@@ -255,6 +301,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         # print("GetChildren parent:", keys)
         if len(objs) == 1:
             idxi = objs[0]
+            if self.fileTree.items[idxi].task_type != TaskType.M3U8:
+                return 0
             # 处理 MP4　文件
             idxj = 0
             for _ in self.fileTree.items[idxi].outputs:
@@ -504,6 +552,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             # 保留状态文字，颜色只是辅助提示，不作为唯一的识别方式。
             colours = {
                 '下载中': '#0055FF',  # 鲜蓝：正在下载
+                '录制中': '#8800FF',
+                '停止中': '#FF6600',
                 '合并中': '#8800FF',  # 鲜紫：正在生成 MP4
                 '暂停中': '#FF6600',  # 亮橙：等待已发出的请求结束
                 '已暂停': '#F00088',  # 亮玫红：请求已结束，任务保持暂停，可恢复
