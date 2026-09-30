@@ -9,10 +9,10 @@ from src.schemas.task import SourceType
 from src.core.sys_setting import SysSetting
 
 class DownloadDialogTS(wx.Dialog):
-    def __init__(self, parent, title, workPath, task_service=None):
+    def __init__(self, parent, title, workPath, task_service: TaskService):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent)
-        self.tasks = task_service or TaskService()
+        self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
         self.SetTitle(title)
         sizer = wx.BoxSizer(wx.VERTICAL)
 

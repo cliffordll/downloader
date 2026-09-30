@@ -103,19 +103,16 @@ class FFmpegConverter:
                 except OSError:
                     pass
             if callback:
-                import wx  # 仅转换回调需要 wx，时长检测和清单生成不依赖界面。
-                wx.CallAfter(cls._Deliver, success, outputFile, callback, item)
+                # 后台回调只保存业务结果；界面通过变化队列读取，不参与落库。
+                cls._Deliver(success, outputFile, callback, item)
             else:
                 with cls._lock:
                     cls._outputs.discard(os.path.abspath(outputFile))
 
     @classmethod
     def _Deliver(cls, success, outputFile, callback, item):
-        import wx
         try:
-            owner = getattr(callback, '__self__', None)
-            if not (isinstance(owner, wx.Window) and not owner):
-                callback(success, outputFile, item)
+            callback(success, outputFile, item)
         finally:
             with cls._lock:
                 cls._outputs.discard(os.path.abspath(outputFile))

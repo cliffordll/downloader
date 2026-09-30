@@ -2,7 +2,6 @@ import wx
 import json
 # import wx.gizmos as gizmos
 import wx.dataview as dv
-from src.core.task_service import TaskService
 from src.core.path_manager import PathManager
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
@@ -90,10 +89,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     子节点先排列 outputs（MP4），再排列 childs（分片），不能直接把子节点索引
     当成分片索引。刷新后任务顺序可能改变，异步回调按任务 UUID 和分片序号定位。
     """
-    def __init__(self, parent=None):
+    def __init__(self, tree: TreeData, parent=None):
         super().__init__()
-        self.tasks = TaskService()
-        self.fileTree = load_tree(self.tasks)
+        # 首次读取和恢复由启动入口完成；构造模型仅接收展示数据，不访问任务库。
+        self.fileTree = tree
         # None 表示全部；筛选只改变根节点可见性，不删任务、不改变下载回调使用的索引。
         self.visible_tasks = None
         # 因为 ObjectToItem(obj) 在库内部维护一张map，key 为 id(obj)，所以 obj 对象不能变

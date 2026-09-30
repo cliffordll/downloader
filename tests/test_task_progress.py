@@ -2,7 +2,7 @@ import os
 import threading
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import wx
 
@@ -32,11 +32,12 @@ class TaskProgressTests(unittest.TestCase):
             patch.object(M3U8Downloader, '_paused_files', set()),
                         patch.object(M3U8Downloader, '_user_paused', threading.Event()),
                         patch.object(FFmpegConverter, '_outputs', set()),
-                        patch('src.models.tree_model.load_tree', return_value=self.tree),
                         patch('src.views.main_frame.load_tree', return_value=self.tree)):
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.model = MultiColumnTreeModel()
+        self.service = Mock()  # 展示测试显式注入服务替身，避免访问用户任务库。
+        self.service.repository.list_tasks.return_value = []
+        self.model = MultiColumnTreeModel(self.tree)
         self.addCleanup(self.model.DecRef)
         self.key = M3U8Downloader.FileKey(PathManager.GetAbsPath('task/b.ts'))
 
@@ -81,26 +82,15 @@ class TaskProgressTests(unittest.TestCase):
         self.task.outputs.append(FileItem(fileName='task/output.mp4', fileSize=20))
         self.assertEqual(self.model.TaskInfo(0)['status'], '已完成')
 
-    def test_row_pause_and_resume_only_affect_its_pending_files(self):
+    def test_row_pause_button_dispatches_task_id_to_runner(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
-            other = M3U8Downloader.FileKey(PathManager.GetAbsPath('other/a.ts'))
-            M3U8Downloader._pending.update({self.key, other})
-            M3U8Downloader._requesting.add(self.key)
+            M3U8Downloader._pending.add(self.key)
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-            self.assertEqual(frame.model.TaskActions(0)[0]['label'], '暂停')
-            frame.OnTaskAction(item, 'start')
-            self.assertEqual(M3U8Downloader.Snapshot()['paused_files'], {self.key})
-            self.assertEqual(frame.model.TaskInfo(0)['status'], '暂停中')
-            M3U8Downloader._requesting.clear()
-            self.assertEqual(frame.model.TaskInfo(0)['status'], '已暂停')
-            self.assertEqual(frame.model.TaskActions(0)[0]['label'], '继续')
-            with patch.object(frame, '_DownloadFiles') as enqueue:
+            with patch.object(frame.runner, 'activate', return_value=False) as activate:
                 frame.OnTaskAction(item, 'start')
-                enqueue.assert_not_called()
-            self.assertFalse(M3U8Downloader.Snapshot()['paused_files'])
-            self.assertEqual(frame.model.TaskActions(0)[0]['label'], '暂停')
+                activate.assert_called_once_with(self.task.task_id, retry=False)
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
@@ -115,7 +105,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_fixed_row_actions_and_retry_scope(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
             self.assertEqual(frame.model.GetValue(item, 5), '50% · 1/2')
@@ -135,9 +125,9 @@ class TaskProgressTests(unittest.TestCase):
             self.assertEqual([a['enabled'] for a in actions], [True, False, True, True, True])
             self.assertFalse(click(1))
             M3U8Downloader._failed.add(self.key)
-            with patch.object(frame, '_DownloadFiles', return_value=1) as download:
+            with patch.object(frame.runner, 'activate', return_value=1) as download:
                 self.assertTrue(click(1))
-                self.assertEqual([i for i, _ in download.call_args.args[1]], [1])
+                download.assert_called_once_with(self.task.task_id, retry=True)
             with patch.object(frame, 'OnDeleteTask') as delete:
                 self.assertTrue(click(2))
                 delete.assert_called_once_with(self.task)
@@ -178,7 +168,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_more_menu_and_delete_cancel(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
             self.assertEqual(frame.mcTree.GetColumnCount(), 7)
@@ -198,7 +188,8 @@ class TaskProgressTests(unittest.TestCase):
                 child = frame.model.ObjectToItem(frame.model._BuildKey((0, 0)))
                 frame.OnTaskMenu(child)
             M3U8Downloader._pending.clear()
-            with patch.object(frame.model.tasks.repository, 'delete') as delete, \
+            with patch.object(frame.runner, 'busy', return_value=False), \
+                 patch.object(frame.tasks.repository, 'delete') as delete, \
                  patch('src.views.main_frame.wx.MessageDialog') as dialog:
                 dialog.return_value.ShowModal.return_value = wx.ID_NO
                 frame.OnDeleteTask(self.task)
@@ -215,7 +206,7 @@ class TaskProgressTests(unittest.TestCase):
                          childs=[FileItem(fileName='other/c.ts')])
         self.tree.items.insert(0, other)
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             for text, expected in [('download', {0, 1}), ('MOVIE.MP4', {1}),
                                    (' B.TS ', {1}), ('other/', {0}), ('不存在', set()), ('更多', set())]:
@@ -242,7 +233,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_status_filter_tracks_progress_and_refresh_keeps_conditions(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             frame.statusFilter.SetStringSelection('待继续')
             frame.OnStatusFilter(None)
@@ -269,7 +260,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_global_actions_are_in_menu_and_toolbar(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             self.assertEqual([frame.menuBar.GetMenuLabelText(i) for i in range(4)],
                              ['文件', '任务', '查看', '帮助'])
@@ -298,7 +289,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_fixed_pause_resume_actions_handle_individually_paused_tasks(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             self.assertEqual(frame._GlobalDownloadActions(), (False, False))
             other = M3U8Downloader.FileKey(PathManager.GetAbsPath('other/a.ts'))
@@ -327,7 +318,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_empty_filter_message_and_clear_all(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             frame.statusFilter.SetStringSelection('已完成')
             frame.searchCtrl.ChangeValue('missing')
@@ -346,7 +337,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_double_click_only_toggles_and_segment_download_is_explicit(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
             child = frame.model.ObjectToItem(frame.model._BuildKey((0, 1)))
@@ -368,7 +359,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_progress_only_notifies_changed_cells(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
             info = frame.model.TaskInfo(0)
@@ -396,7 +387,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_menu_shortcuts_and_search_escape(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             labels = {item.GetItemLabelText(): item.GetItemLabel()
                       for index in range(frame.menuBar.GetMenuCount())
@@ -428,7 +419,7 @@ class TaskProgressTests(unittest.TestCase):
     def test_default_expansion_applies_to_new_tasks_not_manual_actions(self):
         values = dict(SysSetting.GetAll(), default_expand_tasks=True)
         with patch.object(SysSetting, 'GetAll', side_effect=lambda: dict(values)), patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
             try:
                 item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
                 self.assertTrue(frame.defaultExpandItem.IsChecked())
@@ -457,7 +448,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_search_debounces_input_and_button_searches_immediately(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             with patch.object(frame, '_SearchItems') as search, \
                  patch.object(frame._searchTimer, 'StartOnce') as start, \
@@ -481,7 +472,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_sequence_column_grows_for_long_child_indices_without_resize(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             initial = frame.mcTree.GetColumn(0).GetWidth()
             self.task.childs = [FileItem(fileName=f'task/{i}.ts') for i in range(1000)]
@@ -502,7 +493,7 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_columns_fit_available_width_when_resizing(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             layouts = {}
             for width in (780, 1024, 1400, 850, 1024):
@@ -543,7 +534,7 @@ class TaskProgressTests(unittest.TestCase):
                 changed.assert_not_called()
 
         with patch.object(MainFrame, 'Show', new=inspect_before_show):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             self.assertEqual(shown, [frame])
         finally:

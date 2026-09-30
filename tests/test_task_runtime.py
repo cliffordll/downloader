@@ -37,7 +37,6 @@ class TaskRuntimeTests(unittest.TestCase):
         values = dict(SysSetting.Defaults(), download_dir=str(self.root / 'files'), request_interval=0)
         for patcher in (patch.object(SysSetting, '_values', values),
                         patch.object(SysSetting, 'ConfigPath', return_value=self.root / 'settings.json'),
-                        patch('src.models.tree_model.TaskService', return_value=self.service),
                         patch.object(M3U8Downloader, '_jobs', {}),
                         patch.object(M3U8Downloader, '_changes', SimpleQueue()),
                         patch.object(M3U8Downloader, 'errors', SimpleQueue()),
@@ -61,7 +60,7 @@ class TaskRuntimeTests(unittest.TestCase):
 
     def frame(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, load_tree(self.service))
         self.addCleanup(self.app.ProcessPendingEvents)
         self.addCleanup(frame.Destroy)
         return frame
@@ -81,7 +80,7 @@ class TaskRuntimeTests(unittest.TestCase):
     def sync(self, frame):
         # 手动驱动后台调度阶段，再模拟 GUI 定时读取；UI 本身不再负责写状态。
         M3U8Downloader._SyncRuntime()
-        frame._SyncTaskRuntime()
+        frame._SyncDownloads()
 
     def deliver(self, frame, success, filename, context):
         task_id, _ = context
@@ -168,7 +167,8 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertEqual(output, task.save_dir / 'output.mp4')
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.MERGING)
         output.write_bytes(b'video')
-        frame._CreateMP4Call(True, str(output), task.id)
+        frame.runner._merge_finished(True, str(output), task.id)
+        frame._SyncDownloads()
         FFmpegConverter._outputs.clear()
         frame.OnRefresh(None)
         self.assertEqual(self.repository.get(task.id).save_dir, task.save_dir)
@@ -393,7 +393,7 @@ class TaskRuntimeTests(unittest.TestCase):
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
         SysSetting._values['auto_merge'] = True
-        with patch.object(frame, '_CreateMP4File') as merge:
+        with patch.object(frame.runner, 'merge') as merge:
             for cycle in range(2):
                 with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue):
                     frame.OnTaskAction(item, 'start')
@@ -451,13 +451,13 @@ class TaskRuntimeTests(unittest.TestCase):
         task = self.service.create_mp4(self.root / 'direct', 'https://example.com/video.mp4')
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch.object(frame, '_StartMP4') as start, patch.object(frame.mp4, 'busy', return_value=False):
+        with patch.object(frame.runner, 'start') as start, patch.object(frame.runner.mp4, 'busy', return_value=False):
             frame.OnTaskAction(item, 'start')
-            start.assert_called_once_with(task.id)
+            start.assert_called_once_with(task.id, retry=False)
         record = self.repository.mutate(task.id, lambda r: setattr(r, 'status', TaskStatus.DOWNLOADING))
         frame.model.ApplyTaskRecord(record)
         self.assertTrue(frame._GlobalDownloadActions()[0])
-        with patch.object(frame.mp4, 'pause') as pause, patch.object(frame.mp4, 'busy', return_value=True):
+        with patch.object(frame.runner.mp4, 'pause') as pause, patch.object(frame.runner.mp4, 'busy', return_value=True):
             frame.OnTaskAction(item, 'start')
             pause.assert_called_once_with(task.id)
             pause.reset_mock()
@@ -465,7 +465,7 @@ class TaskRuntimeTests(unittest.TestCase):
             pause.assert_called_once_with(task.id)
         record = self.repository.mutate(task.id, lambda r: setattr(r, 'status', TaskStatus.PAUSED))
         frame.model.ApplyTaskRecord(record)
-        with patch.object(frame, '_StartMP4') as start:
+        with patch.object(frame.runner, 'start') as start:
             frame.OnResumeAllDownloads(None)
             start.assert_called_once_with(task.id)
         self.assertFalse(frame.model.IsContainer(item))
@@ -528,11 +528,12 @@ class TaskRuntimeTests(unittest.TestCase):
                 temporary.write_bytes(b'video')
                 return SimpleNamespace(stdout=iter([]), wait=lambda: returncode)
 
-            with patch('subprocess.Popen', side_effect=launch), patch('wx.CallAfter') as deliver:
-                FFmpegConverter._ConvertTSFile('playlist.txt', str(output), Mock(), None)
+            callback = Mock()
+            with patch('subprocess.Popen', side_effect=launch):
+                FFmpegConverter._ConvertTSFile('playlist.txt', str(output), callback, None)
             self.assertEqual(output.exists(), returncode == 0)
             self.assertFalse(temporary.exists())
-            self.assertEqual(deliver.call_args.args[1], returncode == 0)
+            callback.assert_called_once_with(returncode == 0, str(output), None)
 
     def test_deliver_exposes_real_error_after_clearing_pending(self):
         task = self.create()

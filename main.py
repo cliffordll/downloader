@@ -3,7 +3,9 @@ import sqlite3
 import sys
 from src.views.main_frame import MainFrame
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
-from src.storage.task_repository import TaskDataError
+from src.storage.task_repository import TaskDataError, TaskRepository
+from src.core.task_service import TaskService
+from src.models.tree_model import load_tree
  
 if __name__ == "__main__":
     # https://m3u8player.org/
@@ -21,7 +23,11 @@ if __name__ == "__main__":
     app = wx.App()
     app.SetAppName('AVDownloader')
     try:
-        sample = MainFrame(None, "AVDownloader")
+        # 在创建窗口前初始化任务库并恢复任务；失败时沿用下方启动错误提示。
+        repository = TaskRepository()
+        tasks = TaskService(repository)
+        initial_tree = load_tree(tasks)
+        sample = MainFrame(None, "AVDownloader", tasks, initial_tree)
     except (OSError, ValueError, sqlite3.Error, TaskDataError) as error:
         # 任务库读取失败必须明确提示，不能显示空列表或退回扫描旧目录。
         wx.MessageBox(f"无法加载任务：{error}", "启动失败", wx.OK | wx.ICON_ERROR)

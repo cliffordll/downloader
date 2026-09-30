@@ -1,7 +1,5 @@
 import json
 import sqlite3
-from concurrent.futures import ThreadPoolExecutor
-from threading import Event
 from queue import Empty
 from pathlib import Path
 
@@ -12,12 +10,13 @@ from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD, load_t
 from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 from src.views.dialogs.ts_dialog import DownloadDialogTS
 from src.views.dialogs.mp4_dialog import DownloadDialogMP4
-from src.media.mp4.mp4_downloader import MP4Downloader
+from src.core.task_runner import TaskRunner
 
 
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
-from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.core.sys_setting import SysSetting
+from src.core.task_service import TaskService
+from src.models.file_base import TreeData
 from src.core.path_manager import PathManager
 from src.storage.task_repository import TaskDataError, TaskConflictError
 from src.schemas.task import TaskStatus, TaskType
@@ -27,9 +26,11 @@ from src.views.components.renderers import TaskProgressRenderer, TaskActionRende
 
 
 class MainFrame(wx.Frame):
-    def __init__(self, parent, title):
+    def __init__(self, parent, title, task_service: TaskService, initial_tree: TreeData):
         # super(MyFrame, self).__init__(parent, title=title)
         super().__init__(parent, title=title)
+        # 窗口、下载器和添加任务弹窗共享入口创建的服务，列表模型不持有业务服务。
+        self.tasks = task_service
         self.SetSize(width=1024, height=700)
         self.SetMinSize(self.FromDIP(wx.Size(780, 420)))
         
@@ -45,17 +46,12 @@ class MainFrame(wx.Frame):
         self._filterText = ''
         self._searchTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnSearchTimer, self._searchTimer)
-        self._createMainPanel()
+        self._createMainPanel(initial_tree)
         # 记住默认窗口宽度；放大时按默认列比例扩展，恢复窗口时还原布局。
         self._defaultTaskWidth = self.GetClientSize().width
         self._task_display = {}
-        self._storage_error = ''
         self._completion_notified = set()
-        self._duration_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='duration-probe')
-        self._duration_jobs = set()
-        self._duration_blocked = set()
-        self._duration_stop = Event()
-        self.mp4 = MP4Downloader(self.model.tasks.repository)
+        self.runner = TaskRunner(self.tasks)
         # 显示前完成布局、列宽和状态缓存，避免先画初始列宽再跳到适配后的宽度。
         self.Layout()
         self.mcTree.GetParent().Layout()
@@ -203,7 +199,7 @@ class MainFrame(wx.Frame):
         self.statusBar.SetStatusText('双击任务展开/折叠；下载请使用“操作”列', 1)
         self.showStatusItem.Check(self.statusBar.IsShown())
 
-    def _createMainPanel(self):
+    def _createMainPanel(self, initial_tree):
         """创建主面板和布局"""
         panel = wx.Panel(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -245,7 +241,7 @@ class MainFrame(wx.Frame):
         # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_READONLY|wx.TE_RICH2)
         listSizer = wx.BoxSizer(wx.HORIZONTAL)
         # 创建并关联模型
-        self.model = MultiColumnTreeModel(self)
+        self.model = MultiColumnTreeModel(initial_tree, self)
         # 创建DataViewCtrl
         self.mcTree = dv.DataViewCtrl(panel, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
         # Windows 下原生 RendererNative 不能通过 Python 重写其绘制回调。
@@ -404,25 +400,15 @@ class MainFrame(wx.Frame):
 
     def OnDestroy(self, event):
         if event.GetEventObject() is self:
-            self.mp4.shutdown()
-            M3U8Downloader.Shutdown()
-            self._duration_stop.set()
-            self._duration_pool.shutdown(wait=False, cancel_futures=True)
             self._progressTimer.Stop()
             self._searchTimer.Stop()
-            for task in self.model.fileTree.items:
-                if task.task_type == TaskType.M3U8 and task.task_id and task.task_status == TaskStatus.MERGING:
-                    try:
-                        self.model.tasks.interrupt(task.task_id)
-                    except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
-                        # 即使退出写库失败，下次启动也会恢复库中遗留的活动状态。
-                        print(f'保存退出状态失败：{error}')
+            self.runner.shutdown(task.task_id for task in self.model.fileTree.items
+                                 if task.task_id and task.task_status == TaskStatus.MERGING)
         event.Skip()
 
     def OnTaskProgress(self, event, notify=True):
         """启动只建立缓存；后续只刷新变化的单元格，不反复使整行和全部表头失效。"""
-        self._SyncMP4()
-        self._SyncTaskRuntime()
+        self._SyncDownloads()
         display = {}
         for index, task in enumerate(self.model.fileTree.items):
             self._QueueDurationCheck(task)
@@ -612,7 +598,7 @@ class MainFrame(wx.Frame):
     
     def OnAddMU(self, event):
         workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogMU(self, "M3U8 URI", workPath, task_service=self.model.tasks)
+        dlg = DownloadDialogMU(self, "M3U8 URI", workPath, task_service=self.tasks)
         result = dlg.ShowModal()
         if result == wx.OK:
             # 创建新任务成功，自动刷新页面
@@ -621,7 +607,7 @@ class MainFrame(wx.Frame):
 
     def OnAddTS(self, event):
         workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogTS(self, "M3U8 TS", workPath, task_service=self.model.tasks)
+        dlg = DownloadDialogTS(self, "M3U8 TS", workPath, task_service=self.tasks)
         result = dlg.ShowModal()
         if result == wx.OK:
             # 创建新任务成功，自动刷新页面
@@ -629,7 +615,7 @@ class MainFrame(wx.Frame):
         dlg.Destroy()
     
     def OnAddMP4(self, event):
-        dialog = DownloadDialogMP4(self, SysSetting.GetWorkPath(), self.model.tasks)
+        dialog = DownloadDialogMP4(self, SysSetting.GetWorkPath(), self.tasks)
         try:
             if dialog.ShowModal() == wx.OK:
                 self.OnRefresh(None)
@@ -639,19 +625,23 @@ class MainFrame(wx.Frame):
 
     def _StartMP4(self, task_id):
         try:
-            self.mp4.start(task_id)
+            self.runner.start(task_id)
         except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'无法启动 MP4 下载：{error}', '下载失败', parent=self)
-        self._SyncMP4()
+        self._SyncDownloads()
 
-    def _SyncMP4(self):
-        self._SyncDownloads(self.mp4)
-
-    def _SyncDownloads(self, downloader):
-        """两种下载器都先在后台保存，再通知 UUID；界面只读取最新记录并更新显示。"""
-        for task_id in downloader.changes():
+    def _SyncDownloads(self):
+        """只消费协调对象的通知；窗口负责展示结果，不调度线程或选择下载器。"""
+        while True:
             try:
-                record = self.model.tasks.repository.get(task_id)
+                task_id, error = self.runner.duration_results.get_nowait()
+            except Empty:
+                break
+            self._DurationChecked(task_id, None, error)
+        structure_changed = False
+        for task_id in self.runner.changes():
+            try:
+                record = self.tasks.repository.get(task_id)
                 if record is None:
                     continue  # 删除后的迟到通知不能重新添加任务。
                 previous = next((task for task in self.model.fileTree.items if task.task_id == task_id), None)
@@ -659,6 +649,7 @@ class MainFrame(wx.Frame):
                 if index is None:
                     continue
                 current = self.model.fileTree.items[index]
+                structure_changed = structure_changed or (previous is not None and len(previous.outputs) != len(current.outputs))
                 if record.type == TaskType.M3U8:
                     # 只刷新变化的分片，不因每次状态变化重绘整棵树。
                     for offset, child in enumerate(current.childs):
@@ -671,9 +662,12 @@ class MainFrame(wx.Frame):
                     self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
             except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
                 self.statusBar.SetStatusText(f'读取下载进度失败：{error}', 0)
+        if structure_changed:
+            # 合并完成会新增 MP4 子节点，保留展开状态后重建树，不能只重绘单元格。
+            self._RefreshWithState()
         while True:
             try:
-                error = downloader.errors.get_nowait()
+                error = self.runner.errors.get_nowait()
             except Empty:
                 break
             wx.MessageBox(error, '保存失败', parent=self)
@@ -710,7 +704,7 @@ class MainFrame(wx.Frame):
     def OnUpdatePauseDownloads(self, event):
         paused = M3U8Downloader.IsPaused()
         busy = M3U8Downloader.IsBusy() or any(task.task_type == TaskType.MP4 and
-            self.mp4.busy(task.task_id) for task in self.model.fileTree.items)
+            self.runner.mp4.busy(task.task_id) for task in self.model.fileTree.items)
         can_pause, can_resume = self._GlobalDownloadActions()
         event.Enable(can_pause or can_resume)
         self._UpdatePauseTool()
@@ -860,10 +854,10 @@ class MainFrame(wx.Frame):
         self._RecursiveExpand(root, False)
 
     def OnRefresh(self, event):
-        self._duration_blocked.clear()
+        self.runner.reset_duration_failures()
         # 只从数据库恢复任务；读取失败保留当前列表，不退回扫描目录。
         try:
-            tree = load_tree(self.model.tasks)
+            tree = load_tree(self.tasks)
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'读取任务失败：{error}', '刷新失败', wx.OK | wx.ICON_WARNING, parent=self)
             return
@@ -891,27 +885,7 @@ class MainFrame(wx.Frame):
         if len(objs) == 1:
             self.OnTaskAction(item, 'toggle')
 
-    # 任务操作和异步回调直接由主窗口处理，使用同一窗口的模型与控件。
-    def _PersistTask(self, operation, *args):
-        """保存成功才更新行内快照；写库失败暂停后续请求，并且只提示一次。"""
-        try:
-            record = operation(*args)
-            self._storage_error = ''
-            self.model.ApplyTaskRecord(record)
-            return record
-        except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
-            M3U8Downloader.Pause()
-            message = str(error)
-            if self._storage_error != message:
-                self._storage_error = message
-                wx.MessageBox(f'任务数据保存失败，已暂停后续下载：{error}', '保存失败',
-                              wx.OK | wx.ICON_ERROR, parent=self)
-            return None
-
-    def _SyncTaskRuntime(self):
-        """仅消费后台变化通知；排队、暂停和完成状态不再由界面定时器写入数据库。"""
-        self._SyncDownloads(M3U8Downloader)
-
+    # 窗口把点击位置转换为稳定的任务 UUID；执行规则由 TaskRunner 重新核对。
     def OnTaskAction(self, item, action_id='start'):
         """自定义操作分发入口，不是 wx 自动调用的重写方法。
 
@@ -956,57 +930,22 @@ class MainFrame(wx.Frame):
                 self.OnDeleteTask(task)
                 return
         if action_id in ('start', 'retry'):
-            if task.task_type == TaskType.MP4:
-                try:
-                    if self.mp4.busy(task.task_id):
-                        self.mp4.pause(task.task_id)
-                    else:
-                        self._StartMP4(task.task_id)
-                    self._SyncMP4()
-                except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-                    wx.MessageBox(str(error), '任务操作失败', parent=self)
-                self.model.ItemChanged(item)
-                return
-            if action_id == 'start' and info['pending']:
-                # 当前任务已有排队/处理中的分片：切换暂停状态，不重新提交下载。
-                # 只传入当前任务的 pending 文件键，不暂停其他任务。
-                if info['paused']:
-                    M3U8Downloader.ResumeFiles(info['pending'])
-                else:
-                    M3U8Downloader.PauseFiles(info['pending'])
-                self._SyncTaskRuntime()
-                self.model.ItemChanged(item)
-                return
-            # 无待处理队列时才创建下载请求。开始/继续下载所有缺失分片，
-            # 重试仅选择失败集合中的缺失分片，已经存在的分片一律跳过。
-            tasks = []
-            for segment_index, child in enumerate(task.childs):
-                key = M3U8Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
-                if child.fileSize == '-' and (action_id != 'retry' or key in info['failed']):
-                    child_item = self.model.ObjectToItem(self.model._BuildKey(
-                        (index, len(task.outputs) + segment_index)))
-                    # 子节点中 MP4 排在分片前面，因此界面节点索引需加 outputs 偏移；
-                    # 提交给下载逻辑的 segment_index 仍是播放列表中的分片索引。
-                    tasks.append((segment_index, child_item))
-            self._DownloadFiles(task.parent.fileName, tasks)
+            try:
+                if self.runner.activate(task.task_id, retry=action_id == 'retry'):
+                    self._completion_notified.discard(task.task_id)
+            except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
+                wx.MessageBox(str(error), '任务操作失败', parent=self)
+            self._SyncDownloads()
         # 通知 wx 重新读取本行数据，使操作文字、置灰状态和任务状态及时更新。
         self.model.ItemChanged(item)
 
     def OnDeleteTask(self, task):
         """本阶段只删除数据库记录；下载文件保留，不再递归删除任务目录。"""
-        def busy():
-            if task.task_type == TaskType.MP4:
-                return self.mp4.busy(task.task_id)
-            if task.task_type != TaskType.M3U8:
-                return task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING,
-                    TaskStatus.PAUSING, TaskStatus.RECORDING, TaskStatus.STOPPING)
-            keys = {M3U8Downloader.FileKey(child.fileName) for child in task.childs}
-            output = str(Path(task.parent.fileName).parent / 'output.mp4')
-            return bool(keys & M3U8Downloader.Snapshot()['pending']) or FFmpegConverter.IsConverting(output)
-
-        if busy():
-            wx.MessageBox('任务仍在下载、排队或合并中，暂时不能删除。', '无法删除',
-                          wx.OK | wx.ICON_WARNING, parent=self)
+        try:
+            if self.runner.busy(task.task_id):
+                raise ValueError('任务仍在下载、检测或合并中，暂时不能删除。')
+        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(str(error), '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
             return
         dialog = wx.MessageDialog(self, '', '删除任务', wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
         dialog.SetExtendedMessage('将从列表和数据库中删除此任务，已下载的文件会保留。')
@@ -1017,9 +956,7 @@ class MainFrame(wx.Frame):
         finally:
             dialog.Destroy()
         try:
-            if busy():
-                raise ValueError('任务状态已变化，请停止下载后再删除。')
-            self.model.tasks.repository.delete(task.task_id)
+            self.runner.delete(task.task_id)
             self.model.merge_failed.discard(task.parent.fileName)
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'删除未完成：{error}', '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
@@ -1041,27 +978,20 @@ class MainFrame(wx.Frame):
         return can_pause, can_resume
 
     def OnPauseAllDownloads(self, event):
-        for task in self.model.fileTree.items:
-            if task.task_type == TaskType.MP4:
-                self.mp4.pause(task.task_id)
-        self._SyncMP4()
-        if self._GlobalDownloadActions()[0]:
-            M3U8Downloader.Pause()
-        self._SyncTaskRuntime()
+        try:
+            self.runner.pause_all()
+        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(str(error), '暂停失败', parent=self)
+        self._SyncDownloads()
         self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
 
     def OnResumeAllDownloads(self, event):
-        if self._GlobalDownloadActions()[1]:
-            M3U8Downloader.Resume()  # 同时清除全局暂停和单个任务的暂停标记。
-            pending = M3U8Downloader.Snapshot()['pending']
-            for task in list(self.model.fileTree.items):
-                if task.task_type == TaskType.MP4 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED):
-                    self._StartMP4(task.task_id)
-                if task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) and not any(
-                        M3U8Downloader.FileKey(child.fileName) in pending for child in task.childs):
-                    self._DownloadFiles(task.parent.fileName,
-                                        [(index, None) for index, child in enumerate(task.childs) if child.fileSize == '-'])
-        self._SyncTaskRuntime()
+        try:
+            if self._GlobalDownloadActions()[1]:
+                self._completion_notified.difference_update(self.runner.resume_all())
+        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(str(error), '继续失败', parent=self)
+        self._SyncDownloads()
         self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
 
     def OnSegmentDownload(self, item):
@@ -1091,47 +1021,31 @@ class MainFrame(wx.Frame):
                 self._completion_notified.discard(task.task_id)
                 self._QueueDurationCheck(task)
                 return  # 实际时长入库后再重建清单，并执行自动合并。
-        # print("OnAllTSDownload", fileName)
-        self._CreateM3U8File(tsSeed=fileName)
-
-        if SysSetting.GetAll()['auto_merge']:
-            for index, task in enumerate(self.model.fileTree.items):
-                if task.parent.fileName == fileName and not task.outputs:
-                    item = self.model.ObjectToItem(self.model._BuildKey((index,)))
-                    self._CreateMP4File(fileName, item)
-                    break
-
+        task = next((task for task in self.model.fileTree.items if task.parent.fileName == fileName), None)
+        if task is None:
+            return
+        try:
+            self.runner.complete(task.task_id)
+        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(str(error), '任务处理失败', parent=self)
         # 方法2：记录上一次的展开折叠状态
         self._RefreshWithState()
 
     def _QueueDurationCheck(self, task):
-        """串行检测已下载分片；启动恢复和普通进度更新均可补做未完成的检测。"""
-        if (not task.duration_pending or not task.task_id or self._duration_stop.is_set()
-                or task.task_id in self._duration_jobs or task.task_id in self._duration_blocked):
-            return
-        self._duration_jobs.add(task.task_id)
-        future = self._duration_pool.submit(self.model.tasks.detect_durations, task.task_id, self._duration_stop)
-        def finished(result):
-            if result.cancelled() or self._duration_stop.is_set():
-                return
-            try:
-                record, error = result.result(), None
-            except Exception as exc:
-                record, error = None, str(exc)
-            wx.CallAfter(self._DurationChecked, task.task_id, record, error)
-        future.add_done_callback(finished)
+        """展示层只指出哪些行还需检测，去重、线程池及关闭处理由协调对象负责。"""
+        if task.duration_pending and task.task_id:
+            self.runner.queue_duration(task.task_id)
 
     def _DurationChecked(self, task_id, record, error):
-        if not self or self.IsBeingDeleted() or self._duration_stop.is_set():
+        if not self or self.IsBeingDeleted() or self.runner.closed.is_set():
             return
-        self._duration_jobs.discard(task_id)
         if error:
-            self._duration_blocked.add(task_id)
+            self.runner.block_duration(task_id)
             wx.MessageBox(f'时长检测结果保存失败：{error}\n请刷新后重试。', '检测失败', parent=self)
             return
         # 后台快照可能早于其他分片的下载回调，必须重新读取最新记录再更新列表。
         try:
-            record = self.model.tasks.repository.get(task_id)
+            record = self.tasks.repository.get(task_id)
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as exc:
             self._DurationChecked(task_id, None, str(exc))
             return
@@ -1149,7 +1063,8 @@ class MainFrame(wx.Frame):
         if failures:
             self.statusBar.SetStatusText(f'{task.parent.displayName}：{failures} 个分片时长检测失败，保留原时长。', 0)
         pending = M3U8Downloader.Snapshot()['pending']
-        if (task.childs and task.download == len(task.childs) and not task.outputs
+        if (task.task_status == TaskStatus.WAITING_MERGE
+                and task.childs and task.download == len(task.childs) and not task.outputs
                 and task_id not in self._completion_notified
                 and not any(M3U8Downloader.FileKey(child.fileName) in pending for child in task.childs)):
             self._completion_notified.add(task_id)
@@ -1162,7 +1077,8 @@ class MainFrame(wx.Frame):
             if task.task_id != task_id:
                 continue
             pending = M3U8Downloader.Snapshot()['pending']
-            if (task.childs and task.download == len(task.childs) and not task.outputs
+            if (task.task_status == TaskStatus.WAITING_MERGE
+                    and task.childs and task.download == len(task.childs) and not task.outputs
                     and task_id not in self._completion_notified
                     and not any(M3U8Downloader.FileKey(child.fileName) in pending for child in task.childs)):
                 if task.duration_pending:
@@ -1185,15 +1101,13 @@ class MainFrame(wx.Frame):
         if not children:
             return 0
         try:
-            count = M3U8Downloader.StartTask(self.model.tasks, task.task_id,
-                                           [child.sequence for child in children])
+            count = self.runner.start(task.task_id, sequences=[child.sequence for child in children])
             if count:
                 self._completion_notified.discard(task.task_id)
         except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
-            M3U8Downloader.Pause()
-            wx.MessageBox(f'无法启动分片下载，已暂停后续下载：{error}', '下载失败', parent=self)
+            wx.MessageBox(f'无法启动分片下载：{error}', '下载失败', parent=self)
             return 0
-        self._SyncTaskRuntime()
+        self._SyncDownloads()
         return count
 
     def _CreateM3U8File(self, tsSeed):
@@ -1203,48 +1117,19 @@ class MainFrame(wx.Frame):
         try:
             if task is None:
                 raise ValueError('任务不存在，请刷新后重试。')
-            self.model.tasks.write_playlist(task.task_id)
+            self.runner.write_playlist(task.task_id)
             return True
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'生成本地播放列表失败：{error}', '提示')
             return False
 
-    def _CreateMP4Call(self, flag: bool, fileName: str, task_id):
-        """合并结果按任务 UUID 入库，不以行号或可能重复的显示名称定位。"""
-        record = self._PersistTask(self.model.tasks.finish_merge, task_id, fileName, flag)
-        if record is None:
-            return
-        self._RefreshWithState()
-        if not flag:
-            wx.MessageBox('视频文件合并失败，错误状态已保存，可重新转 MP4。', '提示')
-
     def _CreateMP4File(self, tsSeed: str, item):
-        if not self._CreateM3U8File(tsSeed):
-            return
-        absSeed = PathManager.GetAbsPath(tsSeed)
-        absDir = PathManager.GetAbsDir(absSeed)
-
-        # # 2. 确保下载文件一定存在
-        playlist = PathManager.JoinPath(absDir, "playlist.txt")
-        outputFile = PathManager.JoinPath(absDir, "output.mp4")
-
-        # 文件已经存在，返回
-        if PathManager.IsExists(outputFile):
-            wx.MessageBox(f"视频文件已经存在。", "提示")
-            return
-
-        # 从本地 M3U8 生成 FFmpeg 合并清单。
-        if not FFmpegConverter.ConcatPlaylist(absSeed=absSeed, playDir=absDir, playlist=playlist):
-            wx.MessageBox("播放列表无效，无法生成合并清单。", "提示")
-            return
-
+        """菜单事件只定位任务并显示错误；清单准备、合并及结果落库由 TaskRunner 负责。"""
         task = next((task for task in self.model.fileTree.items if task.parent.fileName == tsSeed), None)
         if task is None:
             return
-        record = self._PersistTask(self.model.tasks.begin_merge, task.task_id)
-        if record is None:
-            return
         try:
-            FFmpegConverter.ConvertTSFile(playlist, outputFile, self._CreateMP4Call, task.task_id)
-        except Exception:
-            self._CreateMP4Call(False, outputFile, task.task_id)
+            self.runner.merge(task.task_id)
+        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(str(error), '合并失败', parent=self)
+        self._SyncDownloads()

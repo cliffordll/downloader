@@ -37,8 +37,7 @@ class TaskTypesUITests(unittest.TestCase):
             source_url='rtmp://example.com/live', details=RTMPDetails(target_path='video.flv'), **kwargs))
 
     def model(self):
-        with patch('src.models.tree_model.TaskService', return_value=self.service):
-            return MultiColumnTreeModel()
+        return MultiColumnTreeModel(load_tree(self.service))
 
     def test_mixed_list_has_children_only_for_m3u8(self):
         self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
@@ -133,11 +132,11 @@ class TaskTypesUITests(unittest.TestCase):
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=inspect_menu),
                                 _OpenLocalPath=opened, _CreateMP4File=Mock(), _DownloadFiles=Mock(),
-                                mp4=Mock(busy=Mock(return_value=False)), _StartMP4=Mock(), _SyncMP4=Mock())
+                                runner=Mock(), _completion_notified=set(), _SyncDownloads=Mock())
         MainFrame.OnTaskMenu(frame, item)
         opened.assert_called_once_with(task.save_dir)
         for action in ('merge', 'start', 'retry', 'toggle'):
             MainFrame.OnTaskAction(frame, item, action)
         frame._CreateMP4File.assert_not_called()
         frame._DownloadFiles.assert_not_called()
-        frame._StartMP4.assert_called_once_with(task.id)
+        frame.runner.activate.assert_called_once_with(task.id, retry=False)

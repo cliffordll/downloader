@@ -8,9 +8,9 @@ from src.views.dialogs.panels.path_picker import DownloadPath
 
 class DownloadDialogMP4(wx.Dialog):
     """MP4 直链只需网址和任务目录，不显示分片编辑器。"""
-    def __init__(self, parent, work_path, task_service=None):
+    def __init__(self, parent, work_path, task_service: TaskService):
         super().__init__(parent, title='下载 MP4')
-        self.tasks = task_service or TaskService()
+        self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
         self.task_id = None
         layout = wx.BoxSizer(wx.VERTICAL)
         margin = self.FromDIP(10)

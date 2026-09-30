@@ -41,8 +41,7 @@ class TaskServiceTests(unittest.TestCase):
                         patch.object(M3U8Downloader, '_jobs', {}),
                         patch.object(M3U8Downloader, '_changes', SimpleQueue()),
                         patch.object(M3U8Downloader, 'errors', SimpleQueue()),
-                        patch.object(SysSetting, '_values', config),
-                        patch('src.models.tree_model.TaskService', return_value=self.service)):
+                        patch.object(SysSetting, '_values', config),):
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -67,7 +66,7 @@ class TaskServiceTests(unittest.TestCase):
 
     def frame(self):
         with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test')
+            frame = MainFrame(None, 'test', self.service, load_tree(self.service))
         self.addCleanup(self.app.ProcessPendingEvents)
         self.addCleanup(frame.Destroy)
         return frame
@@ -196,7 +195,7 @@ class TaskServiceTests(unittest.TestCase):
         (self.directory / 'download.m3u8').unlink()
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch('src.views.main_frame.FFmpegConverter.ConvertTSFile') as convert:
+        with patch('src.core.task_runner.FFmpegConverter.ConvertTSFile') as convert:
             frame.OnTaskAction(item, 'merge')
         self.assertEqual(Path(convert.call_args.args[1]), self.directory / 'output.mp4')
         manifest = Path(convert.call_args.args[0]).read_text()
@@ -232,8 +231,8 @@ class TaskServiceTests(unittest.TestCase):
             path.write_bytes(b'data')
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-        with patch('src.views.main_frame.FFmpegConverter.ConcatPlaylist', return_value=False), \
-             patch('src.views.main_frame.FFmpegConverter.ConvertTSFile') as convert, \
+        with patch('src.core.task_runner.FFmpegConverter.ConcatPlaylist', return_value=False), \
+             patch('src.core.task_runner.FFmpegConverter.ConvertTSFile') as convert, \
              patch('wx.MessageBox') as message:
             frame.OnTaskAction(item, 'merge')
         convert.assert_not_called()

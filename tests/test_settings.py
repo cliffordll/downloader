@@ -402,20 +402,15 @@ class DownloadSettingsTests(unittest.TestCase):
                 M3U8Downloader._master.join(4)
             self.assertTrue(third.is_set())
 
-    def test_auto_merge_runs_only_when_enabled(self):
+    def test_completion_event_delegates_task_identity_to_runner(self):
         from src.views.main_frame import MainFrame
         event = Mock()
         event.GetData.return_value = {'fileName': 'download.m3u8'}
-        task = SimpleNamespace(parent=SimpleNamespace(fileName='download.m3u8'), outputs=[])
+        task = SimpleNamespace(task_id='task-id', parent=SimpleNamespace(fileName='download.m3u8'), outputs=[])
         model = Mock(fileTree=SimpleNamespace(items=[task]))
-        frame = SimpleNamespace(model=model, _CreateM3U8File=Mock(), _CreateMP4File=Mock(),
-                                _RefreshWithState=Mock())
-        self.values['auto_merge'] = False
+        frame = SimpleNamespace(model=model, runner=Mock(), _RefreshWithState=Mock())
         MainFrame.OnAllTSDownload(frame, event)
-        frame._CreateMP4File.assert_not_called()
-        self.values['auto_merge'] = True
-        MainFrame.OnAllTSDownload(frame, event)
-        frame._CreateMP4File.assert_called_once()
+        frame.runner.complete.assert_called_once_with('task-id')
 
     def test_custom_ffmpeg_path_and_completion_callback(self):
         process = Mock(stdout=iter([]))
@@ -426,9 +421,9 @@ class DownloadSettingsTests(unittest.TestCase):
             callback = Mock()
             FFmpegConverter._ConvertTSFile('playlist.txt', 'out.mp4', callback)
         self.assertEqual(popen.call_args.args[0][0], 'custom-ffmpeg')
-        self.assertEqual(deliver.call_args.args[1:3], (True, 'out.mp4'))
+        deliver.assert_not_called()
         replace.assert_called_once_with('out.mp4.part.mp4', 'out.mp4')
-        callback.assert_not_called()  # queued for the UI thread
+        callback.assert_called_once_with(True, 'out.mp4', None)  # 后台直接落库
 
 
 if __name__ == '__main__':

@@ -13,16 +13,11 @@ from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceT
 
 
 class TaskService:
-    def __init__(self, repository=None):
-        self._repository = repository
+    def __init__(self, repository: TaskRepository):
+        # 仓库由启动入口创建；服务和界面不再隐式打开默认数据库。
+        # 仓库每次操作自行管理连接，共享的是仓库对象，不是跨线程的 SQLite 连接。
+        self.repository = repository
         self._recovered = False
-
-    @property
-    def repository(self):
-        # 延迟打开数据库，便于界面测试注入仓库，也避免导入模块就写用户目录。
-        if self._repository is None:
-            self._repository = TaskRepository()
-        return self._repository
 
     def create_mp4(self, save_dir, source_url):
         """直链任务使用独立目录和临时文件；建任务不请求网络。"""
