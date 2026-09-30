@@ -6,6 +6,8 @@ import shutil
 import tempfile
 import threading
 
+from src.managers.app_paths import data_dir
+
 
 class SysSetting:
     _lock = threading.RLock()
@@ -14,8 +16,7 @@ class SysSetting:
 
     @classmethod
     def ConfigPath(cls):
-        base = Path(os.environ.get('APPDATA', Path.home() / '.config'))
-        return base / 'M3U8Downloader' / 'settings.json'
+        return data_dir() / 'settings.json'
 
     @classmethod
     def Defaults(cls):
