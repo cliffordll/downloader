@@ -5,6 +5,7 @@ import re
 
 from src.views.dialogs.panels.path_picker import DownloadHelpDialog
 from src.core.parsers.m3u8_parser import M3U8Parser
+from src.views.components.playlist_editor import PlaylistEditor
 
 class DownloadEditTS(wx.Panel):
     def __init__(self, parent):
@@ -81,7 +82,8 @@ class DownloadEditTS(wx.Panel):
 
         # m3u8 file
         listSizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_RICH2)
+        # 与 M3U8 窗口共用带行号的编辑器，行号不混入生成或复制的正文。
+        self.tsList = PlaylistEditor(self)
         listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
 
         sizer.Add(uriSizer, border=0)

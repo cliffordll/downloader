@@ -74,3 +74,21 @@ class PlaylistFetchTests(unittest.TestCase):
             self.panel._OnFetched(address, True, 'late result')
             message.assert_not_called()
             post.assert_not_called()
+
+    def test_line_numbers_resize_without_entering_selected_text(self):
+        editor = self.panel.tsList
+        content = '#EXTM3U\n#EXTINF:4,\n片段.ts'
+        editor.SetValue(content)
+        self.app.ProcessPendingEvents()
+        self.assertEqual(editor.GetLineCount(), 3)
+        editor.SelectAll()
+        self.assertEqual(editor.GetSelectedText(), content)
+        self.assertFalse(editor.GetReadOnly())
+        editor.ReplaceSelection('edited')
+        self.assertEqual(editor.GetValue(), 'edited')
+        self.app.ProcessPendingEvents()
+        initial_width = editor.GetMarginWidth(0)
+        editor.SetValue('\n'.join('segment.ts' for _ in range(1000)))
+        self.app.ProcessPendingEvents()
+        self.assertEqual(editor.GetLineCount(), 1000)
+        self.assertGreater(editor.GetMarginWidth(0), initial_width)

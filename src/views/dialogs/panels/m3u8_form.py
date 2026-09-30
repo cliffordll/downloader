@@ -6,6 +6,7 @@ from urllib.parse import urljoin, urlsplit
 from src.views.dialogs.panels.path_picker import DownloadHelpDialog
 from src.core.parsers.m3u8_parser import M3U8Parser
 from src.core.downloader import Downloader
+from src.views.components.playlist_editor import PlaylistEditor
 
 class DownloadEditMU(wx.Panel):
     def __init__(self, parent):
@@ -60,7 +61,8 @@ class DownloadEditMU(wx.Panel):
         btnSizer.Add(btnM3U8, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=5)
 
         listSizer = wx.BoxSizer(wx.VERTICAL)
-        self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_RICH2)
+        # 独立行号栏随正文滚动，保留文本编辑、选中高亮和复制功能。
+        self.tsList = PlaylistEditor(self)
         listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
 
         sizer.Add(uriSizer, border=0)
