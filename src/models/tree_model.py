@@ -109,7 +109,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         }
 
     def TaskActions(self, index):
-        """自定义方法：按固定位置返回四项操作的 id、显示文字和可用状态。
+        """自定义方法：按固定位置返回五项操作的 id、显示文字和可用状态。
 
         GetValue 将这些数据序列化后交给 TaskActionRenderer；渲染器根据 enabled
         置灰，根据 id 分发点击，不通过中文显示文字判断要执行什么操作。
@@ -121,11 +121,16 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         # 第一项在排队/下载期间可暂停；暂停后恢复当前任务，不重新提交分片。
         running = bool(info['pending']) and not info['merging']
         label = ('继续' if info['paused'] else '暂停') if running else ('继续' if info['done'] else '开始')
+        # 展开状态以列表控件为准，避免行首箭头或全部展开后文字不同步。
+        tree = getattr(self.parent, 'mcTree', None)
+        item = self.ObjectToItem(self._BuildKey((index,)))
+        expanded = tree.IsExpanded(item) if tree is not None else False
         return [
             dict(id='start', label=label,
                  enabled=bool(running or (downloadable and info['done'] < info['total']))),
             dict(id='retry', label='重试', enabled=bool(downloadable and info['failed'])),
             dict(id='delete', label='删除', enabled=idle),
+            dict(id='toggle', label='折叠' if expanded else '展开', enabled=bool(task.childs or task.outputs)),
             dict(id='more', label='更多', enabled=True),
         ]
 

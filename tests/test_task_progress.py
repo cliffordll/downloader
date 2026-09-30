@@ -118,7 +118,7 @@ class TaskProgressTests(unittest.TestCase):
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
             self.assertEqual(frame.model.GetValue(item, 5), '50% · 1/2')
             renderer = frame.mcTree.GetColumn(6).GetRenderer()
-            size = frame.FromDIP(wx.Size(192, 24))
+            size = frame.FromDIP(wx.Size(200, 24))
             cell = wx.Rect(0, 0, size.width, size.height)
 
             def click(index):
@@ -128,8 +128,8 @@ class TaskProgressTests(unittest.TestCase):
                 return renderer.ActivateCell(cell, frame.model, item, 4, mouse)
 
             actions = frame.model.TaskActions(0)
-            self.assertEqual([a['label'] for a in actions], ['继续', '重试', '删除', '更多'])
-            self.assertEqual([a['enabled'] for a in actions], [True, False, True, True])
+            self.assertEqual([a['label'] for a in actions], ['继续', '重试', '删除', '折叠', '更多'])
+            self.assertEqual([a['enabled'] for a in actions], [True, False, True, True, True])
             self.assertFalse(click(1))
             Downloader._failed.add(self.key)
             with patch.object(frame, '_DownloadFiles', return_value=1) as download:
@@ -139,8 +139,17 @@ class TaskProgressTests(unittest.TestCase):
                 self.assertTrue(click(2))
                 delete.assert_called_once_with(self.task)
             with patch.object(frame, 'OnTaskMenu') as menu:
-                self.assertTrue(click(3))
+                self.assertTrue(click(4))
                 menu.assert_called_once_with(item)
+            # 同一点击区域切换展开状态，箭头操作后也重新读取正确文字。
+            self.assertTrue(click(3))
+            self.assertFalse(frame.mcTree.IsExpanded(item))
+            self.assertEqual(frame.model.TaskActions(0)[3]['label'], '展开')
+            self.assertTrue(click(3))
+            self.assertTrue(frame.mcTree.IsExpanded(item))
+            self.assertEqual(frame.model.TaskActions(0)[3]['label'], '折叠')
+            frame.mcTree.Collapse(item)
+            self.assertEqual(frame.model.TaskActions(0)[3]['label'], '展开')
             bitmap = wx.Bitmap(size.width, size.height)
             dc = wx.MemoryDC(bitmap)
             renderer.SetValue(frame.model.GetValue(item, 4))
@@ -148,7 +157,7 @@ class TaskProgressTests(unittest.TestCase):
             dc.SelectObject(wx.NullBitmap)
             Downloader._pending.add(self.key)
             Downloader.Pause()
-            self.assertEqual([a['enabled'] for a in frame.model.TaskActions(0)], [True, False, False, True])
+            self.assertEqual([a['enabled'] for a in frame.model.TaskActions(0)], [True, False, False, True, True])
             for index in (1, 2):
                 self.assertFalse(click(index))
             Downloader._pending.clear()
@@ -174,14 +183,17 @@ class TaskProgressTests(unittest.TestCase):
             def inspect_menu(menu):
                 entries = {entry.GetItemLabelText(): entry for entry in menu.GetMenuItems()
                            if not entry.IsSeparator()}
-                self.assertEqual(set(entries), {'打开文件夹', '转 MP4', '播放视频（尚未生成）'})
+                self.assertEqual(set(entries), {'打开文件夹', '转 MP4', '播放视频'})
                 self.assertTrue(entries['打开文件夹'].IsEnabled())
-                self.assertFalse(entries['播放视频（尚未生成）'].IsEnabled())
+                self.assertFalse(entries['播放视频'].IsEnabled())
                 self.assertFalse(entries['转 MP4'].IsEnabled())
+
 
             Downloader._pending.add(self.key)
             with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect_menu):
                 frame.OnTaskMenu(item)
+                child = frame.model.ObjectToItem(frame.model._BuildKey((0, 0)))
+                frame.OnTaskMenu(child)
             with patch('src.views.main_frame.FileManager.TaskDeletionDirectory', return_value='task'), \
                  patch('src.views.main_frame.FileManager.DeleteTaskDirectory') as delete, \
                  patch('src.views.main_frame.wx.MessageDialog') as dialog:
@@ -204,7 +216,7 @@ class TaskProgressTests(unittest.TestCase):
                 frame._FitTaskColumns()
                 columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(7)]
                 self.assertLessEqual(sum(columns), frame.mcTree.GetClientSize().width)
-                self.assertGreaterEqual(columns[6], frame.FromDIP(160))
+                self.assertGreaterEqual(columns[6], frame.FromDIP(200))
                 self.assertGreater(columns[1], 0)
                 if width in layouts:
                     self.assertEqual(columns, layouts[width])

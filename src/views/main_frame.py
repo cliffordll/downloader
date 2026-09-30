@@ -113,7 +113,7 @@ class TaskProgressRenderer(dv.DataViewCustomRenderer):
 class TaskActionRenderer(dv.DataViewCustomRenderer):
     """绘制“操作”列，并把单元格点击转换成具体任务操作。
 
-    这里没有创建四个按钮，而是将同一个单元格分成四个可点击区域。
+    这里没有创建五个按钮，而是将同一个单元格分成五个可点击区域。
     模型 GetValue → SetValue 接收数据 → Render 绘制文字；
     用户点击 → ActivateCell 判断区域 → 主窗口 OnTaskAction 执行业务操作。
     """
@@ -148,11 +148,11 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         FromDIP 按屏幕缩放比例换算尺寸；实际绘制区域以 Render 的 cell 参数为准。
         """
         column = self.GetOwner()
-        width = column.GetWidth() if column is not None else self.frame.FromDIP(160)
+        width = column.GetWidth() if column is not None else self.frame.FromDIP(200)
         return wx.Size(max(1, width - self.frame.FromDIP(8)), self.frame.FromDIP(24))
 
     def _ActionRects(self, cell):
-        """左右留白后等分为：开始/暂停/继续、重试、删除、更多。
+        """左右留白后等分为：开始/暂停/继续、重试、删除、展开/折叠、更多。
 
         这是本类自定义的辅助方法，不是 wx 的重写回调，由 Render/ActivateCell 调用。
         绘制与点击判断共用此方法，确保显示位置和点击区域始终对应。
@@ -160,9 +160,9 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         """
         rect = wx.Rect(cell)
         rect.Deflate(self.frame.FromDIP(4), 0)
-        return [wx.Rect(rect.x + rect.width * i // 4, rect.y,
-                        rect.width * (i + 1) // 4 - rect.width * i // 4, rect.height)
-                for i in range(4)]
+        return [wx.Rect(rect.x + rect.width * i // 5, rect.y,
+                        rect.width * (i + 1) // 5 - rect.width * i // 5, rect.height)
+                for i in range(5)]
 
     def Render(self, cell, dc, state):
         """重写父类方法：wx 重绘单元格时自动调用，不需要手动绑定绘制事件。
@@ -178,7 +178,7 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         # 选中行使用浅蓝背景，操作仍用链接色，避免白字在浅底上看不清。
         colour = wx.SYS_COLOUR_HOTLIGHT
         if self.label.startswith('['):
-            # 固定绘制四项；不可用时只改成灰色，不删除该区域，防止布局跳动。
+            # 固定绘制五项；不可用时只改成灰色，不删除该区域，防止布局跳动。
             for action, rect in zip(json.loads(self.label), self._ActionRects(cell)):
                 dc.SetTextForeground(wx.SystemSettings.GetColour(
                     colour if action['enabled'] else wx.SYS_COLOUR_GRAYTEXT))
@@ -201,11 +201,11 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         if not value:
             return False
         if model.IsContainer(item):
-            # 父节点是视频任务，拥有四个操作；子节点走下方的分片处理分支。
+            # 父节点是视频任务，拥有五个操作；子节点走下方的分片处理分支。
             actions = json.loads(value)
             if mouseEvent is None:
                 # 键盘激活没有鼠标坐标：优先开始/继续，否则打开更多，绝不默认删除。
-                action = actions[0] if actions[0]['enabled'] else actions[3]
+                action = actions[0] if actions[0]['enabled'] else actions[-1]
             else:
                 # wx 提供的鼠标坐标相对于当前单元格左上角，因此区域也从 (0, 0) 算起。
                 point = mouseEvent.GetPosition()
@@ -401,7 +401,7 @@ class MainFrame(wx.Frame):
         self.mcTree.AppendTextColumn("文件大小", 2, width=90, align=wx.ALIGN_RIGHT)
         self.mcTree.AppendTextColumn("修改时间", 3, width=130)
         self.mcTree.AppendColumn(dv.DataViewColumn("操作", TaskActionRenderer(self), 4,
-                                                 width=self.FromDIP(160), align=wx.ALIGN_CENTER))
+                                                 width=self.FromDIP(200), align=wx.ALIGN_CENTER))
         for index in range(self.mcTree.GetColumnCount()):
             column = self.mcTree.GetColumn(index)
             column.GetRenderer().EnableEllipsize(wx.ELLIPSIZE_END)
@@ -409,6 +409,8 @@ class MainFrame(wx.Frame):
         self.mcTree.Bind(wx.EVT_SIZE, self.OnTaskListSize)
         # self.mcTree.AppendTextColumn("下载地址", 5)
         # self.model.DecRef()  # 避免内存泄漏
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_EXPANDED, self.OnTaskExpansionChanged)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_COLLAPSED, self.OnTaskExpansionChanged)
         self.OnExpandAll(None)
         listSizer.Add(self.mcTree, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
         # listSizer.Add(self.mulist, proportion=10, flag=wx.EXPAND|wx.ALL, border=5)
@@ -481,7 +483,7 @@ class MainFrame(wx.Frame):
         self._columnSizeKey = size_key
         # 按界面显示顺序：序列、文件名、下载进度、状态、文件大小、修改时间、操作。
         # 数字是 DIP，由 FromDIP 按系统缩放换算；文件名的 0 是占位，下面补入剩余宽度。
-        widths = [self.FromDIP(value) for value in (50, 0, 180, 80, 85, 125, 160)]
+        widths = [self.FromDIP(value) for value in (50, 0, 180, 80, 85, 125, 200)]
         # 默认窗口的可用宽度是比例分配的基准，不随最大化/还原反复改变。
         baseline = (self._defaultTaskWidth
                     - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
@@ -536,7 +538,7 @@ class MainFrame(wx.Frame):
 
         行内渲染器识别点击区域后传入 item 和操作 id；“转 MP4”菜单传入 merge。
         item 指明具体任务行，不依赖当前选中行；默认 start 也供任务行双击使用。
-        start 表示开始/暂停/继续，retry 重试失败，delete 删除，more 打开菜单。
+        start 表示开始/暂停/继续，retry 重试失败，delete 删除，toggle 展开/折叠，more 打开菜单。
         """
         if not item.IsOk():
             return
@@ -558,6 +560,12 @@ class MainFrame(wx.Frame):
             # 再检查 enabled，防止过期的界面状态触发已不可用的操作。
             action = next((entry for entry in self.model.TaskActions(index) if entry['id'] == action_id), None)
             if action is None or not action['enabled']:
+                return
+            if action_id == 'toggle':
+                if self.mcTree.IsExpanded(item):
+                    self.mcTree.Collapse(item)
+                else:
+                    self.mcTree.Expand(item)
                 return
             if action_id == 'more':
                 self.OnTaskMenu(item)
@@ -590,6 +598,11 @@ class MainFrame(wx.Frame):
             self._DownloadFiles(task.parent.fileName, tasks)
         # 通知 wx 重新读取本行数据，使操作文字、置灰状态和任务状态及时更新。
         self.model.ItemChanged(item)
+
+    def OnTaskExpansionChanged(self, event):
+        # 行首箭头、行内操作和全部展开/折叠共用通知，及时更新操作文字。
+        self.model.ItemChanged(event.GetItem())
+        event.Skip()
 
     def OnTaskContextMenu(self, event):
         self.OnTaskMenu(event.GetItem())
@@ -626,7 +639,7 @@ class MainFrame(wx.Frame):
                 path = PathManager.GetAbsPath(output.fileName)
                 add('播放视频：' + Path(path).name, lambda path=path: self._OpenLocalPath(path))
         else:
-            add('播放视频（尚未生成）', lambda: None, False)
+            add('播放视频', lambda: None, False)
         try:
             self.mcTree.PopupMenu(menu)
         finally:
@@ -815,7 +828,7 @@ class MainFrame(wx.Frame):
             '1. 添加任务\n'
             '通过“文件 → 下载M3U8”输入播放列表网址，或通过“下载TS”按分片命名规则创建任务。\n\n'
             '2. 下载与合并\n'
-            '任务行固定显示“开始/暂停/继续、重试、删除、更多”，不可用的操作会置灰。'
+            '任务行固定显示“开始/暂停/继续、重试、删除、展开/折叠、更多”，不可用的操作会置灰。'
             '“更多”或右键菜单提供转 MP4、播放视频和打开文件夹。删除会确认是否删除任务及本地文件。'
             '行内“暂停/继续”只控制当前任务，已发出的请求允许完成。进度按已完成分片数计算。\n'
             '双击列表中的任务行下载全部分片，也可双击未下载的分片行单独下载。'
