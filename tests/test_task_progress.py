@@ -173,13 +173,19 @@ class TaskProgressTests(unittest.TestCase):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test')
         try:
-            for width in (780, 1024, 1400, 850):
+            layouts = {}
+            for width in (780, 1024, 1400, 850, 1024):
                 frame.mcTree.SetSize(frame.FromDIP(wx.Size(width, 400)))
                 frame._FitTaskColumns()
                 columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(7)]
                 self.assertLessEqual(sum(columns), frame.mcTree.GetClientSize().width)
-                self.assertEqual(columns[6], frame.FromDIP(160))
+                self.assertGreaterEqual(columns[6], frame.FromDIP(160))
                 self.assertGreater(columns[1], 0)
+                if width in layouts:
+                    self.assertEqual(columns, layouts[width])
+                layouts[width] = columns
+            for normal, expanded in zip(layouts[1024], layouts[1400]):
+                self.assertGreater(expanded, normal)
             with patch.object(frame.mcTree, 'GetColumn') as get_column:
                 frame._FitTaskColumns()
                 frame._FitTaskColumns()

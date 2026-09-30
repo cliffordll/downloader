@@ -147,7 +147,9 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
 
         FromDIP 按屏幕缩放比例换算尺寸；实际绘制区域以 Render 的 cell 参数为准。
         """
-        return self.frame.FromDIP(wx.Size(152, 24))
+        column = self.GetOwner()
+        width = column.GetWidth() if column is not None else self.frame.FromDIP(160)
+        return wx.Size(max(1, width - self.frame.FromDIP(8)), self.frame.FromDIP(24))
 
     def _ActionRects(self, cell):
         """左右留白后等分为：开始/继续、重试、删除、更多。
@@ -241,6 +243,8 @@ class MainFrame(wx.Frame):
         self._createStatusBar()
 
         self._createMainPanel()
+        # 记住默认窗口宽度；放大时按默认列比例扩展，恢复窗口时还原布局。
+        self._defaultTaskWidth = self.GetClientSize().width
         self._task_display = {}
         self._progressTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnTaskProgress, self._progressTimer)
@@ -425,32 +429,64 @@ class MainFrame(wx.Frame):
             wx.CallAfter(self._FitTaskColumns)
 
     def _FitTaskColumns(self):
+        """自定义列宽适配方法，不是 wx 的重写回调。
+
+        初始化和窗口尺寸变化后通过 wx.CallAfter 调用，等待布局更新后再取宽度。
+        默认窗口维持现有布局；放大时各列按默认比例扩展；缩小时优先压缩文件名列。
+        所有列的总宽度控制在可用区域内，避免出现横向滚动条。
+        """
+        # 本次延迟调整开始执行，允许后续尺寸变化再次安排调整。
         self._columnFitPending = False
+        # CallAfter 执行时窗口可能已经关闭，此时不能再访问原生控件。
         if not self or not self.mcTree:
             return
+        # 宽度及 DPI 缩放未变化就直接返回，避免重复设置列宽导致表头闪烁。
         size_key = (self.mcTree.GetSize().width, self.FromDIP(100))
         if getattr(self, '_columnSizeKey', None) == size_key:
             return
-        # Reserve space for the vertical scrollbar, including when it appears later.
+        # 预留垂直滚动条和边框空间，避免滚动条出现后把最后一列挤出可视区域。
+        # 使用控件整体宽度，避免滚动条改变客户区宽度后触发列宽来回调整。
         available = (self.mcTree.GetSize().width
                      - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
                      - self.FromDIP(4))
         if available <= 0:
             return
         self._columnSizeKey = size_key
+        # 按界面显示顺序：序列、文件名、下载进度、状态、文件大小、修改时间、操作。
+        # 数字是 DIP，由 FromDIP 按系统缩放换算；文件名的 0 是占位，下面补入剩余宽度。
         widths = [self.FromDIP(value) for value in (50, 0, 180, 80, 85, 125, 160)]
-        widths[1] = max(1, available - sum(widths))
+        # 默认窗口的可用宽度是比例分配的基准，不随最大化/还原反复改变。
+        baseline = (self._defaultTaskWidth
+                    - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
+                    - self.FromDIP(4))
+        # 不超过默认宽度时，其他列保持基准值，剩余空间交给文件名列。
+        widths[1] = max(1, min(available, baseline) - sum(widths))
+        if available > baseline > 0:
+            # 以默认布局为基准按比例分配，不把额外空间全部留给文件名。
+            # 相邻边界取差，避免整数取整后列宽之和超出窗口。
+            total = sum(widths)
+            edge = 0
+            scaled = []
+            for width in widths:
+                # 每列的新宽度 = 缩放后的右边界 - 缩放后的左边界。
+                scaled.append((edge + width) * available // total - edge * available // total)
+                edge += width
+            widths = scaled
         if sum(widths) > available:
-            # Also handle transient small sizes during window creation.
+            # 初始化可能短暂出现很小的控件尺寸，空间不足时将所有列一起压缩。
             total = sum(widths)
             widths = [max(1, value * available // total) for value in widths]
-        self.mcTree.Freeze()
+        # 批量调整时暂停重绘，完成后统一恢复，避免逐列调整产生闪烁。
+        self.mcTree.Freeze()  # wx 方法：暂停该控件的屏幕重绘，期间仍可修改列宽。
         try:
             for index, width in enumerate(widths):
                 column = self.mcTree.GetColumn(index)
+                # 只写入真正变化的列宽，减少原生控件的布局和重绘开销。
                 if column.GetWidth() != width:
                     column.SetWidth(width)
         finally:
+            # wx 方法：恢复重绘，让批量修改后的列宽显示出来。
+            # 与 Freeze 配对；放在 finally 中，确保调整过程出错时也能恢复界面刷新。
             self.mcTree.Thaw()
 
     def OnDestroy(self, event):
