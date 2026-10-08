@@ -115,9 +115,8 @@ class TaskProgressTests(unittest.TestCase):
 
             def click(index):
                 rect = renderer._ActionRects(cell)[index]
-                mouse = SimpleNamespace(GetPosition=lambda: wx.Point(rect.x + rect.width // 2,
-                                                                     rect.y + rect.height // 2))
-                return renderer.ActivateCell(cell, frame.model, item, 4, mouse)
+                point = wx.Point(rect.x + rect.width // 2, rect.y + rect.height // 2)
+                return renderer.ActivateAt(cell, frame.model, item, 4, point)
 
             actions = frame.model.TaskActions(0)
             self.assertFalse(frame.mcTree.IsExpanded(item))
@@ -130,9 +129,11 @@ class TaskProgressTests(unittest.TestCase):
                 download.assert_called_once_with(self.task.task_id, retry=True)
             with patch.object(frame, 'OnDeleteTask') as delete:
                 self.assertTrue(click(2))
+                self.app.ProcessPendingEvents()
                 delete.assert_called_once_with(self.task)
             with patch.object(frame, 'OnTaskMenu') as menu:
                 self.assertTrue(click(4))
+                self.app.ProcessPendingEvents()
                 menu.assert_called_once_with(item)
             # 同一点击区域切换展开状态，箭头操作后也重新读取正确文字。
             self.assertTrue(click(3))
@@ -160,6 +161,7 @@ class TaskProgressTests(unittest.TestCase):
                 merge.assert_called_once_with(self.task.parent.fileName, item)
             with patch.object(frame, 'OnTaskMenu') as menu, patch.object(frame, 'OnDeleteTask') as delete:
                 renderer.ActivateCell(cell, frame.model, item, 4, None)
+                self.app.ProcessPendingEvents()
                 menu.assert_called_once_with(item)
                 delete.assert_not_called()
         finally:
@@ -218,6 +220,7 @@ class TaskProgressTests(unittest.TestCase):
             self.assertEqual(frame.model.ItemToObject(roots[0]), '1')
             with patch.object(frame, 'OnDeleteTask') as delete:
                 frame.OnTaskAction(roots[0], 'delete')
+                self.app.ProcessPendingEvents()
                 delete.assert_called_once_with(self.task)
             # 筛选隐藏的任务下载完成时，仍更新原始数据，不丢失任务。
             updated = FileItem(fileName='other/c.ts', fileSize=10)
@@ -273,7 +276,12 @@ class TaskProgressTests(unittest.TestCase):
                 labels = [item.GetItemLabelText() for item in frame.menuBar.GetMenu(index).GetMenuItems()
                           if not item.IsSeparator()]
                 self.assertEqual(labels, expected)
-            tools = [frame.toolBar.GetToolByPos(i).GetLabel() for i in range(frame.toolBar.GetToolsCount())]
+            if wx.Platform == '__WXMAC__':
+                tools = [frame.toolBar.FindToolByIndex(i).GetLabel()
+                         for i in range(frame.toolBar.GetToolCount())]
+            else:
+                tools = [frame.toolBar.GetToolByPos(i).GetLabel()
+                         for i in range(frame.toolBar.GetToolsCount())]
             for label in ('全部展开', '全部折叠', '全部暂停', '刷新', '设置'):
                 self.assertIn(label, tools)
             self.assertFalse(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
@@ -501,7 +509,9 @@ class TaskProgressTests(unittest.TestCase):
                 frame._FitTaskColumns()
                 columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(7)]
                 self.assertLessEqual(sum(columns), frame.mcTree.GetClientSize().width)
-                self.assertGreaterEqual(columns[6], frame.FromDIP(200))
+                dc = wx.ClientDC(frame.mcTree)
+                dc.SetFont(frame.mcTree.GetFont())
+                self.assertGreaterEqual(columns[6], frame._actionRenderer.MinimumWidth(dc))
                 self.assertGreater(columns[1], 0)
                 if width in layouts:
                     self.assertEqual(columns, layouts[width])

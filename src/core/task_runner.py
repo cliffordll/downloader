@@ -69,7 +69,12 @@ class TaskRunner:
         if not wanted:
             return 0
         try:
-            return M3U8Downloader.StartTask(self.tasks, task_id, wanted)
+            count = M3U8Downloader.StartTask(self.tasks, task_id, wanted)
+            if count:
+                # 用户主动开始/重试只恢复本次选择，其他全局暂停的任务保持暂停。
+                M3U8Downloader.ResumeFiles({M3U8Downloader.FileKey(task.save_dir / s.relative_path)
+                                           for s in task.details.segments if s.sequence in wanted})
+            return count
         except Exception:
             M3U8Downloader.Pause()
             raise

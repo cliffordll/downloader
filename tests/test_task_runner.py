@@ -104,6 +104,27 @@ class TaskRunnerTests(unittest.TestCase):
         self.runner.activate(task.id)
         self.assertEqual(Engine.Snapshot()['pending'], Engine.Snapshot()['paused_files'])
 
+    def test_start_and_retry_after_global_pause_only_resume_selected_files(self):
+        other = self.m3u8('other')
+        with patch.object(Engine, 'DownloadTSFile', side_effect=self.enqueue):
+            self.runner.start(other.id, sequences=[0])
+            for retry in (False, True):
+                with self.subTest(retry=retry):
+                    task = self.m3u8(f'new-{retry}')
+                    if retry:
+                        segment = task.details.segments[1]
+                        self.service.finish_segment(task.id, 1,
+                            str(task.save_dir / segment.relative_path), False, 'HTTP 500')
+                    Engine.Pause()
+                    self.assertEqual(self.runner.activate(task.id, retry=retry), 1 if retry else 3)
+                    snapshot = Engine.Snapshot()
+                    self.assertFalse(snapshot['paused'])
+                    selected = {Engine.FileKey(task.save_dir / s.relative_path)
+                                for s in task.details.segments if not retry or s.sequence == 1}
+                    self.assertTrue(selected <= snapshot['pending'])
+                    self.assertFalse(selected & snapshot['paused_files'])
+                    self.assertEqual(snapshot['paused_files'], snapshot['pending'] - selected)
+
     def test_global_resume_uses_database_and_leaves_new_failed_tasks_alone(self):
         paused, interrupted, new, failed = [self.mp4(name) for name in ('paused', 'interrupted', 'new', 'failed')]
         for task, status in ((paused, TaskStatus.PAUSED), (interrupted, TaskStatus.INTERRUPTED), (failed, TaskStatus.FAILED)):

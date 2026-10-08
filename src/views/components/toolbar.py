@@ -20,7 +20,7 @@ class _LightToolBarArt(aui.AuiDefaultToolBarArt):
 class ContentToolBar(aui.AuiToolBar):
     def __init__(self, parent):
         super().__init__(parent, style=aui.AUI_TB_PLAIN_BACKGROUND)
-        self.SetArtProvider(_LightToolBarArt())
+        #self.SetArtProvider(_LightToolBarArt())
 
     def AddTool(self, tool_id, label, bitmap, shortHelp=''):
         return super().AddTool(tool_id, label, bitmap, short_help_string=shortHelp)

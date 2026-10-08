@@ -205,7 +205,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             ]
         info = self.TaskInfo(index)
         idle = not info['pending'] and not info['merging']
-        downloadable = idle and not M3U8Downloader.IsPaused() and not task.outputs
+        # 主动开始/重试由 TaskRunner 恢复当前任务，不受其他任务暂停状态阻挡。
+        downloadable = idle and not task.outputs
+
         # 第一项在排队/下载期间可暂停；暂停后恢复当前任务，不重新提交分片。
         running = bool(info['pending']) and not info['merging']
         label = ('继续' if info['paused'] else '暂停') if running else (

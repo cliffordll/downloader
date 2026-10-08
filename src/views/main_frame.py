@@ -60,6 +60,7 @@ class MainFrame(wx.Frame):
         self._UpdatePauseTool()
         # 初始化完成后再监听尺寸变化；后续缩放仍合并为一次延迟调整。
         self.mcTree.Bind(wx.EVT_SIZE, self.OnTaskListSize)
+        self.Bind(wx.EVT_SHOW, self.OnFrameShown)
         self._progressTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnTaskProgress, self._progressTimer)
         self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
@@ -151,9 +152,6 @@ class MainFrame(wx.Frame):
         else:
             self.toolBar = self.CreateToolBar(style=wx.TB_DEFAULT_STYLE)
         self.toolBar.SetToolBitmapSize(self.toolBar.FromDIP(wx.Size(24, 24)))
-        self.toolBar.SetToolPacking(self.toolBar.FromDIP(4))
-        self.toolBar.SetToolSeparation(self.toolBar.FromDIP(8))
-        self.toolBar.SetMargins(self.toolBar.FromDIP(wx.Size(4, 3)))
 
         def add_tool(tool_id, label, icon):
             bundle = toolbar_icon(icon)
@@ -268,8 +266,12 @@ class MainFrame(wx.Frame):
         self.mcTree.AppendTextColumn("状态", 6, width=self.FromDIP(80), align=wx.ALIGN_CENTER)
         self.mcTree.AppendTextColumn("文件大小", 2, width=90, align=wx.ALIGN_RIGHT)
         self.mcTree.AppendTextColumn("修改时间", 3, width=130)
-        self.mcTree.AppendColumn(dv.DataViewColumn("操作", TaskActionRenderer(self), 4,
-                                                 width=self.FromDIP(200), align=wx.ALIGN_CENTER))
+        self._actionRenderer = TaskActionRenderer(self)
+        actionColumn = dv.DataViewColumn("操作", self._actionRenderer, 4,
+                                       width=self.FromDIP(240), align=wx.ALIGN_CENTER)
+        # Mac 原生控件在首次布局时会重新调整列宽，必须同时约束原生最小宽度。
+        actionColumn.SetMinWidth(self.FromDIP(240))
+        self.mcTree.AppendColumn(actionColumn)
         for index in range(self.mcTree.GetColumnCount()):
             column = self.mcTree.GetColumn(index)
             column.GetRenderer().EnableEllipsize(wx.ELLIPSIZE_END)
@@ -289,6 +291,9 @@ class MainFrame(wx.Frame):
         # 双击任务只切换展开状态，下载由操作列触发。
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_ACTIVATED, self.OnActivatedChanged)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_CONTEXT_MENU, self.OnTaskContextMenu)
+        self._manualActionClicks = wx.Platform == '__WXMAC__'
+        if self._manualActionClicks:
+            self.mcTree.GetMainWindow().Bind(wx.EVT_LEFT_UP, self.OnTaskListClick)
         self.Bind(EVT_ALL_DOWNLOAD, self.OnAllTSDownload)
 
         sizer.Add(uriSizer, flag=wx.EXPAND, border=0)
@@ -301,6 +306,26 @@ class MainFrame(wx.Frame):
             frameSizer.Add(self.toolBar, flag=wx.EXPAND)
             frameSizer.Add(panel, proportion=1, flag=wx.EXPAND)
             self.SetSizer(frameSizer)
+
+
+    def OnTaskListClick(self, event):
+        """Mac 松开鼠标后分发操作，避免在按下事件中打开原生菜单或弹窗。"""
+        source = event.GetEventObject()
+        pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
+        item, column = self.mcTree.HitTest(pos)
+        if not item.IsOk() or column is None or column.GetModelColumn() != 4:
+            event.Skip()
+            return
+        cell = self.mcTree.GetItemRect(item, column)
+        if cell.IsEmpty():
+            event.Skip()
+            return
+        self.mcTree.SetFocus()
+        self.mcTree.Select(item)
+        local = wx.Point(pos.x - cell.x, pos.y - cell.y)
+        self._actionRenderer.ActivateAt(cell, self.model, item, 4, local)
+        # 操作列点击（包含置灰项和留白）到此结束，避免原生控件再次激活。
+        event.Skip(False)
 
     def OnTaskListPaint(self, event):
         """先同步完成原生列表绘制，再覆盖黑色焦点边框，避免延迟补画闪烁。"""
@@ -325,6 +350,20 @@ class MainFrame(wx.Frame):
             dc.DrawRectangle(0, top, window.GetClientSize().width, row.height)
         finally:
             window.Bind(wx.EVT_PAINT, self.OnTaskListPaint)
+
+    def OnFrameShown(self, event):
+        event.Skip()
+        if event.GetEventObject() is self and event.IsShown():
+            wx.CallAfter(self._FitShownTaskColumns)
+
+    def _FitShownTaskColumns(self):
+        if not self or self.IsBeingDeleted():
+            return
+        # 初次原生布局可能改变列宽，但控件整体尺寸不变，不能沿用显示前的缓存。
+        self._columnSizeKey = None
+        self.Layout()
+        self.mcTree.GetParent().Layout()
+        self._FitTaskColumns()
 
     def OnTaskListSize(self, event):
         event.Skip()
@@ -359,7 +398,10 @@ class MainFrame(wx.Frame):
         sequence_width = max(self.FromDIP(50), dc.GetTextExtent(label)[0]
                              + indent * (2 if child_count else 1) + self.FromDIP(12))
         # 编号位数也参与缓存，新增任务或刷新后即使窗口尺寸不变也能重新适配。
-        size_key = (self.mcTree.GetSize().width, self.FromDIP(100), sequence_width)
+        font.SetWeight(wx.FONTWEIGHT_NORMAL)
+        dc.SetFont(font)
+        action_width = self._actionRenderer.MinimumWidth(dc)
+        size_key = (self.mcTree.GetSize().width, self.FromDIP(100), sequence_width, action_width)
         if getattr(self, '_columnSizeKey', None) == size_key:
             return
         # 预留垂直滚动条和边框空间，避免滚动条出现后把最后一列挤出可视区域。
@@ -374,12 +416,13 @@ class MainFrame(wx.Frame):
         # 数字是 DIP，由 FromDIP 按系统缩放换算；文件名的 0 是占位，下面补入剩余宽度。
         widths = [self.FromDIP(value) for value in (50, 0, 180, 80, 85, 125, 200)]
         widths[0] = sequence_width
+        widths[-1] = action_width
         # 默认窗口的可用宽度是比例分配的基准，不随最大化/还原反复改变。
         baseline = (self._defaultTaskWidth
                     - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
                     - self.FromDIP(4))
         # 不超过默认宽度时，其他列保持基准值，剩余空间交给文件名列。
-        widths[1] = max(1, min(available, baseline) - sum(widths))
+        widths[1] = max(self.FromDIP(80), min(available, baseline) - sum(widths))
         if available > baseline > 0:
             # 以默认布局为基准按比例分配，不把额外空间全部留给文件名。
             # 相邻边界取差，避免整数取整后列宽之和超出窗口。
@@ -392,12 +435,19 @@ class MainFrame(wx.Frame):
                 edge += width
             widths = scaled
         if sum(widths) > available:
-            # 初始化可能短暂出现很小的控件尺寸，空间不足时将所有列一起压缩。
-            total = sum(widths)
-            widths = [max(1, value * available // total) for value in widths]
-        # 批量调整时暂停重绘，完成后统一恢复，避免逐列调整产生闪烁。
+            # 窄窗口先缩短进度/状态/体积/日期，保留编号、文件名和操作的可读宽度。
+            remaining = available - widths[0] - widths[1] - widths[-1]
+            if remaining >= 4:
+                total = sum(widths[2:6])
+                widths[2:6] = [max(1, value * remaining // total) for value in widths[2:6]]
+            else:
+                # 初始化时控件可能暂时小于窗口最小尺寸，待布局完成后重新适配。
+                self._columnSizeKey = None
+                return
+        # 批量调整时暂停重绘，完成后统一恢复。
         self.mcTree.Freeze()  # wx 方法：暂停该控件的屏幕重绘，期间仍可修改列宽。
         try:
+            self.mcTree.GetColumn(6).SetMinWidth(action_width)
             for index, width in enumerate(widths):
                 column = self.mcTree.GetColumn(index)
                 # 只写入真正变化的列宽，减少原生控件的布局和重绘开销。
@@ -933,11 +983,17 @@ class MainFrame(wx.Frame):
                     self.mcTree.Expand(item)
                 return
             if action_id == 'more':
-                self.OnTaskMenu(item)
+                if self._manualActionClicks:
+                    self._QueueTaskPopup(task, action_id)
+                else:
+                    self.OnTaskMenu(item)
                 return
             if action_id == 'delete':
                 # 删除处理函数会再次检查运行状态，并确认只删除任务记录。
-                self.OnDeleteTask(task)
+                if self._manualActionClicks:
+                    self._QueueTaskPopup(task, action_id)
+                else:
+                    self.OnDeleteTask(task)
                 return
         if action_id in ('start', 'retry'):
             try:
@@ -948,6 +1004,28 @@ class MainFrame(wx.Frame):
             self._SyncDownloads()
         # 通知 wx 重新读取本行数据，使操作文字、置灰状态和任务状态及时更新。
         self.model.ItemChanged(item)
+
+    def _QueueTaskPopup(self, task, action_id):
+        # Cocoa 必须先结束鼠标事件处理，再进入菜单跟踪或模态对话框循环。
+        identity = task.task_id or task.parent.fileName
+        wx.CallAfter(self._ShowTaskPopup, identity, action_id)
+
+    def _ShowTaskPopup(self, identity, action_id):
+        if not self or self.IsBeingDeleted():
+            return
+        # 延迟期间可能刷新或删除任务，按身份重新定位，不能沿用旧行号。
+        for index, task in enumerate(self.model.fileTree.items):
+            if (task.task_id or task.parent.fileName) != identity:
+                continue
+            action = next((entry for entry in self.model.TaskActions(index)
+                           if entry['id'] == action_id), None)
+            if action is None or not action['enabled']:
+                return
+            if action_id == 'more':
+                self.OnTaskMenu(self.model.ObjectToItem(self.model._BuildKey((index,))))
+            elif action_id == 'delete':
+                self.OnDeleteTask(task)
+            return
 
     def OnDeleteTask(self, task):
         """本阶段只删除数据库记录；下载文件保留，不再递归删除任务目录。"""

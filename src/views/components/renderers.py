@@ -77,10 +77,11 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
 
     这里没有创建按钮，而是按模型的操作数量划分单元格内的可点击区域。
     模型 GetValue → SetValue 接收数据 → Render 绘制文字；
-    用户点击 → ActivateCell 判断区域 → 主窗口 OnTaskAction 执行业务操作。
+    用户点击 → ActivateAt 判断区域 → 主窗口 OnTaskAction 执行业务操作。
+    Mac 鼠标由窗口转换坐标，其余平台与键盘由 ActivateCell 接入。
     """
     def __init__(self, frame):
-        # ACTIVATABLE 让 wx 将单元格的鼠标/键盘激活交给 ActivateCell。
+        # ACTIVATABLE 保留键盘激活，以及其他平台的原生鼠标激活。
         super().__init__('string', dv.DATAVIEW_CELL_ACTIVATABLE, wx.ALIGN_CENTER)
         self.frame = frame
         self.label = ''
@@ -151,38 +152,39 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
             dc.DrawLabel(self.label, cell, wx.ALIGN_CENTER)
         return True
 
-    def ActivateCell(self, cell, model, item, col, mouseEvent):
-        """重写父类方法：wx 在可激活单元格被鼠标或键盘激活时调用。
+    def MinimumWidth(self, dc):
+        """按五项操作的最长文字预留间距，以及原生单元格的左右留白。"""
+        labels = ('开始', '暂停', '继续', '重试', '删除', '展开', '折叠', '更多', '录制', '停止')
+        text_width = max(dc.GetTextExtent(label)[0] for label in labels)
+        return max(self.frame.FromDIP(240),
+                   5 * (text_width + self.frame.FromDIP(16)) + self.frame.FromDIP(16))
 
-        item/col 指明任务行和模型列，model 用于读取该行最新数据；
-        mouseEvent 为 None 表示没有鼠标事件，否则用其中的坐标判断具体操作。
-        返回 True 表示本次激活已处理，False 表示无操作或操作不可用，
-        不代表异步下载、合并等业务执行成功。
-        """
-        # 点击时重新读取当前行的最新状态，不能用上次绘制其他行留下的 self.label。
+    def ActivateCell(self, cell, model, item, col, mouseEvent):
+        """非 Mac 鼠标使用单元格局部坐标；Mac 鼠标由窗口统一处理。"""
+        if mouseEvent is not None and getattr(self.frame, '_manualActionClicks', False):
+            return False
+        point = mouseEvent.GetPosition() if mouseEvent is not None else None
+        return self.ActivateAt(cell, model, item, col, point)
+
+    def ActivateAt(self, cell, model, item, col, point):
+        """绘制和点击共用区域划分；point 相对单元格，None 表示键盘激活。"""
         value = model.GetValue(item, col)
         if not value:
             return False
         if value.startswith('['):
-            # 单文件任务也是任务行，但不可展开；按数据协议识别，不能按容器判断。
             actions = json.loads(value)
-            if mouseEvent is None:
-                # 键盘激活没有鼠标坐标：优先开始/继续，否则打开更多，绝不默认删除。
+            if point is None:
+                # 键盘优先开始/继续，否则打开更多，绝不默认删除。
                 action = actions[0] if actions[0]['enabled'] else actions[-1]
             else:
-                # wx 提供的鼠标坐标相对于当前单元格左上角，因此区域也从 (0, 0) 算起。
-                point = mouseEvent.GetPosition()
                 rects = self._ActionRects(wx.Rect(0, 0, cell.width, cell.height), len(actions))
-                # Contains 判断鼠标是否落在某一项的矩形内；左右留白没有对应操作。
-                action = next((entry for entry, rect in zip(actions, rects) if rect.Contains(point)), None)
+                action = next((entry for entry, rect in zip(actions, rects)
+                               if rect.Contains(point)), None)
             if action is None or not action['enabled']:
                 return False
-            # item 指明哪一行，id 指明做什么；不依赖选中行或显示文字。
-            # 主窗口还会重新检查 enabled，再分发下载、重试、删除或更多菜单。
             self.frame.OnTaskAction(item, action['id'])
         else:
-            # 分片下载只从操作文字触发，双击普通单元格不再启动网络请求。
+            if point is not None and not wx.Rect(0, 0, cell.width, cell.height).Contains(point):
+                return False
             self.frame.OnSegmentDownload(item)
         return True
-
-

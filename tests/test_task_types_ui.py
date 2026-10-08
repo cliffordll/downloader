@@ -1,6 +1,9 @@
 from src.models.tree_model import load_tree
 """混合类型任务的列表投影及事件分发；不请求网络、不修改用户任务库。"""
 from pathlib import Path
+import os
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
@@ -79,6 +82,192 @@ class TaskTypesUITests(unittest.TestCase):
             self.assertEqual(renderer.ActivateCell(cell, model, item, 4, mouse), action['enabled'])
         self.assertEqual([call.args[1] for call in frame.OnTaskAction.call_args_list], ['start', 'delete', 'more'])
         frame.OnSegmentDownload.assert_not_called()
+
+    def test_manual_mouse_route_converts_coordinates_and_dispatches_once(self):
+        self.mp4()
+        model = self.model()
+        item = model.ObjectToItem(model._BuildKey((0,)))
+        cell = wx.Rect(400, 60, 240, 24)
+        frame = SimpleNamespace(FromDIP=lambda x: x, model=model,
+                               _manualActionClicks=True, OnTaskAction=Mock(), OnSegmentDownload=Mock())
+        renderer = frame._actionRenderer = TaskActionRenderer(frame)
+        column = Mock(GetModelColumn=Mock(return_value=4))
+        tree = frame.mcTree = Mock()
+        tree.HitTest.return_value = (item, column)
+        tree.GetItemRect.return_value = cell
+        # 模拟内部窗口与列表相差 20 像素，不能直接使用事件的局部坐标。
+        source = Mock()
+        source.ClientToScreen.side_effect = lambda p: wx.Point(p.x + 100, p.y + 120)
+        tree.ScreenToClient.side_effect = lambda p: wx.Point(p.x - 100, p.y - 100)
+        actions = model.TaskActions(0)
+        for action, rect in zip(actions, renderer._ActionRects(cell, len(actions))):
+            frame.OnTaskAction.reset_mock()
+            event = Mock()
+            event.GetEventObject.return_value = source
+            event.GetPosition.return_value = wx.Point(rect.x + rect.width // 2, rect.y - 20 + 12)
+            with patch('wx.GetMousePosition', side_effect=AssertionError('不应读取实时鼠标')):
+                MainFrame.OnTaskListClick(frame, event)
+                # 即使原生控件又回调，也不能再次执行操作。
+                self.assertFalse(renderer.ActivateCell(cell, model, item, 4, event))
+            event.Skip.assert_called_once_with(False)
+            tree.HitTest.assert_called_with(wx.Point(rect.x + rect.width // 2, rect.y + 12))
+            if action['enabled']:
+                frame.OnTaskAction.assert_called_once_with(item, action['id'])
+            else:
+                frame.OnTaskAction.assert_not_called()
+        frame.OnTaskAction.reset_mock()
+        self.assertTrue(renderer.ActivateCell(cell, model, item, 4, None))
+        frame.OnTaskAction.assert_called_once_with(item, 'start')
+        frame.OnSegmentDownload.assert_not_called()
+
+    @unittest.skipUnless(wx.Platform == '__WXMAC__', 'Mac 原生列表鼠标路径')
+    def test_mac_native_cells_route_task_and_segment_mouse_clicks(self):
+        self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
+                                 '#EXTM3U\n#EXTINF:4,\na.ts\n')
+        self.mp4()
+        frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        try:
+            tree = frame.mcTree
+            column = tree.GetColumn(6)
+            window = tree.GetMainWindow()
+            renderer = frame._actionRenderer
+            wx.YieldIfNeeded()
+            for index in range(2):
+                item = frame.model.ObjectToItem(frame.model._BuildKey((index,)))
+                cell = tree.GetItemRect(item, column)
+                self.assertFalse(cell.IsEmpty())
+                actions = frame.model.TaskActions(index)
+                with patch.object(frame, 'OnTaskAction') as dispatch:
+                    for action, rect in zip(actions, renderer._ActionRects(cell, len(actions))):
+                        dispatch.reset_mock()
+                        position = wx.Point(rect.x + rect.width // 2, rect.y + rect.height // 2)
+                        hit_item, hit_column = tree.HitTest(position)
+                        self.assertEqual(hit_item, item)
+                        self.assertEqual(hit_column.GetModelColumn(), 4)
+                        event = wx.MouseEvent(wx.wxEVT_LEFT_UP)
+                        event.SetEventObject(window)
+                        event.SetPosition(window.ScreenToClient(tree.ClientToScreen(position)))
+                        window.GetEventHandler().ProcessEvent(event)
+                        self.assertFalse(event.GetSkipped())
+                        renderer.ActivateCell(cell, frame.model, item, 4, event)
+                        if action['enabled']:
+                            dispatch.assert_called_once_with(item, action['id'])
+                        else:
+                            dispatch.assert_not_called()
+            parent = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+            tree.Expand(parent)
+            wx.YieldIfNeeded()
+            child = frame.model.ObjectToItem(frame.model._BuildKey((0, 0)))
+            cell = tree.GetItemRect(child, column)
+            self.assertFalse(cell.IsEmpty())
+            event = wx.MouseEvent(wx.wxEVT_LEFT_UP)
+            event.SetEventObject(window)
+            event.SetPosition(window.ScreenToClient(tree.ClientToScreen(
+                wx.Point(cell.x + cell.width // 2, cell.y + cell.height // 2))))
+            with patch.object(frame, 'OnSegmentDownload') as dispatch:
+                window.GetEventHandler().ProcessEvent(event)
+                dispatch.assert_called_once_with(child)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    @unittest.skipUnless(wx.Platform == '__WXMAC__', 'Mac 原生弹窗事件路径')
+    def test_mac_mouse_release_opens_more_and_delete_after_event_returns(self):
+        record = self.mp4()
+        frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        try:
+            tree = frame.mcTree
+            window = tree.GetMainWindow()
+            wx.YieldIfNeeded()
+            item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+            cell = tree.GetItemRect(item, tree.GetColumn(6))
+            actions = frame.model.TaskActions(0)
+
+            def release(action_id):
+                index = next(i for i, action in enumerate(actions) if action['id'] == action_id)
+                rect = frame._actionRenderer._ActionRects(cell, len(actions))[index]
+                event = wx.MouseEvent(wx.wxEVT_LEFT_UP)
+                event.SetEventObject(window)
+                event.SetPosition(window.ScreenToClient(tree.ClientToScreen(
+                    wx.Point(rect.x + rect.width // 2, rect.y + rect.height // 2))))
+                window.GetEventHandler().ProcessEvent(event)
+                self.assertFalse(event.GetSkipped())
+
+            def inspect_menu(menu):
+                self.assertEqual([entry.GetItemLabelText() for entry in menu.GetMenuItems()],
+                                 ['打开文件夹', '播放视频'])
+
+            with patch.object(tree, 'PopupMenu', side_effect=inspect_menu) as menu:
+                release('more')
+                menu.assert_not_called()
+                self.app.ProcessPendingEvents()
+                menu.assert_called_once()
+            with patch('wx.MessageDialog') as dialog:
+                dialog.return_value.ShowModal.return_value = wx.ID_NO
+                release('delete')
+                dialog.assert_not_called()
+                self.app.ProcessPendingEvents()
+                dialog.return_value.ShowModal.assert_called_once()
+                self.assertIsNotNone(self.repo.get(record.id))
+            with patch('wx.MessageDialog') as dialog:
+                dialog.return_value.ShowModal.return_value = wx.ID_YES
+                release('delete')
+                self.app.ProcessPendingEvents()
+                dialog.return_value.ShowModal.assert_called_once()
+                self.assertIsNone(self.repo.get(record.id))
+                self.assertFalse(frame.model.fileTree.items)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    @unittest.skipUnless(wx.Platform == '__WXMAC__', 'Mac 原生列表首次布局')
+    def test_mac_action_width_survives_first_show_without_window_resize(self):
+        # 首次进入 Cocoa 主循环使用独立进程，避免其他测试待销毁窗口的影响。
+        if os.environ.get('AVDOWNLOADER_TEST_NATIVE_LAYOUT') != '1':
+            result = subprocess.run(
+                [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests',
+                 '-p', 'test_task_types_ui.py', '-k',
+                 'test_mac_action_width_survives_first_show_without_window_resize', '-v'],
+                cwd=Path(__file__).resolve().parents[1],
+                env=dict(os.environ, AVDOWNLOADER_TEST_NATIVE_LAYOUT='1'),
+                capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return
+        self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
+                                 '#EXTM3U\n#EXTINF:4,\na.ts\n')
+        frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        measurements = []
+        timers = []
+        try:
+            tree = frame.mcTree
+            item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+            dc = wx.ClientDC(tree)
+            dc.SetFont(tree.GetFont())
+            required = frame._actionRenderer.MinimumWidth(dc)
+            initial_size = frame.GetSize()
+
+            def measure():
+                widths = [tree.GetColumn(i).GetWidth() for i in range(7)]
+                measurements.append((widths, tree.GetItemRect(item, tree.GetColumn(6)).width,
+                                     tree.GetClientSize().width, frame.GetSize()))
+
+            measure()
+            # 真正运行原生事件循环，覆盖 Show 后的 Cocoa 布局；整个过程不调整窗口大小。
+            timers = [wx.CallLater(50, measure), wx.CallLater(150, measure),
+                      wx.CallLater(200, self.app.ExitMainLoop)]
+            self.app.MainLoop()
+            self.assertEqual(len(measurements), 3)
+            self.assertGreaterEqual(tree.GetColumn(6).GetMinWidth(), required)
+            for widths, visible_width, available, size in measurements:
+                self.assertEqual(size, initial_size)
+                self.assertGreaterEqual(widths[6], required)
+                self.assertGreaterEqual(visible_width, required)
+                self.assertLessEqual(sum(widths), available)
+        finally:
+            for timer in timers:
+                timer.Stop()
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
 
     def test_restart_recovers_live_and_mp4_without_losing_progress(self):
         mp4 = self.mp4(status=TaskStatus.DOWNLOADING, progress=TaskProgress(downloaded_bytes=100))
