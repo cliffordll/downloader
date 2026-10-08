@@ -30,8 +30,9 @@ def icon_image(filename, size):
     image = wx.Image(str(path), wx.BITMAP_TYPE_PNG)
     if not image.IsOk():
         raise ValueError(f"Cannot load icon: {path}")
-    if image.GetSize() != wx.Size(size, size):
-        image = image.Scale(size, size, wx.IMAGE_QUALITY_HIGH)
+    if image.GetHeight() != size:
+        width = max(1, round(image.GetWidth() * size / image.GetHeight()))
+        image = image.Scale(width, size, wx.IMAGE_QUALITY_HIGH)
     return image
 
 

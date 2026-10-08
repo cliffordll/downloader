@@ -17,7 +17,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/3gp.png",
-      "circle_color": "#F0C1B2"
+      "circle_color": "#F0C1B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -26,7 +32,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/7z.png",
-      "circle_color": "#B2B5F0"
+      "circle_color": "#B2B5F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -35,7 +47,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/aac.png",
-      "circle_color": "#C7F0B2"
+      "circle_color": "#C7F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -44,7 +62,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/ai.png",
-      "circle_color": "#F0B2DA"
+      "circle_color": "#F0B2DA",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -53,7 +77,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/apk.png",
-      "circle_color": "#B2ECF0"
+      "circle_color": "#B2ECF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -62,7 +92,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/avc.png",
-      "circle_color": "#F0E3B2"
+      "circle_color": "#F0E3B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -71,7 +107,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/avi.png",
-      "circle_color": "#D0B2F0"
+      "circle_color": "#D0B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -80,7 +122,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/avif.png",
-      "circle_color": "#B2F0BE"
+      "circle_color": "#B2F0BE",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -89,7 +137,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/avs.png",
-      "circle_color": "#F0B2B8"
+      "circle_color": "#F0B2B8",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -98,7 +152,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/bak.png",
-      "circle_color": "#B2CAF0"
+      "circle_color": "#B2CAF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -107,7 +167,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/bat.png",
-      "circle_color": "#DCF0B2"
+      "circle_color": "#DCF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -116,7 +182,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/bmp.png",
-      "circle_color": "#F0B2EE"
+      "circle_color": "#F0B2EE",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -125,7 +197,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/bz2.png",
-      "circle_color": "#B2F0E0"
+      "circle_color": "#B2F0E0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -134,7 +212,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/c.png",
-      "circle_color": "#F0CEB2"
+      "circle_color": "#F0CEB2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -143,7 +227,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/cmd.png",
-      "circle_color": "#BCB2F0"
+      "circle_color": "#BCB2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -152,7 +242,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/cpp.png",
-      "circle_color": "#BAF0B2"
+      "circle_color": "#BAF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -161,7 +257,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/css.png",
-      "circle_color": "#F0B2CD"
+      "circle_color": "#F0B2CD",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -170,7 +272,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/csv.png",
-      "circle_color": "#B2DFF0"
+      "circle_color": "#B2DFF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -179,7 +287,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/db.png",
-      "circle_color": "#F0F0B2"
+      "circle_color": "#F0F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -188,7 +302,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/dll.png",
-      "circle_color": "#DDB2F0"
+      "circle_color": "#DDB2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -197,7 +317,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/doc.png",
-      "circle_color": "#B2F0CB"
+      "circle_color": "#B2F0CB",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -206,7 +332,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/docx.png",
-      "circle_color": "#F0B9B2"
+      "circle_color": "#F0B9B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -215,7 +347,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/dvd.png",
-      "circle_color": "#B2BDF0"
+      "circle_color": "#B2BDF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -224,7 +362,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/env.png",
-      "circle_color": "#CFF0B2"
+      "circle_color": "#CFF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -233,7 +377,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/epub.png",
-      "circle_color": "#F0B2E2"
+      "circle_color": "#F0B2E2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -242,7 +392,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/exe.png",
-      "circle_color": "#B2F0ED"
+      "circle_color": "#B2F0ED",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -251,7 +407,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/f4v.png",
-      "circle_color": "#F0DBB2"
+      "circle_color": "#F0DBB2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -260,7 +422,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/flac.png",
-      "circle_color": "#C8B2F0"
+      "circle_color": "#C8B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -269,7 +437,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/flc.png",
-      "circle_color": "#B2F0B6"
+      "circle_color": "#B2F0B6",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -278,7 +452,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/flv.png",
-      "circle_color": "#F0B2C0"
+      "circle_color": "#F0B2C0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -287,7 +467,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/gif.png",
-      "circle_color": "#B2D2F0"
+      "circle_color": "#B2D2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -296,7 +482,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/gz.png",
-      "circle_color": "#E4F0B2"
+      "circle_color": "#E4F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -305,7 +497,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/heic.png",
-      "circle_color": "#EAB2F0"
+      "circle_color": "#EAB2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -314,7 +512,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/hlp.png",
-      "circle_color": "#B2F0D8"
+      "circle_color": "#B2F0D8",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -323,7 +527,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/htm.png",
-      "circle_color": "#F0C6B2"
+      "circle_color": "#F0C6B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -332,7 +542,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/html.png",
-      "circle_color": "#B4B2F0"
+      "circle_color": "#B4B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -341,7 +557,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/ini.png",
-      "circle_color": "#C2F0B2"
+      "circle_color": "#C2F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -350,7 +572,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/iso.png",
-      "circle_color": "#F0B2D5"
+      "circle_color": "#F0B2D5",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -359,7 +587,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/jpeg.png",
-      "circle_color": "#B2E7F0"
+      "circle_color": "#B2E7F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -368,7 +602,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/jpg.png",
-      "circle_color": "#F0E8B2"
+      "circle_color": "#F0E8B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -377,7 +617,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/js.png",
-      "circle_color": "#D5B2F0"
+      "circle_color": "#D5B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -386,7 +632,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/json.png",
-      "circle_color": "#B2F0C3"
+      "circle_color": "#B2F0C3",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -395,7 +647,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/lib.png",
-      "circle_color": "#F0B2B3"
+      "circle_color": "#F0B2B3",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -404,7 +662,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/log.png",
-      "circle_color": "#B2C5F0"
+      "circle_color": "#B2C5F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -413,7 +677,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/lua.png",
-      "circle_color": "#D7F0B2"
+      "circle_color": "#D7F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -422,7 +692,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/m3u.png",
-      "circle_color": "#F0B2E9"
+      "circle_color": "#F0B2E9",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -431,7 +707,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/m3u8.png",
-      "circle_color": "#AAD4FF"
+      "circle_color": "#AAD4FF",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -440,7 +722,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/m4a.png",
-      "circle_color": "#F0D3B2"
+      "circle_color": "#F0D3B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -449,7 +737,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/m4v.png",
-      "circle_color": "#C0B2F0"
+      "circle_color": "#C0B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -458,7 +752,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mac.png",
-      "circle_color": "#B6F0B2"
+      "circle_color": "#B6F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -467,7 +767,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/md.png",
-      "circle_color": "#F0B2C8"
+      "circle_color": "#F0B2C8",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -476,7 +782,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mkv.png",
-      "circle_color": "#B2DAF0"
+      "circle_color": "#B2DAF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -485,7 +797,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mod.png",
-      "circle_color": "#ECF0B2"
+      "circle_color": "#ECF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -494,7 +812,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mov.png",
-      "circle_color": "#E2B2F0"
+      "circle_color": "#E2B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -503,7 +827,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mp3.png",
-      "circle_color": "#B2F0D0"
+      "circle_color": "#B2F0D0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -512,7 +842,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mp4.png",
-      "circle_color": "#F0BEB2"
+      "circle_color": "#F0BEB2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -521,7 +857,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/mpd.png",
-      "circle_color": "#B2B8F0"
+      "circle_color": "#B2B8F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -530,7 +872,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mpeg.png",
-      "circle_color": "#CAF0B2"
+      "circle_color": "#CAF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -539,7 +887,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mpeg-1.png",
-      "circle_color": "#F0B2DD"
+      "circle_color": "#F0B2DD",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -548,7 +902,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mpeg-2.png",
-      "circle_color": "#B2EFF0"
+      "circle_color": "#B2EFF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -557,7 +917,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mpeg-4.png",
-      "circle_color": "#F0E0B2"
+      "circle_color": "#F0E0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -566,7 +932,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mpeg1.png",
-      "circle_color": "#CDB2F0"
+      "circle_color": "#CDB2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -575,7 +947,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mpeg2.png",
-      "circle_color": "#B2F0BB"
+      "circle_color": "#B2F0BB",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -584,7 +962,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mpeg4.png",
-      "circle_color": "#F0B2BB"
+      "circle_color": "#F0B2BB",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -593,7 +977,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mpg.png",
-      "circle_color": "#B2CDF0"
+      "circle_color": "#B2CDF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -602,7 +992,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mts.png",
-      "circle_color": "#DFF0B2"
+      "circle_color": "#DFF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -611,7 +1007,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/mux.png",
-      "circle_color": "#EFB2F0"
+      "circle_color": "#EFB2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -620,7 +1022,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/none.png",
-      "circle_color": "#B2F0DD"
+      "circle_color": "#B2F0DD",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -629,7 +1037,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/ogg.png",
-      "circle_color": "#F0CBB2"
+      "circle_color": "#F0CBB2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -638,7 +1052,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/opus.png",
-      "circle_color": "#B9B2F0"
+      "circle_color": "#B9B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -647,7 +1067,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/pdf.png",
-      "circle_color": "#BDF0B2"
+      "circle_color": "#BDF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -656,7 +1082,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/pic.png",
-      "circle_color": "#F0B2D0"
+      "circle_color": "#F0B2D0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -665,7 +1097,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/png.png",
-      "circle_color": "#B2E2F0"
+      "circle_color": "#B2E2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -674,7 +1112,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/ppt.png",
-      "circle_color": "#F0ECB2"
+      "circle_color": "#F0ECB2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -683,7 +1127,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/pptx.png",
-      "circle_color": "#DAB2F0"
+      "circle_color": "#DAB2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -692,7 +1142,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/psd.png",
-      "circle_color": "#B2F0C8"
+      "circle_color": "#B2F0C8",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -701,7 +1157,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/py.png",
-      "circle_color": "#F0B6B2"
+      "circle_color": "#F0B6B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -710,7 +1172,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/rar.png",
-      "circle_color": "#B2C0F0"
+      "circle_color": "#B2C0F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -719,7 +1187,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/raw.png",
-      "circle_color": "#D2F0B2"
+      "circle_color": "#D2F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -728,7 +1202,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/rm.png",
-      "circle_color": "#F0B2E5"
+      "circle_color": "#F0B2E5",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -737,7 +1217,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/rmvb.png",
-      "circle_color": "#B2F0EA"
+      "circle_color": "#B2F0EA",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -746,7 +1232,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/rtf.png",
-      "circle_color": "#F0D8B2"
+      "circle_color": "#F0D8B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -755,7 +1247,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/seed.png",
-      "circle_color": "#C5B2F0"
+      "circle_color": "#C5B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -764,7 +1262,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/sh.png",
-      "circle_color": "#B2F0B3"
+      "circle_color": "#B2F0B3",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -773,7 +1277,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/sql.png",
-      "circle_color": "#F0B2C3"
+      "circle_color": "#F0B2C3",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -782,7 +1292,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/sqlite.png",
-      "circle_color": "#B2D5F0"
+      "circle_color": "#B2D5F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -791,7 +1307,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/svg.png",
-      "circle_color": "#E7F0B2"
+      "circle_color": "#E7F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -800,7 +1322,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/tar.png",
-      "circle_color": "#E7B2F0"
+      "circle_color": "#E7B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -809,7 +1337,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/tgz.png",
-      "circle_color": "#B2F0D5"
+      "circle_color": "#B2F0D5",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -818,7 +1352,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/tiff.png",
-      "circle_color": "#F0C3B2"
+      "circle_color": "#F0C3B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -827,7 +1367,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/tmp.png",
-      "circle_color": "#B2B3F0"
+      "circle_color": "#B2B3F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -836,7 +1382,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/toml.png",
-      "circle_color": "#C5F0B2"
+      "circle_color": "#C5F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -845,7 +1397,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/ts.png",
-      "circle_color": "#D4AAFF"
+      "circle_color": "#D4AAFF",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -854,7 +1412,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/ttc.png",
-      "circle_color": "#B2EAF0"
+      "circle_color": "#B2EAF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -863,7 +1427,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/ttf.png",
-      "circle_color": "#F0E5B2"
+      "circle_color": "#F0E5B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -872,7 +1442,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/txt.png",
-      "circle_color": "#D2B2F0"
+      "circle_color": "#D2B2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -881,7 +1457,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/vcd.png",
-      "circle_color": "#B2F0C0"
+      "circle_color": "#B2F0C0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -890,7 +1472,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/voc.png",
-      "circle_color": "#F0B2B6"
+      "circle_color": "#F0B2B6",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -899,7 +1487,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/wav.png",
-      "circle_color": "#B2C8F0"
+      "circle_color": "#B2C8F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -908,7 +1502,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/webm.png",
-      "circle_color": "#DAF0B2"
+      "circle_color": "#DAF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -917,7 +1517,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/webp.png",
-      "circle_color": "#F0B2ED"
+      "circle_color": "#F0B2ED",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -926,7 +1532,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/wma.png",
-      "circle_color": "#B2F0E2"
+      "circle_color": "#B2F0E2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -935,7 +1547,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/wmf.png",
-      "circle_color": "#F0D0B2"
+      "circle_color": "#F0D0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -944,7 +1562,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/wmv.png",
-      "circle_color": "#BDB2F0"
+      "circle_color": "#BDB2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -953,7 +1577,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/wps.png",
-      "circle_color": "#B9F0B2"
+      "circle_color": "#B9F0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -962,7 +1592,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/xls.png",
-      "circle_color": "#F0B2CB"
+      "circle_color": "#F0B2CB",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -971,7 +1607,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/xlsm.png",
-      "circle_color": "#B2DDF0"
+      "circle_color": "#B2DDF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -980,7 +1622,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/xlsx.png",
-      "circle_color": "#EFF0B2"
+      "circle_color": "#EFF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -989,7 +1637,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/xltm.png",
-      "circle_color": "#DFB2F0"
+      "circle_color": "#DFB2F0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -998,7 +1652,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/xltx.png",
-      "circle_color": "#B2F0CD"
+      "circle_color": "#B2F0CD",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -1007,7 +1667,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/xml.png",
-      "circle_color": "#F0BBB2"
+      "circle_color": "#F0BBB2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -1016,7 +1682,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/xz.png",
-      "circle_color": "#B2BBF0"
+      "circle_color": "#B2BBF0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -1025,7 +1697,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/yaml.png",
-      "circle_color": "#CDF0B2"
+      "circle_color": "#CDF0B2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -1034,7 +1712,13 @@
       "origin": "uniform-file-frame",
       "added": true,
       "source": "source/files/yml.png",
-      "circle_color": "#F0B2E0"
+      "circle_color": "#F0B2E0",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -1043,7 +1727,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/z.png",
-      "circle_color": "#B2F0EF"
+      "circle_color": "#B2F0EF",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "files",
@@ -1052,7 +1742,13 @@
       "origin": "uniform-file-frame",
       "added": false,
       "source": "source/files/zip.png",
-      "circle_color": "#F0DDB2"
+      "circle_color": "#F0DDB2",
+      "circle_bounds": [
+        5,
+        4.5,
+        20,
+        19.5
+      ]
     },
     {
       "category": "tools",
@@ -1379,1162 +2075,2215 @@
     "stroke": 1.34375,
     "continuous": false,
     "palette": "unique pastel color per file type; M3U8 blue and TS purple retained",
-    "label_rule": "Arial Narrow Bold, native-size hinted glyphs; 10px font / 7px cap at 24px; 1px tight tracking; monochrome text at 24px, antialiasing at larger sizes",
+    "label_rule": "Segoe UI Semibold, 1px visible character gaps at 24px; labels and circles share center x=12.5. Whole labels use uniform 16x supersampling; no individual glyph is resized. Long labels extend the canvas horizontally. Frame gaps add 2px padding.",
     "text_metrics": {
       "3gp": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.71875,
+        "label_right": 20.28125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "7z": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 8,
-        "label_right": 17,
-        "frame_gaps": false
+        "label_left": 7.34375,
+        "label_right": 17.65625,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "aac": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.15625,
+        "label_right": 21.84375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "ai": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 9,
-        "label_right": 16,
-        "frame_gaps": false
+        "label_left": 8.46875,
+        "label_right": 16.53125,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "apk": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.0,
+        "label_right": 21.0,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "avc": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.28125,
+        "label_right": 21.71875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "avi": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 7,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 5.125,
+        "label_right": 19.875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "avif": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 2.90625,
+        "label_right": 22.09375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "avs": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.625,
+        "label_right": 21.375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "bak": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.96875,
+        "label_right": 21.03125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "bat": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.0,
+        "label_right": 21.0,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "bmp": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 21,
-        "frame_gaps": true
+        "label_left": 3.8125,
+        "label_right": 21.1875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "bz2": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.8125,
+        "label_right": 20.1875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "c": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 10,
-        "label_right": 16,
-        "frame_gaps": false
+        "label_left": 10.09375,
+        "label_right": 14.90625,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "cmd": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 21,
-        "frame_gaps": true
+        "label_left": 3.0,
+        "label_right": 22.0,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "cpp": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.84375,
+        "label_right": 20.15625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "css": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.96875,
+        "label_right": 20.03125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "csv": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.1875,
+        "label_right": 20.8125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "db": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 7,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 7.15625,
+        "label_right": 17.84375,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "dll": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 5.25,
+        "label_right": 19.75,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "doc": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.34375,
+        "label_right": 21.65625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "docx": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2,
-        "label_right": 23,
-        "frame_gaps": true
+        "label_left": 0.125,
+        "label_right": 24.875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "dvd": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.28125,
+        "label_right": 21.71875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "env": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 4.15625,
+        "label_right": 20.84375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "epub": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 2.4375,
+        "label_right": 22.5625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "exe": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 5.15625,
+        "label_right": 19.84375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "f4v": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 4.5,
+        "label_right": 20.5,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "flac": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 2.125,
+        "label_right": 22.875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "flc": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 5.59375,
+        "label_right": 19.40625,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "flv": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 5.15625,
+        "label_right": 19.84375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "gif": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 7,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 6.5,
+        "label_right": 18.5,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "gz": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 8,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 6.78125,
+        "label_right": 18.21875,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "heic": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.65625,
+        "label_right": 21.34375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "hlp": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 5.03125,
+        "label_right": 19.96875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "htm": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.15625,
+        "label_right": 21.84375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "html": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 0.875,
+        "label_right": 24.125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "ini": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 8,
-        "label_right": 16,
-        "frame_gaps": false
+        "label_left": 7.6875,
+        "label_right": 17.3125,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "iso": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 5.8125,
+        "label_right": 19.1875,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "jpeg": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 2.9375,
+        "label_right": 22.0625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "jpg": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 5.25,
+        "label_right": 19.75,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "js": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 8,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 8.53125,
+        "label_right": 16.46875,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "json": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 1.78125,
+        "label_right": 23.21875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "lib": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 7,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 7.0,
+        "label_right": 18.0,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "log": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 3.9375,
+        "label_right": 21.0625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "lua": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 4.28125,
+        "label_right": 20.71875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "m3u": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.6875,
+        "label_right": 21.3125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "m3u8": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 1.0625,
+        "label_right": 23.9375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "frame_gap_padding": 2,
+        "label_center": 12.5,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "m4a": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 2.6875,
+        "label_right": 22.3125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "m4v": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 2.8125,
+        "label_right": 22.1875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mac": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 21,
-        "frame_gaps": true
+        "label_left": 2.71875,
+        "label_right": 22.28125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "md": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 5.90625,
+        "label_right": 19.09375,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mkv": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 21,
-        "frame_gaps": true
+        "label_left": 2.84375,
+        "label_right": 22.15625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mod": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 21,
-        "frame_gaps": true
+        "label_left": 2.34375,
+        "label_right": 22.65625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mov": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 21,
-        "frame_gaps": true
+        "label_left": 2.1875,
+        "label_right": 22.8125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mp3": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.03125,
+        "label_right": 20.96875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mp4": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 3.53125,
+        "label_right": 21.46875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "frame_gap_padding": 2,
+        "label_center": 12.5,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mpd": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.28125,
+        "label_right": 21.71875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mpeg": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 0.9375,
+        "label_right": 24.0625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mpeg-1": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
-        "condensed": true,
-        "label_left": 2,
-        "label_right": 24,
-        "frame_gaps": true
+        "native_pixel_text": false,
+        "condensed": false,
+        "label_left": -2.5,
+        "label_right": 27.5,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 4.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mpeg-2": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
-        "condensed": true,
-        "label_left": 2,
-        "label_right": 24,
-        "frame_gaps": true
+        "native_pixel_text": false,
+        "condensed": false,
+        "label_left": -3.3125,
+        "label_right": 28.3125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 5.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mpeg-4": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
-        "condensed": true,
-        "label_left": 2,
-        "label_right": 24,
-        "frame_gaps": true
+        "native_pixel_text": false,
+        "condensed": false,
+        "label_left": -3.71875,
+        "label_right": 28.71875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 5.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mpeg1": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
-        "condensed": true,
-        "label_left": 2,
-        "label_right": 24,
-        "frame_gaps": true
+        "native_pixel_text": false,
+        "condensed": false,
+        "label_left": -0.78125,
+        "label_right": 25.78125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 2.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mpeg2": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
-        "condensed": true,
-        "label_left": 2,
-        "label_right": 24,
-        "frame_gaps": true
+        "native_pixel_text": false,
+        "condensed": false,
+        "label_left": -1.59375,
+        "label_right": 26.59375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 3.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mpeg4": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
-        "condensed": true,
-        "label_left": 2,
-        "label_right": 24,
-        "frame_gaps": true
+        "native_pixel_text": false,
+        "condensed": false,
+        "label_left": -2.0,
+        "label_right": 27.0,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 3.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mpg": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.25,
+        "label_right": 21.75,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mts": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.65625,
+        "label_right": 21.34375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "mux": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 21,
-        "frame_gaps": true
+        "label_left": 2.90625,
+        "label_right": 22.09375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "ogg": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.0,
+        "label_right": 22.0,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "opus": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 1.28125,
+        "label_right": 23.71875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "pdf": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.96875,
+        "label_right": 20.03125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "pic": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 7,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 6.40625,
+        "label_right": 18.59375,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "png": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 3.96875,
+        "label_right": 21.03125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "ppt": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 19,
-        "frame_gaps": false
+        "label_left": 4.875,
+        "label_right": 20.125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "pptx": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 1.65625,
+        "label_right": 23.34375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "psd": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.625,
+        "label_right": 20.375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "py": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 8,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 7.28125,
+        "label_right": 17.71875,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "rar": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.59375,
+        "label_right": 21.40625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "raw": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 1.78125,
+        "label_right": 23.21875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "rm": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 6.125,
+        "label_right": 18.875,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "rmvb": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2,
-        "label_right": 23,
-        "frame_gaps": true
+        "label_left": 0.125,
+        "label_right": 24.875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "rtf": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.9375,
+        "label_right": 20.0625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "seed": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 2.625,
+        "label_right": 22.375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "sh": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 8,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 7.375,
+        "label_right": 17.625,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "sql": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.28125,
+        "label_right": 20.71875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "sqlite": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
-        "condensed": true,
-        "label_left": 2,
-        "label_right": 24,
-        "frame_gaps": true
+        "native_pixel_text": false,
+        "condensed": false,
+        "label_left": -1.96875,
+        "label_right": 26.96875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 3.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "svg": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 3.875,
+        "label_right": 21.125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "tar": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.6875,
+        "label_right": 21.3125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "tgz": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.90625,
+        "label_right": 21.09375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "tiff": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.625,
+        "label_right": 20.375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "tmp": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.59375,
+        "label_right": 21.40625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "toml": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 0.375,
+        "label_right": 24.625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "ts": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 8,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 7.5625,
+        "label_right": 17.4375,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "frame_gap_padding": 0,
+        "label_center": 12.5,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "ttc": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": false
+        "label_left": 4.34375,
+        "label_right": 20.65625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "ttf": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 19,
-        "frame_gaps": false
+        "label_left": 5.03125,
+        "label_right": 19.96875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "txt": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 19,
-        "frame_gaps": false
+        "label_left": 4.03125,
+        "label_right": 20.96875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "vcd": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.5625,
+        "label_right": 21.4375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "voc": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.1875,
+        "label_right": 21.8125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "wav": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 1.40625,
+        "label_right": 23.59375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "webm": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
-        "condensed": true,
-        "label_left": 2,
-        "label_right": 24,
-        "frame_gaps": true
+        "native_pixel_text": false,
+        "condensed": false,
+        "label_left": -0.65625,
+        "label_right": 25.65625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 2.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "webp": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2,
-        "label_right": 24,
-        "frame_gaps": true
+        "label_left": 0.625,
+        "label_right": 24.375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "wma": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 0.84375,
+        "label_right": 24.15625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "wmf": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 2.09375,
+        "label_right": 22.90625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "wmv": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 0.96875,
+        "label_right": 24.03125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "wps": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 21,
-        "frame_gaps": true
+        "label_left": 3.03125,
+        "label_right": 21.96875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "xls": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 6,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 4.9375,
+        "label_right": 20.0625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "xlsm": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 1.03125,
+        "label_right": 23.96875,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "xlsx": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 1.71875,
+        "label_right": 23.28125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "xltm": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 0.71875,
+        "label_right": 24.28125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "xltx": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 1.40625,
+        "label_right": 23.59375,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "xml": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.59375,
+        "label_right": 21.40625,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "xz": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 8,
-        "label_right": 17,
-        "frame_gaps": false
+        "label_left": 6.78125,
+        "label_right": 18.21875,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "yaml": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2,
-        "label_right": 22,
-        "frame_gaps": true
+        "label_left": 0.25,
+        "label_right": 24.75,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "yml": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 5,
-        "label_right": 20,
-        "frame_gaps": true
+        "label_left": 3.71875,
+        "label_right": 21.28125,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "z": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 10,
-        "label_right": 15,
-        "frame_gaps": false
+        "label_left": 10.0,
+        "label_right": 15.0,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       },
       "zip": {
-        "font_size": 10,
-        "cap_height": 7,
+        "font_size": 9,
+        "cap_height": 6.3125,
         "baseline": 16,
-        "native_pixel_text": true,
+        "native_pixel_text": false,
         "condensed": false,
-        "label_left": 7,
-        "label_right": 18,
-        "frame_gaps": false
+        "label_left": 6.3125,
+        "label_right": 18.6875,
+        "frame_gaps": false,
+        "character_gap": 1,
+        "label_center": 12.5,
+        "frame_gap_padding": 0,
+        "canvas_padding": 0.0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
+      },
+      "none": {
+        "label_left": 0.75,
+        "label_right": 24.25,
+        "frame_gaps": true,
+        "character_gap": 1,
+        "condensed": false,
+        "label_center": 12.5,
+        "frame_gap_padding": 2,
+        "canvas_padding": 1.0,
+        "font_size": 9,
+        "cap_height": 6.3125,
+        "native_pixel_text": false,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": true,
+        "text_colour": "#222222"
       }
     },
     "overlap_rule": "If actual label bounds meet either side of the frame, open matching gaps on both sides; otherwise keep both sides complete. Independent of label length.",
     "circle": {
-      "x": 1.5,
+      "x": 5,
       "y": 4.5,
       "diameter": 15,
       "base_canvas": 24
