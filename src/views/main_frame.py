@@ -145,7 +145,11 @@ class MainFrame(wx.Frame):
         self.SetMenuBar(self.menuBar)
 
     def _createToolBar(self):
-        self.toolBar = self.CreateToolBar(style=wx.TB_DEFAULT_STYLE)
+        if wx.Platform == '__WXMAC__':
+            from src.views.components.toolbar import ContentToolBar
+            self.toolBar = ContentToolBar(self)
+        else:
+            self.toolBar = self.CreateToolBar(style=wx.TB_DEFAULT_STYLE)
         self.toolBar.SetToolBitmapSize(self.toolBar.FromDIP(wx.Size(24, 24)))
         self.toolBar.SetToolPacking(self.toolBar.FromDIP(4))
         self.toolBar.SetToolSeparation(self.toolBar.FromDIP(8))
@@ -246,7 +250,8 @@ class MainFrame(wx.Frame):
         self.mcTree = dv.DataViewCtrl(panel, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
         # Windows 下原生 RendererNative 不能通过 Python 重写其绘制回调。
         # 在列表内部窗口的原生绘制结束后统一替换选中边框。
-        self.mcTree.GetMainWindow().Bind(wx.EVT_PAINT, self.OnTaskListPaint)
+        if wx.Platform == '__WXMSW__':
+            self.mcTree.GetMainWindow().Bind(wx.EVT_PAINT, self.OnTaskListPaint)
         self.mcTree.AssociateModel(self.model)
         self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
         self._UpdateFilterCount()
@@ -291,6 +296,11 @@ class MainFrame(wx.Frame):
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND|wx.ALL, border=0)
         # 设置面板的sizer
         panel.SetSizer(sizer)
+        if wx.Platform == '__WXMAC__':
+            frameSizer = wx.BoxSizer(wx.VERTICAL)
+            frameSizer.Add(self.toolBar, flag=wx.EXPAND)
+            frameSizer.Add(panel, proportion=1, flag=wx.EXPAND)
+            self.SetSizer(frameSizer)
 
     def OnTaskListPaint(self, event):
         """先同步完成原生列表绘制，再覆盖黑色焦点边框，避免延迟补画闪烁。"""
