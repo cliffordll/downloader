@@ -529,8 +529,25 @@ class TaskProgressTests(unittest.TestCase):
                 if width in layouts:
                     self.assertEqual(columns, layouts[width])
                 layouts[width] = columns
-            for normal, expanded in zip(layouts[1024], layouts[1400]):
-                self.assertGreater(expanded, normal)
+            for index, (normal, expanded) in enumerate(zip(layouts[1024], layouts[1400])):
+                if wx.Platform == '__WXMAC__' and index != 1:
+                    self.assertEqual(expanded, normal)
+                else:
+                    self.assertGreater(expanded, normal)
+            if wx.Platform == '__WXMAC__':
+                self.assertLessEqual(layouts[1024][0], frame.FromDIP(50))
+                self.assertGreaterEqual(layouts[1024][1], frame.FromDIP(180))
+                self.assertLess(layouts[1024][6], frame.FromDIP(240))
+                dc = wx.ClientDC(frame.mcTree)
+                dc.SetFont(frame.mcTree.GetFont())
+                self.assertGreaterEqual(layouts[1024][2], frame.FromDIP(180))
+                self.assertGreaterEqual(layouts[1024][2],
+                                        dc.GetTextExtent(frame.model.TaskInfo(0)['progress'])[0]
+                                        + frame.FromDIP(20))
+                buttons = frame._actionRenderer._ActionRects(wx.Rect(0, 0, layouts[1024][6], 24))
+                for label in ('开始', '暂停', '继续', '重试', '删除', '展开', '折叠', '更多', '录制', '停止'):
+                    self.assertGreaterEqual(min(rect.width for rect in buttons),
+                                            dc.GetTextExtent(label)[0] + frame.FromDIP(8))
             with patch.object(frame.mcTree, 'GetColumn') as get_column:
                 frame._FitTaskColumns()
                 frame._FitTaskColumns()
@@ -539,6 +556,59 @@ class TaskProgressTests(unittest.TestCase):
                 frame.OnTaskProgress(None)
                 frame.OnTaskProgress(None)
                 fit.assert_not_called()
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    @unittest.skipUnless(wx.Platform == '__WXMAC__', 'Cocoa 原生列间距')
+    def test_mac_action_column_stays_inside_visible_table_after_show(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            frame.Show()
+            for width in (1024, 1400, 1024):
+                frame.SetSize(frame.FromDIP(wx.Size(width, 700)))
+                self.app.Yield()
+                frame._FitShownTaskColumns()
+                dc = wx.ClientDC(frame.mcTree)
+                dc.SetFont(frame.mcTree.GetFont())
+                for digit in '0123456789':
+                    date = f'{digit * 4}-{digit * 2}-{digit * 2} {digit * 2}:{digit * 2}'
+                    self.assertGreaterEqual(frame.mcTree.GetColumn(5).GetWidth(),
+                                            dc.GetTextExtent(date)[0] + frame.FromDIP(12))
+                item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+                rect = frame.mcTree.GetItemRect(item, frame.mcTree.GetColumn(6))
+                self.assertGreater(rect.width, 0)
+                self.assertLessEqual(rect.x + rect.width, frame.mcTree.GetClientSize().width)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_close_stops_timers_before_native_destruction_and_ignores_queued_callbacks(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            frame._searchTimer.StartOnce(500)
+            def inspect_before_destroy(window):
+                self.assertTrue(window._closing)
+                self.assertFalse(window._progressTimer.IsRunning())
+                self.assertFalse(window._searchTimer.IsRunning())
+                return True
+            with patch.object(frame.runner, 'shutdown') as shutdown:
+                with patch.object(wx.Frame, 'Destroy', new=inspect_before_destroy):
+                    frame.Destroy()
+                    frame.OnClose(SimpleNamespace(Skip=lambda: None))
+                shutdown.assert_called_once()
+            with patch.object(frame, '_SyncDownloads') as sync, \
+                    patch.object(frame, '_SearchItems') as search, \
+                    patch.object(frame.mcTree, 'GetColumn') as column:
+                frame.OnTaskProgress(None)
+                frame.OnSearchTimer(None)
+                frame._FitTaskColumns()
+                frame._FitShownTaskColumns()
+                sync.assert_not_called()
+                search.assert_not_called()
+                column.assert_not_called()
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()

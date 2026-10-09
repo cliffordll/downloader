@@ -29,10 +29,11 @@ class MainFrame(wx.Frame):
     def __init__(self, parent, title, task_service: TaskService, initial_tree: TreeData):
         # super(MyFrame, self).__init__(parent, title=title)
         super().__init__(parent, title=title)
+        self._closing = False
         # 窗口、下载器和添加任务弹窗共享入口创建的服务，列表模型不持有业务服务。
         self.tasks = task_service
         self.SetSize(width=1024, height=700)
-        self.SetMinSize(self.FromDIP(wx.Size(780, 420)))
+        self.SetMinSize(self.FromDIP(wx.Size(1024 if wx.Platform == '__WXMAC__' else 780, 420)))
         
         self.SetIcons(app_icons())
         set_titlebar_icon(self)
@@ -64,6 +65,7 @@ class MainFrame(wx.Frame):
         self._progressTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnTaskProgress, self._progressTimer)
         self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
+        self.Bind(wx.EVT_CLOSE, self.OnClose)
         self._progressTimer.Start(500)
 
         self.Center()
@@ -74,7 +76,7 @@ class MainFrame(wx.Frame):
         wx.CallAfter(self._UpdateTitlebarIcon)
 
     def _UpdateTitlebarIcon(self):
-        if self and not self.IsBeingDeleted():
+        if not self._closing and self and not self.IsBeingDeleted():
             set_titlebar_icon(self)
 
     def _createMenuBar(self):
@@ -268,10 +270,11 @@ class MainFrame(wx.Frame):
         self.mcTree.AppendTextColumn("文件大小", 2, width=90, align=wx.ALIGN_RIGHT)
         self.mcTree.AppendTextColumn("修改时间", 3, width=130)
         self._actionRenderer = TaskActionRenderer(self)
+        initial_action_width = self.FromDIP(200 if wx.Platform == '__WXMAC__' else 240)
         actionColumn = dv.DataViewColumn("操作", self._actionRenderer, 4,
-                                       width=self.FromDIP(240), align=wx.ALIGN_CENTER)
+                                       width=initial_action_width, align=wx.ALIGN_CENTER)
         # Mac 原生控件在首次布局时会重新调整列宽，必须同时约束原生最小宽度。
-        actionColumn.SetMinWidth(self.FromDIP(240))
+        actionColumn.SetMinWidth(initial_action_width)
         self.mcTree.AppendColumn(actionColumn)
         for index in range(self.mcTree.GetColumnCount()):
             column = self.mcTree.GetColumn(index)
@@ -357,7 +360,7 @@ class MainFrame(wx.Frame):
             wx.CallAfter(self._FitShownTaskColumns)
 
     def _FitShownTaskColumns(self):
-        if not self or self.IsBeingDeleted():
+        if self._closing or not self or self.IsBeingDeleted():
             return
         # 初次原生布局可能改变列宽，但控件整体尺寸不变，不能沿用显示前的缓存。
         self._columnSizeKey = None
@@ -367,6 +370,8 @@ class MainFrame(wx.Frame):
 
     def OnTaskListSize(self, event):
         event.Skip()
+        if self._closing:
+            return
         if not getattr(self, '_columnFitPending', False):
             self._columnFitPending = True
             wx.CallAfter(self._FitTaskColumns)
@@ -381,7 +386,7 @@ class MainFrame(wx.Frame):
         # 本次延迟调整开始执行，允许后续尺寸变化再次安排调整。
         self._columnFitPending = False
         # CallAfter 执行时窗口可能已经关闭，此时不能再访问原生控件。
-        if not self or not self.mcTree:
+        if self._closing or not self or self.IsBeingDeleted() or not self.mcTree:
             return
         # 按最宽编号预留文字、两级树缩进和留白；不遍历所有分片文本。
         font = wx.Font(self.mcTree.GetFont())
@@ -397,33 +402,64 @@ class MainFrame(wx.Frame):
         indent = max(self.mcTree.GetIndent(), self.FromDIP(16))
         sequence_width = max(self.FromDIP(50), dc.GetTextExtent(label)[0]
                              + indent * (2 if child_count else 1) + self.FromDIP(12))
+        if wx.Platform == '__WXMAC__':
+            # 使用 Cocoa 的实际树缩进，避免额外放大编号列的留白。
+            sequence_width = max(self.FromDIP(40), dc.GetTextExtent(label)[0]
+                                 + self.mcTree.GetIndent() * (2 if child_count else 1)
+                                 + self.FromDIP(6))
         # 编号位数也参与缓存，新增任务或刷新后即使窗口尺寸不变也能重新适配。
         font.SetWeight(wx.FONTWEIGHT_NORMAL)
         dc.SetFont(font)
         action_width = self._actionRenderer.MinimumWidth(dc)
-        size_key = (self.mcTree.GetSize().width, self.FromDIP(100), sequence_width, action_width)
+        progress_width = self.FromDIP(180)
+        if wx.Platform == '__WXMAC__':
+            progress_labels = [self.model.TaskInfo(index)['progress']
+                               for index in range(len(self.model.fileTree.items))]
+            progress_labels.append(f'100% · {child_count}/{child_count}')
+            progress_width = max(progress_width,
+                                 max(dc.GetTextExtent(text)[0] for text in progress_labels)
+                                 + self.FromDIP(20))
+        date_width = self.FromDIP(125)
+        if wx.Platform == '__WXMAC__':
+            # 按当前字体最宽的数字测量完整日期，留出文本单元格的左右边距。
+            text_width = max(dc.GetTextExtent(
+                f'{digit * 4}-{digit * 2}-{digit * 2} {digit * 2}:{digit * 2}')[0]
+                for digit in '0123456789')
+            date_width = max(date_width, text_width + self.FromDIP(12))
+        size_key = (self.mcTree.GetSize().width, self.FromDIP(100), sequence_width,
+                    action_width, date_width, progress_width)
         if getattr(self, '_columnSizeKey', None) == size_key:
             return
         # 预留垂直滚动条和边框空间，避免滚动条出现后把最后一列挤出可视区域。
         # 使用控件整体宽度，避免滚动条改变客户区宽度后触发列宽来回调整。
+        # Cocoa 原生表格在列宽之外为每列增加 17 DIP 的单元格间距。
+        # GetWidth 不包含这些间距，必须一起预留，否则末列仍会越过可视区域。
+        column_spacing = (self.FromDIP(17) * self.mcTree.GetColumnCount()
+                          if wx.Platform == '__WXMAC__' else 0)
         available = (self.mcTree.GetSize().width
                      - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
-                     - self.FromDIP(4))
+                     - self.FromDIP(4) - column_spacing)
         if available <= 0:
             return
         self._columnSizeKey = size_key
         # 按界面显示顺序：序列、文件名、下载进度、状态、文件大小、修改时间、操作。
         # 数字是 DIP，由 FromDIP 按系统缩放换算；文件名的 0 是占位，下面补入剩余宽度。
         widths = [self.FromDIP(value) for value in (50, 0, 180, 80, 85, 125, 200)]
+        if wx.Platform == '__WXMAC__':
+            # 辅助信息列保持紧凑，把可用空间优先留给文件名。
+            widths[2:5] = [progress_width, self.FromDIP(65), self.FromDIP(70)]
         widths[0] = sequence_width
+        widths[5] = date_width
         widths[-1] = action_width
         # 默认窗口的可用宽度是比例分配的基准，不随最大化/还原反复改变。
         baseline = (self._defaultTaskWidth
                     - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
-                    - self.FromDIP(4))
+                    - self.FromDIP(4) - column_spacing)
         # 不超过默认宽度时，其他列保持基准值，剩余空间交给文件名列。
         widths[1] = max(self.FromDIP(80), min(available, baseline) - sum(widths))
-        if available > baseline > 0:
+        if wx.Platform == '__WXMAC__' and available > baseline > 0:
+            widths[1] += available - baseline
+        elif available > baseline > 0:
             # 以默认布局为基准按比例分配，不把额外空间全部留给文件名。
             # 相邻边界取差，避免整数取整后列宽之和超出窗口。
             total = sum(widths)
@@ -437,9 +473,14 @@ class MainFrame(wx.Frame):
         if sum(widths) > available:
             # 窄窗口先缩短进度/状态/体积/日期，保留编号、文件名和操作的可读宽度。
             remaining = available - widths[0] - widths[1] - widths[-1]
-            if remaining >= 4:
-                total = sum(widths[2:6])
-                widths[2:6] = [max(1, value * remaining // total) for value in widths[2:6]]
+            flexible_end = 5 if wx.Platform == '__WXMAC__' else 6
+            if flexible_end == 5:
+                # Mac 日期列保留完整时间所需宽度，压缩其余信息列。
+                remaining -= widths[5]
+            if remaining >= flexible_end - 2:
+                total = sum(widths[2:flexible_end])
+                widths[2:flexible_end] = [max(1, value * remaining // total)
+                                          for value in widths[2:flexible_end]]
             else:
                 # 初始化时控件可能暂时小于窗口最小尺寸，待布局完成后重新适配。
                 self._columnSizeKey = None
@@ -458,16 +499,37 @@ class MainFrame(wx.Frame):
             # 与 Freeze 配对；放在 finally 中，确保调整过程出错时也能恢复界面刷新。
             self.mcTree.Thaw()
 
-    def OnDestroy(self, event):
-        if event.GetEventObject() is self:
-            self._progressTimer.Stop()
-            self._searchTimer.Stop()
+    def _PrepareClose(self):
+        if self._closing:
+            return
+        self._closing = True
+        # Cocoa 的销毁通知晚于部分原生控件清理，必须在开始销毁前停表。
+        for name in ('_progressTimer', '_searchTimer'):
+            timer = getattr(self, name, None)
+            if timer is not None:
+                timer.Stop()
+        self.Unbind(wx.EVT_TIMER)
+        if hasattr(self, 'runner'):
             self.runner.shutdown(task.task_id for task in self.model.fileTree.items
                                  if task.task_id and task.task_status == TaskStatus.MERGING)
+
+    def OnClose(self, event):
+        self._PrepareClose()
+        event.Skip()
+
+    def Destroy(self):
+        self._PrepareClose()
+        return super().Destroy()
+
+    def OnDestroy(self, event):
+        if event.GetEventObject() is self:
+            self._PrepareClose()
         event.Skip()
 
     def OnTaskProgress(self, event, notify=True):
         """启动只建立缓存；后续只刷新变化的单元格，不反复使整行和全部表头失效。"""
+        if self._closing:
+            return
         self._SyncDownloads()
         display = {}
         for index, task in enumerate(self.model.fileTree.items):
@@ -906,6 +968,8 @@ class MainFrame(wx.Frame):
 
     def OnSearchTimer(self, event):
         """计时结束时只搜索最新输入；清空输入或关闭窗口会取消计时。"""
+        if self._closing:
+            return
         self._SearchItems(self._searchText)
 
     def OnExpandAll(self, event):
@@ -1018,7 +1082,7 @@ class MainFrame(wx.Frame):
         wx.CallAfter(self._ShowTaskPopup, identity, action_id)
 
     def _ShowTaskPopup(self, identity, action_id):
-        if not self or self.IsBeingDeleted():
+        if self._closing or not self or self.IsBeingDeleted():
             return
         # 延迟期间可能刷新或删除任务，按身份重新定位，不能沿用旧行号。
         for index, task in enumerate(self.model.fileTree.items):

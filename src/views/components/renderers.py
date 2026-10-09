@@ -156,6 +156,9 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         """按五项操作的最长文字预留间距，以及原生单元格的左右留白。"""
         labels = ('开始', '暂停', '继续', '重试', '删除', '展开', '折叠', '更多', '录制', '停止')
         text_width = max(dc.GetTextExtent(label)[0] for label in labels)
+        if wx.Platform == '__WXMAC__':
+            return max(self.frame.FromDIP(200),
+                       5 * (text_width + self.frame.FromDIP(8)) + self.frame.FromDIP(16))
         return max(self.frame.FromDIP(240),
                    5 * (text_width + self.frame.FromDIP(16)) + self.frame.FromDIP(16))
 
