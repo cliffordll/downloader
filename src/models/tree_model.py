@@ -175,6 +175,31 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         }
 
 
+    def ChildStatus(self, index, child_index, snapshot=None):
+        """文件子行只展示自身状态；MP4 临时文件与任务共享状态。"""
+        task = self.fileTree.items[index]
+        if task.task_type == TaskType.MP4:
+            return self.TaskInfo(index)['status']
+        if child_index < len(task.outputs):
+            return '已完成'
+        child = task.childs[child_index - len(task.outputs)]
+        if child.fileSize != '-' or child.status == FileStatus.COMPLETED:
+            return '已完成'
+        snapshot = M3U8Downloader.Snapshot() if snapshot is None else snapshot
+        key = M3U8Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
+        paused = snapshot['paused'] or key in snapshot['paused_files']
+        if key in snapshot['requesting']:
+            return '暂停中' if paused else '下载中'
+        if key in snapshot['pending']:
+            return '已暂停' if paused else '等待下载'
+        if key in snapshot['failed'] or child.status == FileStatus.FAILED:
+            return '下载失败'
+        if task.task_status in (TaskStatus.PAUSED, TaskStatus.PAUSING):
+            return '已暂停'
+        if task.task_status == TaskStatus.INTERRUPTED:
+            return '已中断'
+        return '文件缺失' if child.status == FileStatus.MISSING else '未开始'
+
     def TaskActions(self, index):
         """自定义方法：按任务类型返回操作的 id、显示文字和可用状态。
 
@@ -379,8 +404,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         objs = self.ParseKey(keys)
         # print("GetValue keys:", keys)
         if col in (5, 6):
-            if len(objs) != 1 and self.fileTree.items[objs[0]].task_type != TaskType.MP4:
-                return ''
+            if len(objs) == 2:
+                return '' if col == 5 else self.ChildStatus(objs[0], objs[1])
             info = self.TaskInfo(objs[0])
             return info['progress'] if col == 5 else info['status']
         if len(objs) == 1:

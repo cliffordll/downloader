@@ -41,6 +41,51 @@ class TaskProgressTests(unittest.TestCase):
         self.addCleanup(self.model.DecRef)
         self.key = M3U8Downloader.FileKey(PathManager.GetAbsPath('task/b.ts'))
 
+    def test_segment_rows_show_only_their_own_status(self):
+        complete = self.model.ObjectToItem(self.model._BuildKey((0, 0)))
+        pending = self.model.ObjectToItem(self.model._BuildKey((0, 1)))
+        self.assertEqual(self.model.GetValue(complete, 5), '')
+        self.assertEqual(self.model.GetValue(complete, 6), '已完成')
+        self.assertEqual(self.model.GetValue(pending, 6), '未开始')
+        M3U8Downloader._pending.add(self.key)
+        self.assertEqual(self.model.GetValue(pending, 6), '等待下载')
+        M3U8Downloader._requesting.add(self.key)
+        self.assertEqual(self.model.GetValue(pending, 6), '下载中')
+        M3U8Downloader.Pause()
+        self.assertEqual(self.model.GetValue(pending, 6), '暂停中')
+        M3U8Downloader._requesting.clear()
+        self.assertEqual(self.model.GetValue(pending, 6), '已暂停')
+        M3U8Downloader.Resume()
+        M3U8Downloader._pending.clear()
+        M3U8Downloader._failed.add(self.key)
+        self.assertEqual(self.model.GetValue(pending, 6), '下载失败')
+        self.assertEqual(self.model.GetValue(pending, 5), '')
+
+    def test_expanded_segment_status_refreshes_when_parent_status_is_unchanged(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            root = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+            frame.mcTree.Expand(root)
+            self.task.childs[0].fileSize = '-'
+            first_key = M3U8Downloader.FileKey(PathManager.GetAbsPath('task/a.ts'))
+            M3U8Downloader._pending.update({self.key, first_key})
+            M3U8Downloader._requesting.add(first_key)
+            frame.OnTaskProgress(None)
+            parent_status = frame.model.TaskInfo(0)['status']
+            child = frame.model.ObjectToItem(frame.model._BuildKey((0, 1)))
+            with patch.object(frame.model, 'ValueChanged') as changed:
+                M3U8Downloader._requesting.add(self.key)
+                frame.OnTaskProgress(None)
+                self.assertEqual(frame.model.TaskInfo(0)['status'], parent_status)
+                self.assertTrue(any(call.args == (child, 6) for call in changed.call_args_list))
+            with patch.object(frame.model, 'ValueChanged') as changed:
+                frame.OnTaskProgress(None)
+                changed.assert_not_called()
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_progress_and_pause_transitions(self):
         self.assertEqual(self.model.TaskInfo(0)['progress'], '50% · 1/2')
         self.assertEqual(self.model.TaskInfo(0)['status'], '待继续')

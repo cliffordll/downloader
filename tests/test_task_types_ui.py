@@ -312,6 +312,7 @@ class TaskTypesUITests(unittest.TestCase):
         self.assertEqual(model.GetValue(child, 1), 'video.part')
         self.assertEqual(model.GetValue(child, 2), '5.00 B')
         self.assertEqual(model.GetValue(child, 6), '已暂停')
+        self.assertEqual(model.GetValue(child, 5), '')
         target = task.save_dir / task.details.target_path
         target.parent.mkdir()
         partial.rename(target)
@@ -319,6 +320,7 @@ class TaskTypesUITests(unittest.TestCase):
         model.ApplyTaskRecord(self.repo.get(task.id))
         self.assertEqual(model.GetValue(child, 1), 'nested/video.mp4')
         self.assertEqual(model.GetValue(child, 6), '已完成')
+        self.assertEqual(model.GetValue(child, 5), '')
         self.assertEqual(model.GetValue(child, 4), '')
 
     def test_segment_and_merge_operations_reject_single_file_tasks(self):

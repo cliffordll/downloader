@@ -532,6 +532,8 @@ class MainFrame(wx.Frame):
             return
         self._SyncDownloads()
         display = {}
+        child_display = {}
+        snapshot = M3U8Downloader.Snapshot()
         for index, task in enumerate(self.model.fileTree.items):
             self._QueueDurationCheck(task)
             info = self.model.TaskInfo(index)
@@ -543,9 +545,19 @@ class MainFrame(wx.Frame):
                 for field, column in enumerate((5, 6, 4)):
                     if previous is None or previous[field] != state[field]:
                         self.model.ValueChanged(item, column)
+            root = self.model.ObjectToItem(self.model._BuildKey((index,)))
+            if self.mcTree.IsExpanded(root):
+                for child_index in range(len(task.outputs) + len(task.childs)):
+                    key = (task.parent.fileName, child_index)
+                    child_status = self.model.ChildStatus(index, child_index, snapshot)
+                    child_display[key] = child_status
+                    if notify and getattr(self, '_child_status_display', {}).get(key) != child_status:
+                        child = self.model.ObjectToItem(self.model._BuildKey((index, child_index)))
+                        self.model.ValueChanged(child, 6)
         status_changed = any(self._task_display.get(key, ('', ''))[1] != state[1]
                              for key, state in display.items())
         self._task_display = display
+        self._child_status_display = child_display
         if status_changed and self.statusFilter.GetSelection() > 0:
             self._ApplyTaskFilter()
 
