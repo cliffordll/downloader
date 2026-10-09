@@ -267,21 +267,33 @@ class TaskProgressTests(unittest.TestCase):
         try:
             self.assertEqual([frame.menuBar.GetMenuLabelText(i) for i in range(4)],
                              ['文件', '任务', '查看', '帮助'])
+            view_labels = ['全部展开', '全部折叠', '刷新', '查找', '默认展开任务']
+            if wx.Platform != '__WXMAC__':
+                view_labels.append('显示工具栏')
+            view_labels.append('显示状态栏')
             for index, expected in enumerate((
                 ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '退出'],
                 ['全部暂停', '全部继续'],
-                ['全部展开', '全部折叠', '刷新', '查找', '默认展开任务', '显示工具栏', '显示状态栏'],
+                view_labels,
                 ['使用说明', '关于'],
             )):
                 labels = [item.GetItemLabelText() for item in frame.menuBar.GetMenu(index).GetMenuItems()
                           if not item.IsSeparator()]
                 self.assertEqual(labels, expected)
             if wx.Platform == '__WXMAC__':
-                tools = [frame.toolBar.FindToolByIndex(i).GetLabel()
-                         for i in range(frame.toolBar.GetToolCount())]
-            else:
-                tools = [frame.toolBar.GetToolByPos(i).GetLabel()
-                         for i in range(frame.toolBar.GetToolsCount())]
+                self.assertIsNone(frame.toolBar)
+                self.assertIsNone(frame.GetToolBar())
+                self.assertIsNone(frame.showToolItem)
+                M3U8Downloader._pending.add(self.key)
+                frame._UpdatePauseTool()
+                self.assertEqual(frame._GlobalDownloadActions(), (True, False))
+                frame.OnPauseAllDownloads(None)
+                self.assertEqual(frame._GlobalDownloadActions(), (False, True))
+                frame.OnResumeAllDownloads(None)
+                self.assertEqual(frame._GlobalDownloadActions(), (True, False))
+                return
+            tools = [frame.toolBar.GetToolByPos(i).GetLabel()
+                     for i in range(frame.toolBar.GetToolsCount())]
             for label in ('全部展开', '全部折叠', '全部暂停', '刷新', '设置'):
                 self.assertIn(label, tools)
             self.assertFalse(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
@@ -315,7 +327,8 @@ class TaskProgressTests(unittest.TestCase):
             frame.OnResumeAllDownloads(None)
             M3U8Downloader.PauseFiles({self.key, other})
             frame._UpdatePauseTool()
-            self.assertEqual(frame._pauseTool.GetLabel(), '全部继续')
+            if frame.toolBar is not None:
+                self.assertEqual(frame._pauseTool.GetLabel(), '全部继续')
             frame.OnPauseDownloads(None)
             self.assertEqual(frame._GlobalDownloadActions(), (True, False))
             self.assertEqual([item.GetItemLabelText() for item in frame.menuBar.GetMenu(1).GetMenuItems()],

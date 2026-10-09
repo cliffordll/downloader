@@ -125,9 +125,11 @@ class MainFrame(wx.Frame):
         self.defaultExpandItem.Check(SysSetting.GetAll()['default_expand_tasks'])
         self.Bind(wx.EVT_MENU, self.OnDefaultExpandTasks, self.defaultExpandItem)
         viewMenu.AppendSeparator()
-        self.showToolItem   = viewMenu.Append(wx.ID_ANY, "显示工具栏", kind=wx.ITEM_CHECK)
+        self.showToolItem = None
+        if wx.Platform != '__WXMAC__':
+            self.showToolItem = viewMenu.Append(wx.ID_ANY, "显示工具栏", kind=wx.ITEM_CHECK)
+            self.Bind(wx.EVT_MENU, self.OnToggleToolBar, self.showToolItem)
         self.showStatusItem = viewMenu.Append(wx.ID_ANY, "显示状态栏", kind=wx.ITEM_CHECK)
-        self.Bind(wx.EVT_MENU, self.OnToggleToolBar, self.showToolItem)
         self.Bind(wx.EVT_MENU, self.OnToggleStatusBar, self.showStatusItem)
 
         # 创建关于菜单
@@ -147,10 +149,9 @@ class MainFrame(wx.Frame):
 
     def _createToolBar(self):
         if wx.Platform == '__WXMAC__':
-            from src.views.components.toolbar import ContentToolBar
-            self.toolBar = ContentToolBar(self)
-        else:
-            self.toolBar = self.CreateToolBar(style=wx.TB_DEFAULT_STYLE)
+            self.toolBar = None
+            return
+        self.toolBar = self.CreateToolBar(style=wx.TB_DEFAULT_STYLE)
         self.toolBar.SetToolBitmapSize(self.toolBar.FromDIP(wx.Size(24, 24)))
 
         def add_tool(tool_id, label, icon):
@@ -303,7 +304,6 @@ class MainFrame(wx.Frame):
         panel.SetSizer(sizer)
         if wx.Platform == '__WXMAC__':
             frameSizer = wx.BoxSizer(wx.VERTICAL)
-            frameSizer.Add(self.toolBar, flag=wx.EXPAND)
             frameSizer.Add(panel, proportion=1, flag=wx.EXPAND)
             self.SetSizer(frameSizer)
 
@@ -777,6 +777,8 @@ class MainFrame(wx.Frame):
 
     def _UpdatePauseTool(self):
         """菜单和工具栏共用下载状态；状态未变时不重复设置位图，避免工具栏闪动。"""
+        if self.toolBar is None:
+            return
         can_pause, can_resume = self._GlobalDownloadActions()
         paused = not can_pause and can_resume
         enabled = can_pause or can_resume
@@ -804,6 +806,8 @@ class MainFrame(wx.Frame):
 
     def OnToggleToolBar(self, event):
         '''隐藏展示工具栏'''
+        if self.toolBar is None:
+            return
         self.toolBar.Show(self.showToolItem.IsChecked())
         self.SendSizeEvent()
 
@@ -845,7 +849,7 @@ class MainFrame(wx.Frame):
             '默认目录仅影响之后新建的任务，已有任务仍使用原目录，可在下载或合并期间修改。'
             '合并需要 FFmpeg，路径留空时先查找 scripts 目录，再查找系统 PATH。\n\n'
             '4. 界面显示\n'
-            '通过“查看”菜单显示或隐藏工具栏、状态栏。'
+            '通过“查看”菜单显示或隐藏状态栏；Windows 还可以显示或隐藏工具栏。'
             '下载窗口内的“？”可查看对应输入框的说明。'
         ))
 
