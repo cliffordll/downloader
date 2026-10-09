@@ -468,7 +468,9 @@ class TaskRuntimeTests(unittest.TestCase):
         with patch.object(frame.runner, 'start') as start:
             frame.OnResumeAllDownloads(None)
             start.assert_called_once_with(task.id)
-        self.assertFalse(frame.model.IsContainer(item))
+        self.assertTrue(frame.model.IsContainer(item))
+        children = []
+        self.assertEqual(frame.model.GetChildren(item, children), 1)
 
     def test_missing_completed_segment_downgrades_saved_progress(self):
         task = self.create()
