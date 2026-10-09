@@ -476,7 +476,7 @@ class MainFrame(wx.Frame):
         add('打开文件夹', lambda: self._OpenLocalPath(directory))
         if task.task_type == TaskType.MP4 and task.last_error:
             add('查看失败原因', lambda: self._ShowInformation('MP4 下载失败', task.last_error))
-        if task.outputs:
+        if task.outputs and (task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
             for output in task.outputs:
                 path = PathManager.GetAbsPath(output.fileName)
                 add('播放视频：' + Path(path).name, lambda path=path: self._OpenLocalPath(path))
@@ -668,6 +668,9 @@ class MainFrame(wx.Frame):
                             item = self.model.ObjectToItem(self.model._BuildKey((index, len(current.outputs) + offset)))
                             self.model.ItemChanged(item)
                     self._M3U8Changed(task_id)
+                elif record.type == TaskType.MP4:
+                    self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index, 0))))
+                    self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
                 elif record.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.PAUSED):
                     self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
             except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
@@ -784,7 +787,7 @@ class MainFrame(wx.Frame):
             '点击“全部暂停”可暂停全部分片任务；已发出的请求允许完成，此时显示“暂停中”。'
             '这些请求结束后显示“已暂停”。“全部继续”恢复排队分片和重启后的暂停/中断任务，暂停不影响 MP4 合并。\n'
             '重启保留进度和失败记录，不自动下载；中断的合并请重新选择“转 MP4”。\n\n'
-            'MP4 直链按字节显示进度，不展开分片。暂停保留临时文件，继续时由服务器决定是否可续传；'
+            'MP4 直链按字节显示进度，可展开查看下载文件。暂停保留临时文件，继续时由服务器决定是否可续传；'
             '不支持续传或文件已改变时从头下载。等待响应时暂停可能要等到网络超时。'
             '全部暂停/继续也包含 MP4，下载失败可在“更多”查看原因。\n\n'
             '3. 下载设置\n'

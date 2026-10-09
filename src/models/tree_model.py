@@ -26,9 +26,10 @@ def to_tree_item(task, previous=None):
         target = task.save_dir / task.details.target_path
         parent = _file(target, task.name, task.source_url)
         parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
-        # 单文件任务不创建子节点；完成文件仍供“更多 → 播放视频”使用。
         outputs = [_file(target, task.details.target_path)] if (
             task.status == TaskStatus.COMPLETED and target.is_file()) else []
+        if task.type == TaskType.MP4 and not outputs:
+            outputs = [_file(task.save_dir / task.details.temporary_path, task.details.temporary_path)]
         return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
                         progress=task.progress, task_status=task.status,
                         last_error=task.last_error, parent=parent, outputs=outputs)
@@ -182,6 +183,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         """
         task = self.fileTree.items[index]
         if task.task_type == TaskType.MP4:
+            tree = getattr(self.parent, 'mcTree', None)
+            item = self.ObjectToItem(self._BuildKey((index,)))
+            expanded = tree.IsExpanded(item) if tree is not None else False
             active = task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING)
             finished = task.task_status == TaskStatus.COMPLETED
             label = '暂停' if active else ('继续' if task.progress.downloaded_bytes or
@@ -190,6 +194,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 dict(id='start', label=label, enabled=not finished and task.task_status != TaskStatus.PAUSING),
                 dict(id='retry', label='重试', enabled=task.task_status == TaskStatus.FAILED),
                 dict(id='delete', label='删除', enabled=not active),
+                dict(id='toggle', label='折叠' if expanded else '展开', enabled=bool(task.outputs)),
                 dict(id='more', label='更多', enabled=True),
             ]
         if task.task_type != TaskType.M3U8:
@@ -282,7 +287,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     
     # 父类函数
     def IsContainer(self, item):
-        """重写：仅虚拟根和有子文件的 M3U8 可展开；MP4/RTMP 始终是单行。"""
+        """重写：M3U8 和 MP4 的文件可展开；RTMP 保持单行。"""
         if not item.IsOk():
             return True
         
@@ -291,7 +296,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         # print("IsContainer", keys)
         if len(objs) == 1:
             task = self.fileTree.items[objs[0]]
-            return task.task_type == TaskType.M3U8 and bool(task.childs or task.outputs)
+            return task.task_type in (TaskType.M3U8, TaskType.MP4) and bool(task.childs or task.outputs)
         elif len(objs) == 2:
             pass
         else:
@@ -323,7 +328,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         # print("GetChildren parent:", keys)
         if len(objs) == 1:
             idxi = objs[0]
-            if self.fileTree.items[idxi].task_type != TaskType.M3U8:
+            if self.fileTree.items[idxi].task_type not in (TaskType.M3U8, TaskType.MP4):
                 return 0
             # 处理 MP4　文件
             idxj = 0
@@ -372,7 +377,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         objs = self.ParseKey(keys)
         # print("GetValue keys:", keys)
         if col in (5, 6):
-            if len(objs) != 1:
+            if len(objs) != 1 and self.fileTree.items[objs[0]].task_type != TaskType.MP4:
                 return ''
             info = self.TaskInfo(objs[0])
             return info['progress'] if col == 5 else info['status']
@@ -399,7 +404,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             if coutputs > 0:
                 if idxj < coutputs:
                     if col == 0:
-                        return f"{idxi+1}.{idxj}"
+                        return f"{idxi+1}.{idxj+1}" if self.fileTree.items[idxi].task_type == TaskType.MP4 else f"{idxi+1}.{idxj}"
                     elif col == 1:
                         # print("#############33", objs, self.fileTree.items[idxi].outputs[idxj])
                         output = self.fileTree.items[idxi].outputs[idxj]
