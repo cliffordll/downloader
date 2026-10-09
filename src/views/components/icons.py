@@ -2,6 +2,7 @@
 from pathlib import Path
 import sys
 import wx
+import wx.adv
 import wx.svg
 
 ICON_ROOT = Path(__file__).resolve().parents[3] / "icons"
@@ -51,6 +52,25 @@ def app_icons():
     return bundle
 
 
+def create_dock_icon():
+    """源码运行时替换 Mac 的 Python Dock 图标；调用方持有对象直到退出。"""
+    if sys.platform != 'darwin':
+        return None
+    vector = wx.svg.SVGimage.CreateFromFile(str(ICON_ROOT / 'source/app/logo.svg'))
+    # Dock 画布保留透明边距，避免几乎铺满画布的 Logo 比邻近应用显得更大。
+    size = 512
+    content_size = round(size * 0.82)
+    margin = (size - content_size) / 2
+    bitmap = vector.ConvertToBitmap(tx=margin, ty=margin, scale=content_size / vector.width,
+                                    width=size, height=size)
+    icon = wx.Icon(bitmap)
+    dock = wx.adv.TaskBarIcon(iconType=wx.adv.TBI_DOCK)
+    if not dock.SetIcon(icon):
+        dock.Destroy()
+        raise OSError('无法设置 macOS Dock 图标')
+    return dock
+
+
 def set_titlebar_icon(window):
     """Windows 单独设置 ICON_SMALL，不改变 ICON_BIG 的任务栏 Logo。"""
     if sys.platform != 'win32':
@@ -78,5 +98,3 @@ def toolbar_icon(name):
     return wx.BitmapBundle.FromBitmaps([
         wx.Bitmap(icon_image(filename, size)) for size in ICON_SIZES
     ])
-
-

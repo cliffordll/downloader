@@ -37,8 +37,9 @@ class StartupTests(unittest.TestCase):
         app = stack.enter_context(patch('wx.App'))
         frame = stack.enter_context(patch('src.views.main_frame.MainFrame'))
         message = stack.enter_context(patch('wx.MessageBox'))
+        dock = stack.enter_context(patch('src.views.components.icons.create_dock_icon'))
         stack.enter_context(patch.object(M3U8Downloader, 'Shutdown'))
-        return app, frame, message
+        return app, frame, message, dock
 
     def test_entry_restores_tasks_once_before_creating_window(self):
         service = TaskService(TaskRepository(self.path))
@@ -52,7 +53,7 @@ class StartupTests(unittest.TestCase):
             return original_load(service)
 
         with ExitStack() as stack:
-            app, frame, message = self.run_entry(stack)
+            app, frame, message, dock = self.run_entry(stack)
             stack.enter_context(patch.object(TaskService, 'load_tasks', load))
             repository = stack.enter_context(patch('src.storage.task_repository.TaskRepository', wraps=TaskRepository))
             runpy.run_path(str(Path(__file__).resolve().parents[1] / 'main.py'), run_name='__main__')
@@ -64,12 +65,14 @@ class StartupTests(unittest.TestCase):
             self.assertEqual(tree.items[0].task_id, task.id)
             self.assertEqual(tree.items[0].task_status, TaskStatus.INTERRUPTED)
             app.return_value.MainLoop.assert_called_once()
+            dock.assert_called_once_with()
+            dock.return_value.Destroy.assert_called_once_with()
             message.assert_not_called()
 
     def test_database_failure_stops_startup_before_window_creation(self):
         for target in ('src.storage.task_repository.TaskRepository', 'src.core.task_service.TaskService.load_tasks'):
             with self.subTest(target=target), ExitStack() as stack:
-                app, frame, message = self.run_entry(stack)
+                app, frame, message, dock = self.run_entry(stack)
                 stack.enter_context(patch(target, side_effect=sqlite3.OperationalError('database unavailable')))
                 with self.assertRaises(SystemExit) as stopped:
                     runpy.run_path(str(Path(__file__).resolve().parents[1] / 'main.py'), run_name='__main__')
@@ -78,6 +81,7 @@ class StartupTests(unittest.TestCase):
                 app.return_value.MainLoop.assert_not_called()
                 message.assert_called_once()
                 self.assertIn('database unavailable', message.call_args.args[0])
+                dock.return_value.Destroy.assert_called_once_with()
 
     def test_window_uses_preloaded_tree_and_shared_service_without_database_access(self):
         service = TaskService(TaskRepository(self.path))
