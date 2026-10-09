@@ -42,13 +42,13 @@ class TaskTypesUITests(unittest.TestCase):
     def model(self):
         return MultiColumnTreeModel(load_tree(self.service))
 
-    def test_mixed_list_has_children_only_for_m3u8(self):
+    def test_mixed_list_has_children_for_m3u8_and_mp4(self):
         self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
                                  '#EXTM3U\n#EXTINF:4,\na.ts\n')
         self.mp4(progress=TaskProgress(downloaded_bytes=1024, total_bytes=2048))
         self.live(progress=TaskProgress(downloaded_bytes=1024, recorded_seconds=3661))
         model = self.model()
-        for index, expected in enumerate((True, False, False)):
+        for index, expected in enumerate((True, True, False)):
             item = model.ObjectToItem(model._BuildKey((index,)))
             self.assertEqual(model.IsContainer(item), expected)
             children = []
@@ -68,7 +68,7 @@ class TaskTypesUITests(unittest.TestCase):
             renderer.SetValue(label)
             self.assertEqual(renderer.percent, expected)
 
-    def test_leaf_action_click_uses_four_regions_and_task_dispatch(self):
+    def test_mp4_action_click_includes_toggle_and_task_dispatch(self):
         self.mp4()
         model = self.model()
         item = model.ObjectToItem(model._BuildKey((0,)))
@@ -76,11 +76,11 @@ class TaskTypesUITests(unittest.TestCase):
         renderer = TaskActionRenderer(frame)
         cell = wx.Rect(0, 0, 200, 24)
         actions = model.TaskActions(0)
-        self.assertEqual([a['id'] for a in actions], ['start', 'retry', 'delete', 'more'])
+        self.assertEqual([a['id'] for a in actions], ['start', 'retry', 'delete', 'toggle', 'more'])
         for action, rect in zip(actions, renderer._ActionRects(cell, len(actions))):
             mouse = Mock(GetPosition=Mock(return_value=wx.Point(rect.x + rect.width // 2, 12)))
             self.assertEqual(renderer.ActivateCell(cell, model, item, 4, mouse), action['enabled'])
-        self.assertEqual([call.args[1] for call in frame.OnTaskAction.call_args_list], ['start', 'delete', 'more'])
+        self.assertEqual([call.args[1] for call in frame.OnTaskAction.call_args_list], ['start', 'delete', 'toggle', 'more'])
         frame.OnSegmentDownload.assert_not_called()
 
     def test_manual_mouse_route_converts_coordinates_and_dispatches_once(self):
@@ -279,10 +279,11 @@ class TaskTypesUITests(unittest.TestCase):
             self.assertEqual(saved.progress, task.progress)
         self.repo.mutate(live.id, lambda task: setattr(task, 'status', TaskStatus.RECORDING))
         tree = load_tree(self.service)
-        self.assertEqual(tree.items[1].task_status, TaskStatus.RECORDING)
+        self.assertEqual(next(row for row in tree.items if row.task_id == live.id).task_status, TaskStatus.RECORDING)
         model = self.model()
-        self.assertEqual(model.TaskInfo(1)['status'], '录制中')
-        self.assertFalse(next(a for a in model.TaskActions(1) if a['id'] == 'delete')['enabled'])
+        index = next(i for i, row in enumerate(model.fileTree.items) if row.task_id == live.id)
+        self.assertEqual(model.TaskInfo(index)['status'], '录制中')
+        self.assertFalse(next(a for a in model.TaskActions(index) if a['id'] == 'delete')['enabled'])
 
     def test_existing_unfinished_file_is_not_treated_as_completed(self):
         task = self.mp4()
@@ -291,13 +292,34 @@ class TaskTypesUITests(unittest.TestCase):
         target.write_bytes(b'partial')
         row = load_tree(self.service).items[0]
         self.assertEqual(row.task_status, TaskStatus.NEW)
-        self.assertFalse(row.outputs)
+        self.assertEqual(row.outputs[0].displayName, 'video.part')
+        self.assertEqual(row.outputs[0].fileSize, '-')
         self.repo.mutate(task.id, lambda task: setattr(task, 'status', TaskStatus.COMPLETED))
         row = load_tree(self.service).items[0]
         self.assertEqual(len(row.outputs), 1)
         self.assertEqual(row.save_dir, task.save_dir)
         target.unlink()
         self.assertEqual(load_tree(self.service).items[0].task_status, TaskStatus.INTERRUPTED)
+
+    def test_mp4_child_tracks_partial_and_completed_file(self):
+        task = self.mp4(status=TaskStatus.PAUSED)
+        task.save_dir.mkdir()
+        partial = task.save_dir / task.details.temporary_path
+        partial.write_bytes(b'video')
+        model = self.model()
+        child = model.ObjectToItem(model._BuildKey((0, 0)))
+        self.assertEqual(model.GetValue(child, 0), '1.1')
+        self.assertEqual(model.GetValue(child, 1), 'video.part')
+        self.assertEqual(model.GetValue(child, 2), '5.00 B')
+        self.assertEqual(model.GetValue(child, 6), '已暂停')
+        target = task.save_dir / task.details.target_path
+        target.parent.mkdir()
+        partial.rename(target)
+        self.repo.mutate(task.id, lambda current: setattr(current, 'status', TaskStatus.COMPLETED))
+        model.ApplyTaskRecord(self.repo.get(task.id))
+        self.assertEqual(model.GetValue(child, 1), 'nested/video.mp4')
+        self.assertEqual(model.GetValue(child, 6), '已完成')
+        self.assertEqual(model.GetValue(child, 4), '')
 
     def test_segment_and_merge_operations_reject_single_file_tasks(self):
         for task in (self.mp4(), self.live()):
