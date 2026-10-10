@@ -401,6 +401,58 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
+    @unittest.skipUnless(wx.Platform == '__WXMAC__', 'Mac 行首箭头路径')
+    def test_mac_disclosure_uses_action_toggle_and_consumes_mouse_release(self):
+        frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            self.app.Yield()
+            tree = frame.mcTree
+            window = tree.GetMainWindow()
+            item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+            for expanded in (True, False, True, False):
+                cell = tree.GetItemRect(item, tree.GetColumn(0))
+                position = wx.Point(cell.x - frame.FromDIP(8), cell.y + cell.height // 2)
+                hit, column = tree.HitTest(position)
+                self.assertEqual(hit, item)
+                self.assertEqual(column.GetModelColumn(), 0)
+                with patch.object(frame, 'OnTaskAction', wraps=frame.OnTaskAction) as toggle:
+                    for kind in (wx.wxEVT_LEFT_DOWN, wx.wxEVT_LEFT_UP):
+                        event = wx.MouseEvent(kind)
+                        event.SetEventObject(window)
+                        event.SetPosition(window.ScreenToClient(tree.ClientToScreen(position)))
+                        window.GetEventHandler().ProcessEvent(event)
+                        self.assertFalse(event.GetSkipped())
+                    toggle.assert_called_once_with(item, 'toggle')
+                self.assertEqual(tree.IsExpanded(item), expanded)
+                self.app.Yield()
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_expansion_defers_only_action_cell_refresh(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+            event = SimpleNamespace(GetItem=lambda: item, Skip=Mock())
+            with patch('src.views.main_frame.wx.CallAfter') as deferred, \
+                    patch.object(frame.model, 'ItemChanged') as row, \
+                    patch.object(frame.model, 'ValueChanged') as cell:
+                frame.OnTaskExpansionChanged(event)
+                event.Skip.assert_called_once()
+                row.assert_not_called()
+                cell.assert_not_called()
+                callback, identity = deferred.call_args.args
+                callback(identity)
+                cell.assert_called_once_with(item, 4)
+                frame._closing = True
+                callback(identity)
+                cell.assert_called_once_with(item, 4)
+                frame._closing = False
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_double_click_only_toggles_and_segment_download_is_explicit(self):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)

@@ -252,6 +252,11 @@ class MainFrame(wx.Frame):
         self.model = MultiColumnTreeModel(initial_tree, self)
         # 创建DataViewCtrl
         self.mcTree = dv.DataViewCtrl(panel, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
+        if wx.Platform == '__WXMAC__':
+            # 列表采用略小的字号；自绘进度与操作文字同样读取此字体。
+            font = wx.Font(self.mcTree.GetFont())
+            font.SetPointSize(max(10, font.GetPointSize() - 2))
+            self.mcTree.SetFont(font)
         # Windows 下原生 RendererNative 不能通过 Python 重写其绘制回调。
         # 在列表内部窗口的原生绘制结束后统一替换选中边框。
         if wx.Platform == '__WXMSW__':
@@ -300,6 +305,7 @@ class MainFrame(wx.Frame):
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_CONTEXT_MENU, self.OnTaskContextMenu)
         self._manualActionClicks = wx.Platform == '__WXMAC__'
         if self._manualActionClicks:
+            self.mcTree.GetMainWindow().Bind(wx.EVT_LEFT_DOWN, self.OnTaskListMouseDown)
             self.mcTree.GetMainWindow().Bind(wx.EVT_LEFT_UP, self.OnTaskListClick)
         self.Bind(EVT_ALL_DOWNLOAD, self.OnAllTSDownload)
 
@@ -314,8 +320,39 @@ class MainFrame(wx.Frame):
             self.SetSizer(frameSizer)
 
 
+    def OnTaskListMouseDown(self, event):
+        """Mac 行首箭头使用与操作列相同的程序展开路径。"""
+        self._disclosureClick = False
+        if self._closing:
+            event.Skip()
+            return
+        source = event.GetEventObject()
+        pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
+        item, column = self.mcTree.HitTest(pos)
+        if not item.IsOk() or column is None or column.GetModelColumn() != 0:
+            event.Skip()
+            return
+        keys = self.model.ParseKey(self.model.ItemToObject(item))
+        if len(keys) != 1 or not self.model.IsContainer(item):
+            event.Skip()
+            return
+        cell = self.mcTree.GetItemRect(item, column)
+        arrow_width = max(self.mcTree.GetIndent(), self.FromDIP(16))
+        if cell.IsEmpty() or not cell.x - arrow_width <= pos.x < cell.x:
+            event.Skip()
+            return
+        self._disclosureClick = True
+        self.mcTree.SetFocus()
+        self.mcTree.Select(item)
+        self.OnTaskAction(item, 'toggle')
+        event.Skip(False)
+
     def OnTaskListClick(self, event):
         """Mac 松开鼠标后分发操作，避免在按下事件中打开原生菜单或弹窗。"""
+        if getattr(self, '_disclosureClick', False):
+            self._disclosureClick = False
+            event.Skip(False)
+            return
         source = event.GetEventObject()
         pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
         item, column = self.mcTree.HitTest(pos)
@@ -571,9 +608,27 @@ class MainFrame(wx.Frame):
 
 
     def OnTaskExpansionChanged(self, event):
-        # 行首箭头、行内操作和全部展开/折叠共用通知，及时更新操作文字。
-        self.model.ItemChanged(event.GetItem())
         event.Skip()
+        if self._closing:
+            return
+        item = event.GetItem()
+        if not item.IsOk():
+            return
+        keys = self.model.ParseKey(self.model.ItemToObject(item))
+        if len(keys) != 1:
+            return
+        task = self.model.fileTree.items[keys[0]]
+        # 先让原生控件完成展开；只更新操作文字，避免整行通知干扰树布局。
+        wx.CallAfter(self._UpdateExpansionAction, task.task_id or task.parent.fileName)
+
+    def _UpdateExpansionAction(self, identity):
+        if self._closing or not self or self.IsBeingDeleted():
+            return
+        for index, task in enumerate(self.model.fileTree.items):
+            if (task.task_id or task.parent.fileName) == identity:
+                item = self.model.ObjectToItem(self.model._BuildKey((index,)))
+                self.model.ValueChanged(item, 4)
+                return
 
     def OnTaskContextMenu(self, event):
         self.OnTaskMenu(event.GetItem())
@@ -695,7 +750,7 @@ class MainFrame(wx.Frame):
         child, cookie = self.model.GetFirstChild(item)
         while child.IsOk():            
             if self.model.IsContainer(child):
-                self.mcTree.Expand(child) if expand else self.mcTree.Collapse(child)
+                self._SetTaskExpanded(child, expand)
             else:
                 self._RecursiveExpand(child, expand)
             child, cookie = self.model.GetNextChild(item, cookie)
@@ -723,9 +778,7 @@ class MainFrame(wx.Frame):
             if self.model.IsContainer(child):
                 obj = self.model.ItemToObject(child)
                 if obj in expandeds:
-                    self.mcTree.Expand(child) 
-                # else:
-                #     self.mcTree.Collapse(child)
+                    self._SetTaskExpanded(child, True)
             else:
                 self._RestoreExpandState(child, expandeds)
             child, cookie = self.model.GetNextChild(parent, cookie)
@@ -1035,6 +1088,19 @@ class MainFrame(wx.Frame):
             self.OnTaskAction(item, 'toggle')
 
     # 窗口把点击位置转换为稳定的任务 UUID；执行规则由 TaskRunner 重新核对。
+    def _SetTaskExpanded(self, item, expanded=None):
+        """统一展开/收缩入口；未指定状态时切换，状态相同则不重复更新。"""
+        if self._closing or not item.IsOk() or not self.model.IsContainer(item):
+            return
+        current = self.mcTree.IsExpanded(item)
+        target = not current if expanded is None else expanded
+        if current == target:
+            return
+        if target:
+            self.mcTree.Expand(item)
+        else:
+            self.mcTree.Collapse(item)
+
     def OnTaskAction(self, item, action_id='start'):
         """自定义操作分发入口，不是 wx 自动调用的重写方法。
 
@@ -1066,10 +1132,7 @@ class MainFrame(wx.Frame):
             if action is None or not action['enabled']:
                 return
             if action_id == 'toggle':
-                if self.mcTree.IsExpanded(item):
-                    self.mcTree.Collapse(item)
-                else:
-                    self.mcTree.Expand(item)
+                self._SetTaskExpanded(item)
                 return
             if action_id == 'more':
                 if self._manualActionClicks:

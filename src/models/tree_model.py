@@ -627,7 +627,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             return True
         if len(objs) == 1:
             attr.SetBold(True)
-            attr.SetColour(wx.BLUE)
+            attr.SetColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_LISTBOXTEXT)
+                           if wx.Platform == '__WXMAC__' else wx.BLUE)
             if col == 0:
                 # attr.SetColour(wx.BLUE)
                 return True
