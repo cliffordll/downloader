@@ -1,7 +1,7 @@
 import wx
 
 from src.views.components.help_button import HelpButton
-from src.views.dialogs.panels.path_picker import DownloadHelpDialog
+from src.views.dialogs.panels.path_picker import DownloadHelpDialog, form_label_size
 
 
 class DownloadEditMP4(wx.Panel):
@@ -11,10 +11,10 @@ class DownloadEditMP4(wx.Panel):
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         uriSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblUri = wx.StaticText(self, -1, label='视频网址：', size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblUri = wx.StaticText(self, -1, label='视频网址：', size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcURI = wx.TextCtrl(self)
         self.tcURI.SetHint('填写 HTTP / HTTPS 视频文件直链')
-        uriSizer.Add(lblUri, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        uriSizer.Add(lblUri, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
         uriSizer.Add(self.tcURI, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.BOTTOM|wx.LEFT, border=self.FromDIP(5))
         self.uriHelpButton = HelpButton(self, '视频网址说明', self.OnURIHelp)
         uriSizer.Add(self.uriHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.BOTTOM, border=self.FromDIP(5))

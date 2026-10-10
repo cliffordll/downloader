@@ -3,7 +3,7 @@ from wx.lib.buttons import GenToggleButton
 from urllib.parse import urljoin, urlsplit
 import re
 
-from src.views.dialogs.panels.path_picker import DownloadHelpDialog
+from src.views.dialogs.panels.path_picker import DownloadHelpDialog, form_label_size
 from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.views.components.help_button import HelpButton
 from src.views.components.playlist_editor import PlaylistEditor
@@ -30,37 +30,37 @@ class DownloadEditTS(wx.Panel):
 
         # base uri
         uriSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblUri = wx.StaticText(self, -1, label="列表网址：", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblUri = wx.StaticText(self, -1, label="列表网址：", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcURI = wx.TextCtrl(self)
         self.tcURI.SetHint("填写参考列表网址，用于补全 TS 相对地址")
         self.tcURI.SetToolTip("用于补全手动添加的 TS 相对地址。本窗口不会获取此网址；分片均为完整下载网址时可留空。")
-        uriSizer.Add(lblUri, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        uriSizer.Add(lblUri, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
         uriSizer.Add(self.tcURI, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.BOTTOM|wx.LEFT, border=self.FromDIP(5))
         self.uriHelpButton = HelpButton(self, "列表网址说明", self.OnURIHelp)
         uriSizer.Add(self.uriHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.BOTTOM, border=self.FromDIP(5))
 
         pathSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblPath = wx.StaticText(self, -1, label="路径改写：", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblPath = wx.StaticText(self, -1, label="路径改写：", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcPath = wx.TextCtrl(self)
         self.tcPath.SetHint("通常留空；需要更改 TS 分片所在目录时填写")
         self.tcURI.Bind(wx.EVT_TEXT, self._UpdatePathToolTip)
         self._UpdatePathToolTip()
-        pathSizer.Add(lblPath, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        pathSizer.Add(lblPath, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
         pathSizer.Add(self.tcPath, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.TOP|wx.BOTTOM|wx.LEFT, border=self.FromDIP(5))
         self.pathHelpButton = HelpButton(self, "路径改写说明", self.OnPathHelp)
         pathSizer.Add(self.pathHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT, border=self.FromDIP(5))
 
         # ts start and end
-        lblPlay = wx.StaticText(self, -1, label="播放时长:", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblPlay = wx.StaticText(self, -1, label="播放时长:", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         # self.tcPlay = wx.TextCtrl(self, size=(60, -1), style=wx.TE_PROCESS_ENTER)
         self.tcPlay = wx.TextCtrl(self)
         tsSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblReg = wx.StaticText(self, -1, label="段名规则:", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblReg = wx.StaticText(self, -1, label="段名规则:", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcReg = wx.TextCtrl(self)
         self.tcReg.SetToolTip('使用 {idx} 表示编号；{idx:03d} 表示至少三位，例如 001、002、010。')
-        lblStart = wx.StaticText(self, -1, label="开始:", size=self.FromDIP((30, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblStart = wx.StaticText(self, -1, label="开始:", size=form_label_size(self, 30), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcStart = wx.TextCtrl(self)
-        lblEnd = wx.StaticText(self, -1, label="结束:", size=self.FromDIP((30, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblEnd = wx.StaticText(self, -1, label="结束:", size=form_label_size(self, 30), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcEnd = wx.TextCtrl(self)        
         btnAppend = wx.Button(self, label="添加 TS")
         self.detectDuration = wx.CheckBox(self, label='')
@@ -74,7 +74,7 @@ class DownloadEditTS(wx.Panel):
             self.detectDuration.SetFocus()
         detectLabel.Bind(wx.EVT_LEFT_UP, toggleDuration)
 
-        tsSizer.Add(lblPlay, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        tsSizer.Add(lblPlay, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
         # 横向分配宽度，纵向保留控件默认高度并居中，避免输入框被按钮撑高。
         tsSizer.Add(self.tcPlay, proportion=40, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         # 与本行其他标签使用相同的 StaticText 绘制文字，不再靠平台像素偏移补偿。
@@ -83,13 +83,13 @@ class DownloadEditTS(wx.Panel):
         detectSizer.Add(detectLabel, flag=wx.ALIGN_CENTER_VERTICAL)
         tsSizer.Add(detectSizer, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.RIGHT, border=self.FromDIP(5))
         tsSizer.AddStretchSpacer(prop=2)
-        tsSizer.Add(lblReg, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
+        tsSizer.Add(lblReg, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         tsSizer.Add(self.tcReg, proportion=40, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         tsSizer.AddStretchSpacer(prop=2)
-        tsSizer.Add(lblStart, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
+        tsSizer.Add(lblStart, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         tsSizer.Add(self.tcStart, proportion=10, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         tsSizer.AddStretchSpacer(prop=2)
-        tsSizer.Add(lblEnd, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
+        tsSizer.Add(lblEnd, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         tsSizer.Add(self.tcEnd, proportion=10, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         tsSizer.AddStretchSpacer(prop=2)
         tsSizer.Add(btnAppend, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.LEFT, border=self.FromDIP(5))
