@@ -2,6 +2,7 @@ import wx
 from pathlib import Path
 from src.core.sys_setting import SysSetting
 from src.core.path_manager import PathManager
+from src.views.dialogs.information_dialog import InformationDialog
 
 def form_label_size(window, width):
     """Windows 保留原宽度；Mac 同列标签统一预留完整文字与留白。"""
@@ -12,12 +13,9 @@ def form_label_size(window, width):
     return wx.Size(max(window.FromDIP(width), measured + window.FromDIP(4)), -1)
 
 
-class DownloadHelpDialog(wx.MessageDialog):
+class DownloadHelpDialog(InformationDialog):
     def __init__(self, parent, title, text):
-        super().__init__(parent, "", title, wx.OK | wx.ICON_INFORMATION)
-        # Keep the native dialog, using body text instead of a large main instruction.
-        self.SetExtendedMessage(text)
-        self.SetOKLabel("关闭")
+        super().__init__(parent, title, text)
 
 
 class DownloadPath(wx.Panel):
