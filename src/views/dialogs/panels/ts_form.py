@@ -1,11 +1,26 @@
 import wx
 import wx.adv
+from wx.lib.buttons import GenToggleButton
 from urllib.parse import urljoin, urlsplit
 import re
 
 from src.views.dialogs.panels.path_picker import DownloadHelpDialog
 from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.views.components.playlist_editor import PlaylistEditor
+
+
+class _AdvancedHeader(GenToggleButton):
+    """本页折叠标题：文字从左边缘绘制，保留 Tab 聚焦及空格切换。"""
+    def GetBackgroundBrush(self, dc):
+        # 展开和收起均使用面板背景，不绘制切换按钮的选中底色。
+        return wx.Brush(self.GetParent().GetBackgroundColour())
+
+    def DrawLabel(self, dc, width, height, dx=0, dy=0):
+        dc.SetFont(self.GetFont())
+        dc.SetTextForeground(self.GetForegroundColour())
+        _, text_height = dc.GetTextExtent(self.GetLabel())
+        dc.DrawText(self.GetLabel(), 0, (height - text_height) // 2)
+
 
 class DownloadEditTS(wx.Panel):
     def __init__(self, parent):
@@ -110,9 +125,17 @@ class DownloadEditTS(wx.Panel):
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND, border=0)
 
         # 请求头是任务选项；默认收起，给清单编辑区保留空间。
-        self.advanced = wx.CollapsiblePane(self, label='高级选项：请求头', style=wx.CP_DEFAULT_STYLE|wx.CP_NO_TLW_RESIZE)
-        pane = self.advanced.GetPane()
-        headersSizer = wx.FlexGridSizer(cols=3, vgap=5, hgap=8)
+        self.advanced = _AdvancedHeader(self, label='▸ 高级选项：请求头',
+                                       style=wx.BORDER_NONE|wx.BU_EXACTFIT)
+        self.advanced.SetBezelWidth(0)
+        self.advanced.SetBackgroundColour(self.GetBackgroundColour())
+        # 标题固定为紧凑高度，展开/收起不改变高度；外部间距由 sizer 控制。
+        header_height = self.advanced.GetTextExtent('高级选项：请求头').height + self.FromDIP(4)
+        self.advanced.SetMinSize(wx.Size(-1, header_height))
+        self.advanced.SetMaxSize(wx.Size(-1, header_height))
+        self.advanced.SetToolTip('展开请求头选项（空格键切换）')
+        pane = self.headersPanel = wx.Panel(self)
+        headersSizer = wx.FlexGridSizer(cols=3, vgap=10, hgap=8)
         headersSizer.AddGrowableCol(1)
         self.tcReferer = wx.TextCtrl(pane)
         self.tcReferer.SetHint('选填，视频所在的网页网址')
@@ -135,8 +158,10 @@ class DownloadEditTS(wx.Panel):
             helpLink.Bind(wx.adv.EVT_HYPERLINK, lambda event, name=label: self.OnHeaderHelp(name))
             headersSizer.Add(helpLink, flag=wx.ALIGN_CENTER_VERTICAL)
         pane.SetSizer(headersSizer)
-        sizer.Add(self.advanced, flag=wx.EXPAND)
-        self.advanced.Bind(wx.EVT_COLLAPSIBLEPANE_CHANGED, self.OnAdvancedChanged)
+        sizer.Add(self.advanced, flag=wx.TOP, border=5)
+        sizer.Add(pane, flag=wx.EXPAND|wx.TOP, border=5)
+        pane.Hide()
+        self.advanced.Bind(wx.EVT_BUTTON, self.OnAdvancedChanged)
 
         self.SetSizer(sizer)
         
@@ -253,6 +278,10 @@ class DownloadEditTS(wx.Panel):
                 [('Referer', self.tcReferer), ('Cookie', self.tcCookie)] if control.GetValue().strip()}
 
     def OnAdvancedChanged(self, event):
+        expanded = self.advanced.GetValue()
+        self.headersPanel.Show(expanded)
+        self.advanced.SetLabel(('▾' if expanded else '▸') + ' 高级选项：请求头')
+        self.advanced.SetToolTip(('收起' if expanded else '展开') + '请求头选项（空格键切换）')
         self.Layout()
         self.GetParent().Layout()  # 展开时压缩编辑区，不改变对话框大小。
 

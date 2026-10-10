@@ -72,7 +72,8 @@ class TSOptionsTests(unittest.TestCase):
         dialog = DownloadDialogTS(None, 'test', str(Path.cwd()), task_service=service)
         try:
             form = dialog.downEdit
-            self.assertTrue(form.advanced.IsCollapsed())
+            self.assertFalse(form.advanced.GetValue())
+            self.assertFalse(form.headersPanel.IsShown())
             form.tcReg.SetValue('seg-{idx:03d}.ts')
             form.tcStart.SetValue('1')
             form.tcEnd.SetValue('2')
@@ -81,7 +82,7 @@ class TSOptionsTests(unittest.TestCase):
             self.assertIn('seg-002.ts', form.GetContent())
             form.tcCookie.SetValue('session=test')
             form.tcReferer.SetValue('https://example.com/watch')
-            form.advanced.Expand()
+            form.advanced.SetValue(True)
             form.OnAdvancedChanged(None)
             dialog.Layout()
             self.assertGreater(form.tsList.GetSize().height, 100)
