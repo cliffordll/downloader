@@ -201,7 +201,7 @@ class TaskTypesUITests(unittest.TestCase):
 
             def inspect_menu(menu):
                 self.assertEqual([entry.GetItemLabelText() for entry in menu.GetMenuItems()],
-                                 ['打开文件夹', '播放视频'])
+                                 ['打开文件夹', '播放视频', '另存为…'])
 
             with patch.object(tree, 'PopupMenu', side_effect=inspect_menu) as menu:
                 release('more')
@@ -339,6 +339,50 @@ class TaskTypesUITests(unittest.TestCase):
                     operation()
             self.assertEqual(self.repo.get(task.id).status, TaskStatus.NEW)
 
+    def test_save_as_dialog_copies_file_and_cancel_leaves_destination_unchanged(self):
+        source = self.root / 'source.mp4'
+        source.write_bytes(b'complete video')
+        directory = self.root / 'export'
+        directory.mkdir()
+        destination = directory / 'renamed.mp4'
+        frame = SimpleNamespace()
+        with patch('src.views.main_frame.wx.FileDialog') as dialog, \
+                patch('src.views.main_frame.wx.ProgressDialog') as progress, \
+                patch('src.views.main_frame.wx.MessageBox') as message:
+            dialog.return_value.ShowModal.return_value = wx.ID_OK
+            dialog.return_value.GetPath.return_value = str(destination)
+            MainFrame._SaveFileAs(frame, source)
+            self.assertEqual(destination.read_bytes(), b'complete video')
+            self.assertEqual(source.read_bytes(), b'complete video')
+            self.assertTrue(dialog.call_args.kwargs['style'] & wx.FD_OVERWRITE_PROMPT)
+            dialog.return_value.Destroy.assert_called_once()
+            progress.return_value.Destroy.assert_called_once()
+            message.assert_not_called()
+            progress.reset_mock()
+            dialog.return_value.ShowModal.return_value = wx.ID_CANCEL
+            source.write_bytes(b'new video')
+            MainFrame._SaveFileAs(frame, source)
+            self.assertEqual(destination.read_bytes(), b'complete video')
+            progress.assert_not_called()
+
+    def test_completed_video_menu_exports_exact_output_path(self):
+        task = self.mp4(status=TaskStatus.COMPLETED)
+        target = task.save_dir / task.details.target_path
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b'video')
+        model = self.model()
+        item = model.ObjectToItem(model._BuildKey((0,)))
+        export = Mock()
+        def select_save(menu):
+            entry = next(entry for entry in menu.GetMenuItems()
+                         if entry.GetItemLabelText() == '另存为…')
+            self.assertTrue(entry.IsEnabled())
+            menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
+        frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=select_save),
+                                _SaveFileAs=export, _OpenLocalPath=Mock())
+        MainFrame.OnTaskMenu(frame, item)
+        export.assert_called_once_with(target)
+
     def test_single_file_menu_and_dispatch_do_not_offer_merge(self):
         task = self.mp4()
         model = self.model()
@@ -346,12 +390,13 @@ class TaskTypesUITests(unittest.TestCase):
         opened = Mock()
         def inspect_menu(menu):
             labels = [entry.GetItemLabelText() for entry in menu.GetMenuItems()]
-            self.assertEqual(labels, ['打开文件夹', '播放视频'])
+            self.assertEqual(labels, ['打开文件夹', '播放视频', '另存为…'])
             entry = menu.GetMenuItems()[0]
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=inspect_menu),
                                 _OpenLocalPath=opened, _CreateMP4File=Mock(), _DownloadFiles=Mock(),
-                                runner=Mock(), _completion_notified=set(), _SyncDownloads=Mock())
+                                runner=Mock(), _completion_notified=set(), _SyncDownloads=Mock(),
+                                _SetTaskExpanded=Mock())
         MainFrame.OnTaskMenu(frame, item)
         opened.assert_called_once_with(task.save_dir)
         for action in ('merge', 'start', 'retry', 'toggle'):

@@ -223,7 +223,7 @@ class TaskProgressTests(unittest.TestCase):
             def inspect_menu(menu):
                 entries = {entry.GetItemLabelText(): entry for entry in menu.GetMenuItems()
                            if not entry.IsSeparator()}
-                self.assertEqual(set(entries), {'打开文件夹', '转 MP4', '播放视频'})
+                self.assertEqual(set(entries), {'打开文件夹', '转 MP4', '播放视频', '另存为…'})
                 self.assertTrue(entries['打开文件夹'].IsEnabled())
                 self.assertFalse(entries['播放视频'].IsEnabled())
                 self.assertFalse(entries['转 MP4'].IsEnabled())

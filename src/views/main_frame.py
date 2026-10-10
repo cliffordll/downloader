@@ -2,6 +2,7 @@ import json
 import sqlite3
 from queue import Empty
 from pathlib import Path
+from threading import Thread
 
 import wx 
 import wx.dataview as dv
@@ -12,6 +13,7 @@ from src.views.dialogs.ts_dialog import DownloadDialogTS
 from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 from src.views.dialogs.information_dialog import InformationDialog
 from src.core.task_runner import TaskRunner
+from src.core.file_export import save_file_as
 
 
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
@@ -641,6 +643,41 @@ class MainFrame(wx.Frame):
         if not wx.LaunchDefaultApplication(str(target)):
             wx.MessageBox('无法打开，请检查系统的默认应用设置。', '提示', parent=self)
 
+    def _SaveFileAs(self, source):
+        source = Path(source)
+        if not source.is_file():
+            wx.MessageBox('原文件已不存在，请刷新列表。', '另存为失败', wx.OK | wx.ICON_ERROR, self)
+            return
+        dialog = wx.FileDialog(self, '另存为', defaultFile=source.name,
+                               wildcard='所有文件 (*.*)|*.*',
+                               style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            destination = dialog.GetPath()
+        finally:
+            dialog.Destroy()
+        errors = []
+
+        def copy():
+            try:
+                save_file_as(source, destination)
+            except (OSError, ValueError) as error:
+                errors.append(str(error))
+
+        progress = wx.ProgressDialog('另存为', '正在复制文件，请稍候…', parent=self,
+                                     style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME)
+        worker = Thread(target=copy, name='file-export')
+        try:
+            worker.start()
+            while worker.is_alive():
+                progress.Pulse()
+                worker.join(0.05)
+        finally:
+            progress.Destroy()
+        if errors:
+            wx.MessageBox(errors[0], '另存为失败', wx.OK | wx.ICON_ERROR, self)
+
     def OnTaskMenu(self, item):
         if not item.IsOk():
             return
@@ -669,6 +706,17 @@ class MainFrame(wx.Frame):
                 add('播放视频：' + Path(path).name, lambda path=path: self._OpenLocalPath(path))
         else:
             add('播放视频', lambda: None, False)
+        completed_files = []
+        if task.task_type == TaskType.M3U8 or task.task_status == TaskStatus.COMPLETED:
+            completed_files = [Path(PathManager.GetAbsPath(output.fileName)) for output in task.outputs]
+            if not completed_files and task.task_type != TaskType.M3U8:
+                completed_files = [Path(PathManager.GetAbsPath(task.parent.fileName))]
+        if completed_files:
+            for path in completed_files:
+                label = '另存为…' if len(completed_files) == 1 else '另存为：' + path.name
+                add(label, lambda path=path: self._SaveFileAs(path), path.is_file())
+        else:
+            add('另存为…', lambda: None, False)
         try:
             self.mcTree.PopupMenu(menu)
         finally:
@@ -967,7 +1015,8 @@ class MainFrame(wx.Frame):
             '清空关键词并选择“全部状态”恢复全部任务。隐藏任务仍继续下载。\n\n'
             '2. 下载与合并\n'
             '任务行固定显示“开始/暂停/继续、重试、删除、展开/折叠、更多”，不可用的操作会置灰。'
-            '“更多”或右键菜单提供转 MP4、播放视频和打开文件夹。删除只移除任务记录，保留本地文件。'
+            '“更多”或右键菜单提供转 MP4、播放视频、打开文件夹和另存为。'
+            '已完成的视频可另存到其他目录，原文件和任务记录保持不变。删除只移除任务记录，保留本地文件。'
             '行内“暂停/继续”只控制当前任务，已发出的请求允许完成。进度按已完成分片数计算。\n'
             '双击任务行展开或折叠分片列表；下载请点击操作列中的开始、继续或下载。'
             '全部下载完成后，可从“更多”中选择“转 MP4”。\n\n'
