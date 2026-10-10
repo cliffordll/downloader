@@ -1,11 +1,11 @@
 import wx
-import wx.adv
 from threading import Thread
 from urllib.parse import urljoin, urlsplit
 
 from src.views.dialogs.panels.path_picker import DownloadHelpDialog
 from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
+from src.views.components.help_button import HelpButton
 from src.views.components.playlist_editor import PlaylistEditor
 
 class DownloadEditMU(wx.Panel):
@@ -15,56 +15,38 @@ class DownloadEditMU(wx.Panel):
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         uriSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblUri = wx.StaticText(self, -1, label="列表网址：", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblUri = wx.StaticText(self, -1, label="列表网址：", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcURI = wx.TextCtrl(self)
         self.tcURI.SetHint("粘贴 M3U8 完整网址")
         self.tcURI.SetToolTip("填写 M3U8 完整网址，用于获取列表；相对 TS 地址按该网址所在目录补全。")
-        uriSizer.Add(lblUri, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=5)
-        uriSizer.Add(self.tcURI, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.BOTTOM|wx.LEFT, border=5)
-        self.uriHelpButton = wx.adv.HyperlinkCtrl(self, label="?", url="", size=self.FromDIP((24, -1)), style=wx.adv.HL_ALIGN_CENTRE)
-        self.uriHelpButton.SetNormalColour(wx.Colour("#666666"))
-        self.uriHelpButton.SetVisitedColour(wx.Colour("#666666"))
-        self.uriHelpButton.SetHoverColour(wx.Colour("#333333"))
-        helpFont = self.uriHelpButton.GetFont()
-        helpFont.SetUnderlined(False)
-        self.uriHelpButton.SetFont(helpFont)
-        self.uriHelpButton.SetName("列表网址说明")
-        self.uriHelpButton.SetToolTip("点击查看完整说明")
-        self.uriHelpButton.Bind(wx.adv.EVT_HYPERLINK, self.OnURIHelp)
-        uriSizer.Add(self.uriHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.BOTTOM, border=5)
+        uriSizer.Add(lblUri, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        uriSizer.Add(self.tcURI, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.BOTTOM|wx.LEFT, border=self.FromDIP(5))
+        self.uriHelpButton = HelpButton(self, "列表网址说明", self.OnURIHelp)
+        uriSizer.Add(self.uriHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.BOTTOM, border=self.FromDIP(5))
 
         pathSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblPath = wx.StaticText(self, -1, label="路径改写：", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblPath = wx.StaticText(self, -1, label="路径改写：", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcPath = wx.TextCtrl(self)
         self.tcPath.SetHint("通常留空；需要更改 TS 分片所在目录时填写")
         self.tcURI.Bind(wx.EVT_TEXT, self._UpdatePathToolTip)
         self._UpdatePathToolTip()
-        pathSizer.Add(lblPath, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
-        pathSizer.Add(self.tcPath, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.TOP|wx.BOTTOM|wx.LEFT, border=5)
-        self.pathHelpButton = wx.adv.HyperlinkCtrl(self, label="?", url="", size=self.FromDIP((24, -1)), style=wx.adv.HL_ALIGN_CENTRE)
-        self.pathHelpButton.SetNormalColour(wx.Colour("#666666"))
-        self.pathHelpButton.SetVisitedColour(wx.Colour("#666666"))
-        self.pathHelpButton.SetHoverColour(wx.Colour("#333333"))
-        helpFont = self.pathHelpButton.GetFont()
-        helpFont.SetUnderlined(False)
-        self.pathHelpButton.SetFont(helpFont)
-        self.pathHelpButton.SetName("路径改写说明")
-        self.pathHelpButton.SetToolTip("点击查看完整说明")
-        self.pathHelpButton.Bind(wx.adv.EVT_HYPERLINK, self.OnPathHelp)
-        pathSizer.Add(self.pathHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT, border=5)
+        pathSizer.Add(lblPath, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        pathSizer.Add(self.tcPath, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.TOP|wx.BOTTOM|wx.LEFT, border=self.FromDIP(5))
+        self.pathHelpButton = HelpButton(self, "路径改写说明", self.OnPathHelp)
+        pathSizer.Add(self.pathHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT, border=self.FromDIP(5))
 
         btnSizer = wx.BoxSizer(wx.HORIZONTAL)
         btnM3U8 = wx.Button(self, label="获取 M3U8")
         self.fetchButton = btnM3U8
         self._fetching = False
         btnSizer.AddStretchSpacer(prop=84)
-        btnSizer.Add(btnM3U8, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=5)
+        btnSizer.Add(btnM3U8, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=self.FromDIP(5))
 
         listSizer = wx.BoxSizer(wx.VERTICAL)
         # 独立行号栏随正文滚动，保留文本编辑、选中高亮和复制功能。
         # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_RICH2)
         self.tsList = PlaylistEditor(self)
-        listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
+        listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=self.FromDIP(5))
 
         sizer.Add(uriSizer, border=0)
         sizer.Add(pathSizer, border=0)

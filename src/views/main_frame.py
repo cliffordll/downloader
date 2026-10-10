@@ -32,7 +32,7 @@ class MainFrame(wx.Frame):
         self._closing = False
         # 窗口、下载器和添加任务弹窗共享入口创建的服务，列表模型不持有业务服务。
         self.tasks = task_service
-        self.SetSize(width=1024, height=700)
+        self.SetSize(self.FromDIP((1024, 700)))
         self.SetMinSize(self.FromDIP(wx.Size(1024 if wx.Platform == '__WXMAC__' else 780, 420)))
         
         self.SetIcons(app_icons())
@@ -220,9 +220,9 @@ class MainFrame(wx.Frame):
         self.statusFilter.SetSelection(0)
         self.filterCount = wx.StaticText(panel, label='')
         self.filterCount.SetMinSize(self.FromDIP(wx.Size(140, -1)))
-        uriSizer.Add(self.searchCtrl, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
-        uriSizer.Add(self.statusFilter, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=10)
-        uriSizer.Add(self.filterCount, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=5)
+        uriSizer.Add(self.searchCtrl, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        uriSizer.Add(self.statusFilter, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(10))
+        uriSizer.Add(self.filterCount, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(5))
         self.searchCtrl.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnSearch)
         self.searchCtrl.Bind(wx.EVT_TEXT_ENTER, self.OnSearch)
         self.searchCtrl.Bind(wx.EVT_TEXT, self.OnSearchText)
@@ -236,7 +236,7 @@ class MainFrame(wx.Frame):
         self.clearFiltersButton = wx.Button(self.emptyPanel, label='清除全部筛选')
         self.clearFiltersButton.Bind(wx.EVT_BUTTON, self.OnClearAllFilters)
         emptySizer.AddStretchSpacer()
-        emptySizer.Add(self.emptyText, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=12)
+        emptySizer.Add(self.emptyText, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=self.FromDIP(12))
         emptySizer.Add(self.clearFiltersButton, flag=wx.ALIGN_CENTER_VERTICAL)
         emptySizer.AddStretchSpacer()
         self.emptyPanel.SetSizer(emptySizer)
@@ -257,18 +257,18 @@ class MainFrame(wx.Frame):
         self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
         self._UpdateFilterCount()
         # 添加多列
-        self.mcTree.AppendTextColumn("序列", 0, width=60)
+        self.mcTree.AppendTextColumn("序列", 0, width=self.FromDIP(60))
         # # 自定义列
         # renderer = dv.DataViewTextRenderer()
         # renderer.EnableEllipsize(wx.ELLIPSIZE_END)
         # self.mcTree.AppendColumn(dv.DataViewColumn("文件名", renderer, 1, width=180, align=wx.ALIGN_LEFT))
         # self.mcTree.AppendTextColumn("文件名", 1, width=500)
-        self.mcTree.AppendTextColumn("文件名", 1, width=250)
+        self.mcTree.AppendTextColumn("文件名", 1, width=self.FromDIP(250))
         self.mcTree.AppendColumn(dv.DataViewColumn('下载进度', TaskProgressRenderer(self), 5,
                                                  width=self.FromDIP(180), align=wx.ALIGN_CENTER))
         self.mcTree.AppendTextColumn("状态", 6, width=self.FromDIP(80), align=wx.ALIGN_CENTER)
-        self.mcTree.AppendTextColumn("文件大小", 2, width=90, align=wx.ALIGN_RIGHT)
-        self.mcTree.AppendTextColumn("修改时间", 3, width=130)
+        self.mcTree.AppendTextColumn("文件大小", 2, width=self.FromDIP(90), align=wx.ALIGN_RIGHT)
+        self.mcTree.AppendTextColumn("修改时间", 3, width=self.FromDIP(130))
         self._actionRenderer = TaskActionRenderer(self)
         initial_action_width = self.FromDIP(200 if wx.Platform == '__WXMAC__' else 240)
         actionColumn = dv.DataViewColumn("操作", self._actionRenderer, 4,
@@ -288,7 +288,7 @@ class MainFrame(wx.Frame):
         # self.OnExpandAll(None)
         if SysSetting.GetAll()['default_expand_tasks']:
             self.OnExpandAll(None)
-        listSizer.Add(self.mcTree, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
+        listSizer.Add(self.mcTree, proportion=10, flag=wx.EXPAND|wx.TOP, border=self.FromDIP(5))
         # listSizer.Add(self.mulist, proportion=10, flag=wx.EXPAND|wx.ALL, border=5)
         # self.list.SetBackgroundColour(wx.RED)
 
@@ -301,7 +301,7 @@ class MainFrame(wx.Frame):
         self.Bind(EVT_ALL_DOWNLOAD, self.OnAllTSDownload)
 
         sizer.Add(uriSizer, flag=wx.EXPAND, border=0)
-        sizer.Add(self.emptyPanel, flag=wx.EXPAND | wx.TOP | wx.BOTTOM, border=12)
+        sizer.Add(self.emptyPanel, flag=wx.EXPAND | wx.TOP | wx.BOTTOM, border=self.FromDIP(12))
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND|wx.ALL, border=0)
         # 设置面板的sizer
         panel.SetSizer(sizer)

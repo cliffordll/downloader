@@ -1,11 +1,11 @@
 import wx
-import wx.adv
 from wx.lib.buttons import GenToggleButton
 from urllib.parse import urljoin, urlsplit
 import re
 
 from src.views.dialogs.panels.path_picker import DownloadHelpDialog
 from src.media.m3u8.m3u8_parser import M3U8Parser
+from src.views.components.help_button import HelpButton
 from src.views.components.playlist_editor import PlaylistEditor
 
 
@@ -30,55 +30,37 @@ class DownloadEditTS(wx.Panel):
 
         # base uri
         uriSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblUri = wx.StaticText(self, -1, label="列表网址：", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblUri = wx.StaticText(self, -1, label="列表网址：", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcURI = wx.TextCtrl(self)
         self.tcURI.SetHint("填写参考列表网址，用于补全 TS 相对地址")
         self.tcURI.SetToolTip("用于补全手动添加的 TS 相对地址。本窗口不会获取此网址；分片均为完整下载网址时可留空。")
-        uriSizer.Add(lblUri, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=5)
-        uriSizer.Add(self.tcURI, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.BOTTOM|wx.LEFT, border=5)
-        self.uriHelpButton = wx.adv.HyperlinkCtrl(self, label="?", url="", size=self.FromDIP((24, -1)), style=wx.adv.HL_ALIGN_CENTRE)
-        self.uriHelpButton.SetNormalColour(wx.Colour("#666666"))
-        self.uriHelpButton.SetVisitedColour(wx.Colour("#666666"))
-        self.uriHelpButton.SetHoverColour(wx.Colour("#333333"))
-        helpFont = self.uriHelpButton.GetFont()
-        helpFont.SetUnderlined(False)
-        self.uriHelpButton.SetFont(helpFont)
-        self.uriHelpButton.SetName("列表网址说明")
-        self.uriHelpButton.SetToolTip("点击查看完整说明")
-        self.uriHelpButton.Bind(wx.adv.EVT_HYPERLINK, self.OnURIHelp)
-        uriSizer.Add(self.uriHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.BOTTOM, border=5)
+        uriSizer.Add(lblUri, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        uriSizer.Add(self.tcURI, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.BOTTOM|wx.LEFT, border=self.FromDIP(5))
+        self.uriHelpButton = HelpButton(self, "列表网址说明", self.OnURIHelp)
+        uriSizer.Add(self.uriHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.BOTTOM, border=self.FromDIP(5))
 
         pathSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblPath = wx.StaticText(self, -1, label="路径改写：", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblPath = wx.StaticText(self, -1, label="路径改写：", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcPath = wx.TextCtrl(self)
         self.tcPath.SetHint("通常留空；需要更改 TS 分片所在目录时填写")
         self.tcURI.Bind(wx.EVT_TEXT, self._UpdatePathToolTip)
         self._UpdatePathToolTip()
-        pathSizer.Add(lblPath, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
-        pathSizer.Add(self.tcPath, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.TOP|wx.BOTTOM|wx.LEFT, border=5)
-        self.pathHelpButton = wx.adv.HyperlinkCtrl(self, label="?", url="", size=self.FromDIP((24, -1)), style=wx.adv.HL_ALIGN_CENTRE)
-        self.pathHelpButton.SetNormalColour(wx.Colour("#666666"))
-        self.pathHelpButton.SetVisitedColour(wx.Colour("#666666"))
-        self.pathHelpButton.SetHoverColour(wx.Colour("#333333"))
-        helpFont = self.pathHelpButton.GetFont()
-        helpFont.SetUnderlined(False)
-        self.pathHelpButton.SetFont(helpFont)
-        self.pathHelpButton.SetName("路径改写说明")
-        self.pathHelpButton.SetToolTip("点击查看完整说明")
-        self.pathHelpButton.Bind(wx.adv.EVT_HYPERLINK, self.OnPathHelp)
-        pathSizer.Add(self.pathHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT, border=5)
+        pathSizer.Add(lblPath, proportion=1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        pathSizer.Add(self.tcPath, proportion=50, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.TOP|wx.BOTTOM|wx.LEFT, border=self.FromDIP(5))
+        self.pathHelpButton = HelpButton(self, "路径改写说明", self.OnPathHelp)
+        pathSizer.Add(self.pathHelpButton, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT, border=self.FromDIP(5))
 
         # ts start and end
-        lblPlay = wx.StaticText(self, -1, label="播放时长:", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblPlay = wx.StaticText(self, -1, label="播放时长:", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         # self.tcPlay = wx.TextCtrl(self, size=(60, -1), style=wx.TE_PROCESS_ENTER)
         self.tcPlay = wx.TextCtrl(self)
         tsSizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblReg = wx.StaticText(self, -1, label="段名规则:", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblReg = wx.StaticText(self, -1, label="段名规则:", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcReg = wx.TextCtrl(self)
         self.tcReg.SetToolTip('使用 {idx} 表示编号；{idx:03d} 表示至少三位，例如 001、002、010。')
-        lblStart = wx.StaticText(self, -1, label="开始:", size=(30, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblStart = wx.StaticText(self, -1, label="开始:", size=self.FromDIP((30, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcStart = wx.TextCtrl(self)
-        lblEnd = wx.StaticText(self, -1, label="结束:", size=(30, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblEnd = wx.StaticText(self, -1, label="结束:", size=self.FromDIP((30, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcEnd = wx.TextCtrl(self)        
         btnAppend = wx.Button(self, label="添加 TS")
         self.detectDuration = wx.CheckBox(self, label='')
@@ -92,32 +74,32 @@ class DownloadEditTS(wx.Panel):
             self.detectDuration.SetFocus()
         detectLabel.Bind(wx.EVT_LEFT_UP, toggleDuration)
 
-        tsSizer.Add(lblPlay, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=5)
+        tsSizer.Add(lblPlay, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
         # 横向分配宽度，纵向保留控件默认高度并居中，避免输入框被按钮撑高。
-        tsSizer.Add(self.tcPlay, proportion=40, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
+        tsSizer.Add(self.tcPlay, proportion=40, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         # 与本行其他标签使用相同的 StaticText 绘制文字，不再靠平台像素偏移补偿。
         detectSizer = wx.BoxSizer(wx.HORIZONTAL)
         detectSizer.Add(self.detectDuration, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(2))
         detectSizer.Add(detectLabel, flag=wx.ALIGN_CENTER_VERTICAL)
-        tsSizer.Add(detectSizer, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.RIGHT, border=5)
+        tsSizer.Add(detectSizer, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT|wx.RIGHT, border=self.FromDIP(5))
         tsSizer.AddStretchSpacer(prop=2)
-        tsSizer.Add(lblReg, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
-        tsSizer.Add(self.tcReg, proportion=40, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
+        tsSizer.Add(lblReg, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
+        tsSizer.Add(self.tcReg, proportion=40, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         tsSizer.AddStretchSpacer(prop=2)
-        tsSizer.Add(lblStart, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
-        tsSizer.Add(self.tcStart, proportion=10, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
+        tsSizer.Add(lblStart, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
+        tsSizer.Add(self.tcStart, proportion=10, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         tsSizer.AddStretchSpacer(prop=2)
-        tsSizer.Add(lblEnd, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5) 
-        tsSizer.Add(self.tcEnd, proportion=10, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=5)
+        tsSizer.Add(lblEnd, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
+        tsSizer.Add(self.tcEnd, proportion=10, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
         tsSizer.AddStretchSpacer(prop=2)
-        tsSizer.Add(btnAppend, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.LEFT, border=5)
+        tsSizer.Add(btnAppend, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.LEFT, border=self.FromDIP(5))
 
         # m3u8 file
         listSizer = wx.BoxSizer(wx.HORIZONTAL)
         # 与 M3U8 窗口共用带行号的编辑器，行号不混入生成或复制的正文。
         # self.tsList = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_LEFT|wx.TE_RICH2)
         self.tsList = PlaylistEditor(self)
-        listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=5)
+        listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=self.FromDIP(5))
 
         sizer.Add(uriSizer, flag=wx.EXPAND, border=0)
         sizer.Add(pathSizer, flag=wx.EXPAND, border=0)
@@ -135,7 +117,7 @@ class DownloadEditTS(wx.Panel):
         self.advanced.SetMaxSize(wx.Size(-1, header_height))
         self.advanced.SetToolTip('展开请求头选项（空格键切换）')
         pane = self.headersPanel = wx.Panel(self)
-        headersSizer = wx.FlexGridSizer(cols=3, vgap=10, hgap=8)
+        headersSizer = wx.FlexGridSizer(cols=3, vgap=self.FromDIP(10), hgap=self.FromDIP(8))
         headersSizer.AddGrowableCol(1)
         self.tcReferer = wx.TextCtrl(pane)
         self.tcReferer.SetHint('选填，视频所在的网页网址')
@@ -145,21 +127,12 @@ class DownloadEditTS(wx.Panel):
         for label, control in [('Referer', self.tcReferer), ('Cookie', self.tcCookie)]:
             headersSizer.Add(wx.StaticText(pane, label=label), flag=wx.ALIGN_CENTER_VERTICAL)
             headersSizer.Add(control, flag=wx.EXPAND)
-            helpLink = wx.adv.HyperlinkCtrl(pane, label='?', url='', size=self.FromDIP((24, -1)),
-                                          style=wx.adv.HL_ALIGN_CENTRE)
-            helpLink.SetNormalColour(wx.Colour('#666666'))
-            helpLink.SetVisitedColour(wx.Colour('#666666'))
-            helpLink.SetHoverColour(wx.Colour('#333333'))
-            helpFont = helpLink.GetFont()
-            helpFont.SetUnderlined(False)
-            helpLink.SetFont(helpFont)
-            helpLink.SetName(f'{label} 说明')
-            helpLink.SetToolTip('点击查看完整说明')
-            helpLink.Bind(wx.adv.EVT_HYPERLINK, lambda event, name=label: self.OnHeaderHelp(name))
+            helpLink = HelpButton(pane, f'{label} 说明',
+                                  lambda event, name=label: self.OnHeaderHelp(name))
             headersSizer.Add(helpLink, flag=wx.ALIGN_CENTER_VERTICAL)
         pane.SetSizer(headersSizer)
-        sizer.Add(self.advanced, flag=wx.TOP, border=5)
-        sizer.Add(pane, flag=wx.EXPAND|wx.TOP, border=5)
+        sizer.Add(self.advanced, flag=wx.TOP, border=self.FromDIP(5))
+        sizer.Add(pane, flag=wx.EXPAND|wx.TOP, border=self.FromDIP(5))
         pane.Hide()
         self.advanced.Bind(wx.EVT_BUTTON, self.OnAdvancedChanged)
 

@@ -20,13 +20,13 @@ class DownloadDialogMU(wx.Dialog):
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
 
         # sizer.Add(uriSizer, flag=wx.ALIGN_CENTER|wx.TOP|wx.BOTTOM, border=5)
-        sizer.Add(self.downEdit, proportion=100, flag=wx.ALIGN_CENTER|wx.ALL, border=5)
+        sizer.Add(self.downEdit, proportion=100, flag=wx.ALIGN_CENTER|wx.ALL, border=self.FromDIP(5))
         # sizer.Add(btnSizer, proportion=1, flag=wx.ALIGN_CENTER|wx.TOP|wx.BOTTOM, border=5)
-        sizer.Add(self.downPath, proportion=1, flag=wx.ALIGN_CENTER|wx.ALL, border=5)
+        sizer.Add(self.downPath, proportion=1, flag=wx.ALIGN_CENTER|wx.ALL, border=self.FromDIP(5))
  
         self.SetSizer(sizer)
         # self.SetSize(width=728, height=450)
-        self.SetSize(width=728, height=600)
+        self.SetSize(self.FromDIP((728, 600)))
         # self.Fit()
         self.Center()
 

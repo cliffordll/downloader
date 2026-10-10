@@ -51,10 +51,10 @@ class TaskServiceTests(unittest.TestCase):
     def test_mp4_dialog_creates_record_and_returns_task_id(self):
         dialog = DownloadDialogMP4(None, str(self.root), self.service)
         try:
-            dialog.url.SetValue('https://example.com/movie.mp4')
+            dialog.downEdit.tcURI.SetValue('https://example.com/movie.mp4')
             dialog.downPath.tcDown.SetValue('direct-video')
             with patch.object(dialog, 'EndModal') as end:
-                dialog.OnDownload(None)
+                dialog.OnDownBtnClicked(None)
                 end.assert_called_once_with(wx.OK)
             task = self.repository.get(dialog.task_id)
             self.assertEqual(task.source_url, 'https://example.com/movie.mp4')

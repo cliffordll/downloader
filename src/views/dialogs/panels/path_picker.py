@@ -16,7 +16,7 @@ class DownloadPath(wx.Panel):
         super().__init__(parent=parent, id=wx.ID_ANY)
         # 主布局
         sizer = wx.BoxSizer(wx.HORIZONTAL)
-        lblName = wx.StaticText(self, -1, label="保存目录：", size=(60, -1), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
+        lblName = wx.StaticText(self, -1, label="保存目录：", size=self.FromDIP((60, -1)), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         
         # 根据内容自动调整宽度
         # workPath = SysSetting.GetWorkPath()
@@ -31,10 +31,10 @@ class DownloadPath(wx.Panel):
         btnDown = wx.Button(self, label="下载")
         btnDown.Bind(wx.EVT_BUTTON, self.OnBtnDownClicked)
 
-        sizer.Add(lblName, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=5)
-        sizer.Add(self.lblPath, proportion=5, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT, border=5)
-        sizer.Add(self.tcDown, proportion=100, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.RIGHT, border=5)
-        sizer.Add(btnDown, proportion=1, flag=wx.ALIGN_LEFT|wx.LEFT, border=5)
+        sizer.Add(lblName, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(5))
+        sizer.Add(self.lblPath, proportion=5, flag=wx.ALIGN_CENTER_VERTICAL|wx.LEFT, border=self.FromDIP(5))
+        sizer.Add(self.tcDown, proportion=100, flag=wx.EXPAND|wx.ALIGN_LEFT|wx.RIGHT, border=self.FromDIP(5))
+        sizer.Add(btnDown, proportion=1, flag=wx.ALIGN_LEFT|wx.LEFT, border=self.FromDIP(5))
 
         self.SetSizer(sizer)
 

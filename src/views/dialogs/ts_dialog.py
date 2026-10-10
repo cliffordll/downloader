@@ -22,14 +22,17 @@ class DownloadDialogTS(wx.Dialog):
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
 
         # 两块之间只保留保存目录行的顶部边距，避免多层底部边距叠加。
-        sizer.Add(self.downEdit, proportion=1, flag=wx.EXPAND|wx.TOP|wx.LEFT|wx.RIGHT, border=5)
-        sizer.Add(self.downPath, proportion=0, flag=wx.EXPAND|wx.ALL, border=5)
+        border = self.FromDIP(5)
+        sizer.Add(self.downEdit, proportion=1, flag=wx.EXPAND|wx.TOP|wx.LEFT|wx.RIGHT, border=border)
+        sizer.Add(self.downPath, proportion=0, flag=wx.EXPAND|wx.ALL, border=border)
  
         self.SetSizer(sizer)
         # self.SetSize(width=728, height=450)
         # self.SetSize(width=728, height=600)
         # self.SetSize(width=1024, height=700)
-        self.SetSize(width=960, height=600)
+        self.SetSize(self.FromDIP((960, 600)))
+        # height = self.ClientToWindowSize(wx.Size(0, sizer.GetMinSize().height)).height
+        # self.SetSize(width=960, height=height)
         # self.Fit()
         self.Center()
 
