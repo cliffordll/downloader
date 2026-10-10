@@ -27,9 +27,10 @@ class DownloadDialogMP4(wx.Dialog):
 
         self.SetSizer(sizer)
         # # MP4 只有两行，按内容计算高度，不预留 TS 清单编辑区的空间。
-        # height = self.ClientToWindowSize(wx.Size(0, sizer.GetMinSize().height)).height
-        # self.SetSize(width=720, height=height)
-        self.SetSize(self.FromDIP((720, 108)))
+        height = self.ClientToWindowSize(wx.Size(0, sizer.GetMinSize().height)).height
+        self.SetSize(width=self.FromDIP(720), height=height)
+        # self.SetSize(width=self.FromDIP(720), height=self.FromDIP(108))
+        # self.SetSize(self.FromDIP((720, 108)))
         # self.Layout()
         self.Center()
 

@@ -154,7 +154,9 @@ class MainFrame(wx.Frame):
             self.toolBar = None
             return
         self.toolBar = self.CreateToolBar(style=wx.TB_DEFAULT_STYLE)
-        self.toolBar.SetToolBitmapSize(self.toolBar.FromDIP(wx.Size(24, 24)))
+        # 由 BitmapBundle 按 DPI 选择图标；显式设置尺寸会干扰 wxMSW 的尺寸选择。
+        # self.toolBar.SetToolBitmapSize(self.toolBar.FromDIP(wx.Size(24, 24)))
+
 
         def add_tool(tool_id, label, icon):
             bundle = toolbar_icon(icon)
