@@ -10,6 +10,7 @@ from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD, load_t
 from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 from src.views.dialogs.ts_dialog import DownloadDialogTS
 from src.views.dialogs.mp4_dialog import DownloadDialogMP4
+from src.views.dialogs.information_dialog import InformationDialog
 from src.core.task_runner import TaskRunner
 
 
@@ -898,9 +899,7 @@ class MainFrame(wx.Frame):
         self.SendSizeEvent()
 
     def _ShowInformation(self, title, text):
-        dlg = wx.MessageDialog(self, '', title, wx.OK | wx.ICON_INFORMATION)
-        dlg.SetExtendedMessage(text)
-        dlg.SetOKLabel('关闭')
+        dlg = InformationDialog(self, title, text, usage=title == '使用帮助')
         try:
             dlg.ShowModal()
         finally:

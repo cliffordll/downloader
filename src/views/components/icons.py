@@ -52,6 +52,13 @@ def app_icons():
     return bundle
 
 
+def app_logo(size=64):
+    """对话框正文使用的应用 Logo，提供高分辨率版本。"""
+    vector = wx.svg.SVGimage.CreateFromFile(str(ICON_ROOT / 'source/app/logo.svg'))
+    return wx.BitmapBundle.FromBitmaps([_app_icon_bitmap(vector, size),
+                                      _app_icon_bitmap(vector, size * 2)])
+
+
 def create_dock_icon():
     """源码运行时替换 Mac 的 Python Dock 图标；调用方持有对象直到退出。"""
     if sys.platform != 'darwin':
