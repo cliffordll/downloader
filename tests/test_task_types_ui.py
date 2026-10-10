@@ -91,6 +91,7 @@ class TaskTypesUITests(unittest.TestCase):
         frame = SimpleNamespace(FromDIP=lambda x: x, model=model,
                                _manualActionClicks=True, OnTaskAction=Mock(), OnSegmentDownload=Mock())
         renderer = frame._actionRenderer = TaskActionRenderer(frame)
+        renderer.GetSize = Mock(return_value=wx.Size(cell.width - 8, cell.height))
         column = Mock(GetModelColumn=Mock(return_value=4))
         tree = frame.mcTree = Mock()
         tree.HitTest.return_value = (item, column)
@@ -100,25 +101,30 @@ class TaskTypesUITests(unittest.TestCase):
         source.ClientToScreen.side_effect = lambda p: wx.Point(p.x + 100, p.y + 120)
         tree.ScreenToClient.side_effect = lambda p: wx.Point(p.x - 100, p.y - 100)
         actions = model.TaskActions(0)
-        for action, rect in zip(actions, renderer._ActionRects(cell, len(actions))):
-            frame.OnTaskAction.reset_mock()
-            event = Mock()
-            event.GetEventObject.return_value = source
-            event.GetPosition.return_value = wx.Point(rect.x + rect.width // 2, rect.y - 20 + 12)
-            with patch('wx.GetMousePosition', side_effect=AssertionError('不应读取实时鼠标')):
-                MainFrame.OnTaskListClick(frame, event)
-                # 即使原生控件又回调，也不能再次执行操作。
-                self.assertFalse(renderer.ActivateCell(cell, model, item, 4, event))
-            event.Skip.assert_called_once_with(False)
-            tree.HitTest.assert_called_with(wx.Point(rect.x + rect.width // 2, rect.y + 12))
-            if action['enabled']:
-                frame.OnTaskAction.assert_called_once_with(item, action['id'])
-            else:
-                frame.OnTaskAction.assert_not_called()
-        frame.OnTaskAction.reset_mock()
-        self.assertTrue(renderer.ActivateCell(cell, model, item, 4, None))
-        frame.OnTaskAction.assert_called_once_with(item, 'start')
-        frame.OnSegmentDownload.assert_not_called()
+        for width in (200, 360, 600, 200):
+            cell.width = width
+            renderer.GetSize.return_value = wx.Size(width - 8, cell.height)
+            content = wx.Rect(cell.x + 4, cell.y, cell.width - 8, cell.height)
+            for action, rect in zip(actions, renderer._ActionRects(content, len(actions))):
+                for click_x in (rect.x, rect.x + rect.width // 2, rect.x + rect.width - 1):
+                    frame.OnTaskAction.reset_mock()
+                    event = Mock()
+                    event.GetEventObject.return_value = source
+                    event.GetPosition.return_value = wx.Point(click_x, rect.y - 20 + 12)
+                    with patch('wx.GetMousePosition', side_effect=AssertionError('不应读取实时鼠标')):
+                        MainFrame.OnTaskListClick(frame, event)
+                        # 即使原生控件又回调，也不能再次执行操作。
+                        self.assertFalse(renderer.ActivateCell(cell, model, item, 4, event))
+                    event.Skip.assert_called_once_with(False)
+                    tree.HitTest.assert_called_with(wx.Point(click_x, rect.y + 12))
+                    if action['enabled']:
+                        frame.OnTaskAction.assert_called_once_with(item, action['id'])
+                    else:
+                        frame.OnTaskAction.assert_not_called()
+                frame.OnTaskAction.reset_mock()
+                self.assertTrue(renderer.ActivateCell(cell, model, item, 4, None))
+                frame.OnTaskAction.assert_called_once_with(item, 'start')
+                frame.OnSegmentDownload.assert_not_called()
 
     @unittest.skipUnless(wx.Platform == '__WXMAC__', 'Mac 原生列表鼠标路径')
     def test_mac_native_cells_route_task_and_segment_mouse_clicks(self):

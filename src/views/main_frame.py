@@ -321,12 +321,17 @@ class MainFrame(wx.Frame):
         if not item.IsOk() or column is None or column.GetModelColumn() != 4:
             event.Skip()
             return
-        cell = self.mcTree.GetItemRect(item, column)
+        cell = wx.Rect(self.mcTree.GetItemRect(item, column))
         if cell.IsEmpty():
             event.Skip()
             return
         self.mcTree.SetFocus()
         self.mcTree.Select(item)
+        # Cocoa 把自定义渲染器居中放在列内；GetItemRect 返回整列区域，
+        # 实际 Render 区域则按 GetSize 缩进。点击必须使用同一绘制宽度。
+        content_width = min(cell.width, self._actionRenderer.GetSize().width)
+        cell.x += (cell.width - content_width) // 2
+        cell.width = content_width
         local = wx.Point(pos.x - cell.x, pos.y - cell.y)
         self._actionRenderer.ActivateAt(cell, self.model, item, 4, local)
         # 操作列点击（包含置灰项和留白）到此结束，避免原生控件再次激活。
