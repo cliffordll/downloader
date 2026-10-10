@@ -44,7 +44,7 @@ def _app_icon_bitmap(vector, size):
 
 def app_icons():
     """为标题栏、任务栏和任务切换提供不同尺寸的应用 Logo。"""
-    # 任务栏使用完整三斜杠版本；标题栏小图通过 ICON_SMALL 独立设置。
+    # 标题栏和任务栏共用完整版本；Windows 标题栏另按实际 DPI 设置尺寸。
     image = wx.svg.SVGimage.CreateFromFile(str(ICON_ROOT / 'source/app/logo.svg'))
     bundle = wx.IconBundle()
     for size in (16, 20, 24, 28, 32, 40, 48, 64, 128, 256):
@@ -72,7 +72,7 @@ def create_dock_icon():
 
 
 def set_titlebar_icon(window):
-    """Windows 单独设置 ICON_SMALL，不改变 ICON_BIG 的任务栏 Logo。"""
+    """Windows 标题栏使用完整 Logo，按窗口 DPI 生成系统要求的小图标尺寸。"""
     if sys.platform != 'win32':
         return
     import ctypes
@@ -84,7 +84,7 @@ def set_titlebar_icon(window):
     metric.argtypes = [ctypes.c_int, ctypes.c_uint]
     metric.restype = ctypes.c_int
     size = metric(49, get_dpi(window.GetHandle()))  # SM_CXSMICON
-    vector = wx.svg.SVGimage.CreateFromFile(str(ICON_ROOT / 'source/app/logo-small.svg'))
+    vector = wx.svg.SVGimage.CreateFromFile(str(ICON_ROOT / 'source/app/logo.svg'))
     icon = wx.Icon(_app_icon_bitmap(vector, size))
     send = user32.SendMessageW
     send.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
