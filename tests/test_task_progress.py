@@ -101,12 +101,19 @@ class TaskProgressTests(unittest.TestCase):
             self.assertFalse(frame.mcTree.IsExpanded(folder))
             children = []
             model.GetChildren(root, children)
+            self.assertEqual([model.GetValue(item, 1) for item in children], ['task/'])
+            work = children[0]
+            self.assertFalse(frame.mcTree.IsExpanded(work))
+            frame._SetTaskExpanded(work, True)
+            children = []
+            model.GetChildren(work, children)
             self.assertEqual([model.GetValue(item, 1) for item in children], ['download.m3u8', 'segments/'])
             segments = []
             model.GetChildren(folder, segments)
             self.assertEqual(len(segments), 2)
             self.assertTrue(all(model.GetParent(item) == folder for item in segments))
-            self.assertEqual(model.GetParent(folder), root)
+            self.assertEqual(model.GetParent(folder), work)
+            self.assertEqual(model.GetParent(work), root)
             self.assertEqual(model.GetValue(children[0], 4), '')
             with patch.object(frame, '_DownloadFiles') as download:
                 frame.OnSegmentDownload(children[0])
@@ -446,11 +453,11 @@ class TaskProgressTests(unittest.TestCase):
             window = tree.GetMainWindow()
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
             for expanded in (True, False, True, False):
-                cell = tree.GetItemRect(item, tree.GetColumn(0))
+                cell = tree.GetItemRect(item, tree.GetExpanderColumn())
                 position = wx.Point(cell.x - frame.FromDIP(8), cell.y + cell.height // 2)
                 hit, column = tree.HitTest(position)
                 self.assertEqual(hit, item)
-                self.assertEqual(column.GetModelColumn(), 0)
+                self.assertEqual(column.GetModelColumn(), 1)
                 with patch.object(frame, '_SetTaskExpanded', wraps=frame._SetTaskExpanded) as toggle:
                     for kind in (wx.wxEVT_LEFT_DOWN, wx.wxEVT_LEFT_UP):
                         event = wx.MouseEvent(kind)
@@ -600,7 +607,7 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
-    def test_sequence_column_grows_for_long_child_indices_without_resize(self):
+    def test_sequence_column_does_not_grow_with_segment_count(self):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
@@ -608,15 +615,72 @@ class TaskProgressTests(unittest.TestCase):
             self.task.childs = [FileItem(fileName=f'task/{i}.ts') for i in range(1000)]
             frame._RefreshWithState()
             width = frame.mcTree.GetColumn(0).GetWidth()
-            self.assertGreater(width, initial)
-            dc = wx.ClientDC(frame.mcTree)
-            font = wx.Font(frame.mcTree.GetFont())
-            font.SetWeight(wx.FONTWEIGHT_BOLD)
-            dc.SetFont(font)
-            required = dc.GetTextExtent('1.1000')[0] + 2 * frame.mcTree.GetIndent()
-            self.assertGreaterEqual(width, required)
+            self.assertEqual(width, initial)
             self.assertLessEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(7)),
                                  frame.mcTree.GetClientSize().width)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_visible_row_numbers_follow_expansion_filter_and_file_insertion(self):
+        self.task.manifests[-2] = FileItem(fileName='task/download.m3u8', displayName='download.m3u8')
+        self.tree.items.append(TreeItem(parent=FileItem(fileName='other/download.m3u8')))
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            model = frame.model
+            def item(*key):
+                return model.ObjectToItem(model._BuildKey(key))
+            def numbers(*keys):
+                return [model.GetValue(item(*key), 0) for key in keys]
+
+            self.assertEqual(numbers((0,), (1,)), ['1', '2'])
+            for key in ((0,), (0, -4), (0, -1)):
+                frame._SetTaskExpanded(item(*key), True)
+            self.app.ProcessPendingEvents()
+            keys = ((0,), (0, -4), (0, -2), (0, -1), (0, 0), (0, 1), (1,))
+            self.assertEqual(numbers(*keys), ['1', '2', '3', '4', '5', '6', '7'])
+            # 重绘只读序号缓存，不反复遍历可见分片。
+            with patch.object(model, 'GetChildren', side_effect=AssertionError('must use cached numbers')):
+                self.assertEqual(numbers(*keys), ['1', '2', '3', '4', '5', '6', '7'])
+
+            self.task.outputs.append(FileItem(fileName='task.mp4'))
+            frame._RefreshWithState()
+            self.assertEqual(numbers((0,), (0, 0), (0, -4), (0, -2), (0, -1), (0, 1), (0, 2), (1,)),
+                             ['1', '2', '3', '4', '5', '6', '7', '8'])
+            frame.mcTree.Collapse(item(0, -4))
+            self.app.ProcessPendingEvents()
+            self.assertEqual(numbers((0,), (0, 0), (0, -4), (1,)), ['1', '2', '3', '4'])
+            self.assertEqual(numbers((0, -1), (0, 1)), ['', ''])
+            frame._SearchItems('other')
+            self.assertEqual(numbers((1,)), ['1'])
+            self.assertEqual(model.ParseKey(model.ItemToObject(item(1))), (1,))
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_tree_indentation_is_in_task_name_column(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            model, tree = frame.model, frame.mcTree
+            column = tree.GetExpanderColumn()
+            self.assertEqual(column.GetTitle(), '名称')
+            self.assertEqual(column.GetModelColumn(), 1)
+            self.assertEqual(tree.GetIndent(), frame.FromDIP(16))
+            nodes = [model.ObjectToItem(model._BuildKey(key)) for key in ((0,), (0, -4), (0, -1), (0, 0))]
+            for node in nodes[:-1]:
+                frame._SetTaskExpanded(node, True)
+            self.app.ProcessPendingEvents()
+            self.assertEqual(model.GetValue(nodes[0], 0), '1')
+            for number, (parent, child) in enumerate(zip(nodes, nodes[1:]), start=2):
+                self.assertEqual(model.GetParent(child), parent)
+                self.assertEqual(model.GetValue(child, 0), str(number))
+                self.assertGreater(tree.GetItemRect(child, column).x, tree.GetItemRect(parent, column).x)
+            for node, bold in zip(nodes, (True, False, False, False)):
+                attr = wx.dataview.DataViewItemAttr()
+                self.assertTrue(model.GetAttr(node, 1, attr))
+                self.assertEqual(attr.GetBold(), bold)
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()

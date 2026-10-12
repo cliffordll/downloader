@@ -14,7 +14,7 @@ from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.core.sys_setting import SysSetting
 from src.storage.task_repository import TaskRepository
 from src.core.task_service import TaskService
-from src.schemas.task import SourceType
+from src.schemas.task import SourceType, TaskStatus
 from src.views.main_frame import MainFrame
 from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 from src.views.dialogs.ts_dialog import DownloadDialogTS
@@ -157,6 +157,43 @@ class TaskServiceTests(unittest.TestCase):
         self.assertEqual(load_tree(reopened).items, [])
         self.assertTrue(path.is_file())
 
+    def test_startup_refresh_and_tree_projection_do_not_read_download_files(self):
+        task = self.create()
+        segment = task.details.segments[0]
+        path = task.save_dir / segment.relative_path
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'data')
+        self.service.finish_segment(task.id, segment.sequence, str(path), True)
+        self.service.runtime_status(task.id, TaskStatus.DOWNLOADING)
+        path.unlink()
+        (task.save_dir / task.details.playlist_path).unlink()
+        reopened = TaskService(self.repository)
+        original_stat = Path.stat
+
+        def stat(path, *args, **kwargs):
+            if str(path).startswith(str(task.save_dir)):
+                self.fail('启动或列表展示不应访问下载文件：' + str(path))
+            return original_stat(path, *args, **kwargs)
+
+        with patch.object(Path, 'stat', stat), patch.object(Path, 'iterdir', side_effect=AssertionError('must not scan')):
+            tree = load_tree(reopened)
+            with patch.object(MainFrame, 'Show'):
+                frame = MainFrame(None, 'test', reopened, tree)
+            try:
+                with patch.object(frame.runner, 'queue_duration') as duration:
+                    frame.OnRefresh(None)
+                    frame.OnExpandAll(None)
+                    frame.OnTaskProgress(None)
+                    duration.assert_not_called()
+                row = frame.model.fileTree.items[0]
+                self.assertEqual(row.progress.completed_segments, 1)
+                self.assertEqual(row.childs[0].fileSize, '4.00 B')
+                self.assertEqual(row.childs[0].modifyAt, '—')
+                self.assertEqual(frame.model.TaskInfo(0)['progress'], '50% · 1/2')
+            finally:
+                frame.Destroy()
+                self.app.ProcessPendingEvents()
+
     def test_download_uses_recorded_paths_after_default_directory_change(self):
         task = self.create()
         frame = self.frame()
@@ -171,7 +208,7 @@ class TaskServiceTests(unittest.TestCase):
                          [segment.source_url for segment in task.details.segments])
         self.assertEqual([Path(call.args[1]) for call in download.call_args_list],
                          [self.directory / segment.relative_path for segment in task.details.segments])
-        self.assertEqual(frame.model.GetValue(item, 1), 'video.mp4')
+        self.assertEqual(frame.model.GetValue(item, 1), 'video')
         self.assertTrue(frame._CreateM3U8File(str(self.directory / 'video/download.m3u8')))
 
     def test_invalid_download_index_does_not_enqueue(self):
@@ -216,6 +253,7 @@ class TaskServiceTests(unittest.TestCase):
             path = task.save_dir / segment.relative_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'test segment')
+            self.service.finish_segment(task.id, segment.sequence, str(path), True)
         (self.directory / 'video/download.m3u8').unlink()
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
@@ -254,6 +292,7 @@ class TaskServiceTests(unittest.TestCase):
             path = task.save_dir / segment.relative_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'data')
+            self.service.finish_segment(task.id, segment.sequence, str(path), True)
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
         with patch('src.core.task_runner.FFmpegConverter.ConcatPlaylist', return_value=False), \

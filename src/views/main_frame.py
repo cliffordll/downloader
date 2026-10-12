@@ -273,7 +273,9 @@ class MainFrame(wx.Frame):
         # renderer.EnableEllipsize(wx.ELLIPSIZE_END)
         # self.mcTree.AppendColumn(dv.DataViewColumn("文件名", renderer, 1, width=180, align=wx.ALIGN_LEFT))
         # self.mcTree.AppendTextColumn("文件名", 1, width=500)
-        self.mcTree.AppendTextColumn("文件名", 1, width=self.FromDIP(250))
+        nameColumn = self.mcTree.AppendTextColumn("名称", 1, width=self.FromDIP(250))
+        self.mcTree.SetExpanderColumn(nameColumn)
+        self.mcTree.SetIndent(self.FromDIP(16))
         self.mcTree.AppendColumn(dv.DataViewColumn('下载进度', TaskProgressRenderer(self), 5,
                                                  width=self.FromDIP(180), align=wx.ALIGN_CENTER))
         self.mcTree.AppendTextColumn("状态", 6, width=self.FromDIP(80), align=wx.ALIGN_CENTER)
@@ -286,6 +288,8 @@ class MainFrame(wx.Frame):
         # Mac 原生控件在首次布局时会重新调整列宽，必须同时约束原生最小宽度。
         actionColumn.SetMinWidth(initial_action_width)
         self.mcTree.AppendColumn(actionColumn)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_EXPANDED, self._QueueRowNumbers)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_COLLAPSED, self._QueueRowNumbers)
         for index in range(self.mcTree.GetColumnCount()):
             column = self.mcTree.GetColumn(index)
             column.GetRenderer().EnableEllipsize(wx.ELLIPSIZE_END)
@@ -329,7 +333,7 @@ class MainFrame(wx.Frame):
         source = event.GetEventObject()
         pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
         item, column = self.mcTree.HitTest(pos)
-        if not item.IsOk() or column is None or column.GetModelColumn() != 0:
+        if not item.IsOk() or column is None or column != self.mcTree.GetExpanderColumn():
             event.Skip()
             return
         keys = self.model.ParseKey(self.model.ItemToObject(item))
@@ -433,25 +437,14 @@ class MainFrame(wx.Frame):
         # CallAfter 执行时窗口可能已经关闭，此时不能再访问原生控件。
         if self._closing or not self or self.IsBeingDeleted() or not self.mcTree:
             return
-        # 按最宽编号预留文字、两级树缩进和留白；不遍历所有分片文本。
+        # 序列列按可见行总数留宽；层级缩进由名称列承载。
         font = wx.Font(self.mcTree.GetFont())
         font.SetWeight(wx.FONTWEIGHT_BOLD)
         dc = wx.ClientDC(self.mcTree)
         dc.SetFont(font)
-        root_digits = len(str(max(1, len(self.model.fileTree.items))))
-        child_count = max((max(len(task.childs), len(task.outputs))
-                           for task in self.model.fileTree.items), default=0)
-        label = '9' * root_digits
-        if child_count:
-            label += '.' + '9' * len(str(child_count))
-        indent = max(self.mcTree.GetIndent(), self.FromDIP(16))
-        sequence_width = max(self.FromDIP(50), dc.GetTextExtent(label)[0]
-                             + indent * (2 if child_count else 1) + self.FromDIP(12))
-        if wx.Platform == '__WXMAC__':
-            # 使用 Cocoa 的实际树缩进，避免额外放大编号列的留白。
-            sequence_width = max(self.FromDIP(40), dc.GetTextExtent(label)[0]
-                                 + self.mcTree.GetIndent() * (2 if child_count else 1)
-                                 + self.FromDIP(6))
+        root_digits = len(str(max(1, len(self.model.row_numbers))))
+        child_count = max((len(task.childs) for task in self.model.fileTree.items), default=0)
+        sequence_width = max(self.FromDIP(40), dc.GetTextExtent('9' * root_digits)[0] + self.FromDIP(12))
         # 编号位数也参与缓存，新增任务或刷新后即使窗口尺寸不变也能重新适配。
         font.SetWeight(wx.FONTWEIGHT_NORMAL)
         dc.SetFont(font)
@@ -580,7 +573,6 @@ class MainFrame(wx.Frame):
         child_display = {}
         snapshot = M3U8Downloader.Snapshot()
         for index, task in enumerate(self.model.fileTree.items):
-            self._QueueDurationCheck(task)
             info = self.model.TaskInfo(index)
             state = (info['progress'], info['status'], json.dumps(self.model.TaskActions(index), ensure_ascii=False))
             display[task.parent.fileName] = state
@@ -616,7 +608,7 @@ class MainFrame(wx.Frame):
     def _OpenLocalPath(self, path):
         target = Path(path)
         if not target.exists():
-            wx.MessageBox('文件或目录已不存在，请刷新列表。', '提示', parent=self)
+            wx.MessageBox('文件或目录已不存在，请确认保存位置或重新下载。', '提示', parent=self)
             return
         if not wx.LaunchDefaultApplication(str(target)):
             wx.MessageBox('无法打开，请检查系统的默认应用设置。', '提示', parent=self)
@@ -624,7 +616,7 @@ class MainFrame(wx.Frame):
     def _SaveFileAs(self, source):
         source = Path(source)
         if not source.is_file():
-            wx.MessageBox('原文件已不存在，请刷新列表。', '另存为失败', wx.OK | wx.ICON_ERROR, self)
+            wx.MessageBox('原文件已不存在，请重新下载后再另存为。', '另存为失败', wx.OK | wx.ICON_ERROR, self)
             return
         dialog = wx.FileDialog(self, '另存为', defaultFile=source.name,
                                wildcard='所有文件 (*.*)|*.*',
@@ -656,6 +648,15 @@ class MainFrame(wx.Frame):
         if errors:
             wx.MessageBox(errors[0], '另存为失败', wx.OK | wx.ICON_ERROR, self)
 
+    def _CheckAndContinue(self, task_id):
+        """已完成任务也可显式检查并补下载，不在展示时检查磁盘。"""
+        try:
+            if self.runner.start(task_id):
+                self._completion_notified.discard(task_id)
+        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(str(error), '任务操作失败', parent=self)
+        self._SyncDownloads()
+
     def OnTaskMenu(self, item):
         if not item.IsOk():
             return
@@ -676,6 +677,8 @@ class MainFrame(wx.Frame):
                 bool(info['total']) and info['done'] == info['total'] and not task.outputs
                 and not info['pending'] and not info['merging'])
         add('打开文件夹', lambda: self._OpenLocalPath(directory))
+        if task.task_type in (TaskType.M3U8, TaskType.MP4) and task.task_status in (TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):
+            add('检查并继续下载', lambda: self._CheckAndContinue(task.task_id))
         if task.task_type == TaskType.MP4 and task.last_error:
             add('查看失败原因', lambda: self._ShowInformation('MP4 下载失败', task.last_error))
         if task.outputs and (task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
@@ -692,7 +695,7 @@ class MainFrame(wx.Frame):
         if completed_files:
             for path in completed_files:
                 label = '另存为…' if len(completed_files) == 1 else '另存为：' + path.name
-                add(label, lambda path=path: self._SaveFileAs(path), path.is_file())
+                add(label, lambda path=path: self._SaveFileAs(path))
         else:
             add('另存为…', lambda: None, False)
         try:
@@ -760,6 +763,7 @@ class MainFrame(wx.Frame):
                 self.model.visible_tasks = visible
                 self.model.Cleared()
                 self._RestoreExpandState(root, expanded)
+                self._UpdateRowNumbers()
                 if selected_key is not None and not force:
                     index = self.model.ParseKey(selected_key)[0]
                     if visible is None or index in visible:
@@ -1099,14 +1103,15 @@ class MainFrame(wx.Frame):
             item = self.model.ObjectToItem(self.model._BuildKey((index,)))
             if self.mcTree.IsExpanded(item):
                 expanded_ids.add(task.task_id or task.parent.fileName)
-                folder = self.model.ObjectToItem(self.model._BuildKey((index, -1)))
-                if task.childs and self.mcTree.IsExpanded(folder):
-                    expanded_folders.add(task.task_id or task.parent.fileName)
+                for key in (-4, -1):
+                    folder = self.model.ObjectToItem(self.model._BuildKey((index, key)))
+                    if self.model.IsContainer(folder) and self.mcTree.IsExpanded(folder):
+                        expanded_folders.add((task.task_id or task.parent.fileName, key))
         self.model.fileTree = tree
         expanded = {self.model._BuildKey((index,)) for index, task in enumerate(tree.items)
                     if (task.task_id or task.parent.fileName) in expanded_ids}
-        expanded.update(self.model._BuildKey((index, -1)) for index, task in enumerate(tree.items)
-                        if (task.task_id or task.parent.fileName) in expanded_folders)
+        expanded.update(self.model._BuildKey((index, key)) for index, task in enumerate(tree.items)
+                        for key in (-4, -1) if (task.task_id or task.parent.fileName, key) in expanded_folders)
         self._ApplyTaskFilter(force=True, expanded_keys=expanded)
 
     def OnActivatedChanged(self, event):
@@ -1137,6 +1142,25 @@ class MainFrame(wx.Frame):
             self.mcTree.Expand(item)
         else:
             self.mcTree.Collapse(item)
+        self._QueueRowNumbers()
+
+    def _QueueRowNumbers(self, event=None):
+        if event is not None:
+            event.Skip()
+        if self._closing or getattr(self, '_rowNumbersPending', False):
+            return
+        self._rowNumbersPending = True
+        # 等原生控件完成展开，并合并“全部展开”等连续操作的通知。
+        wx.CallAfter(self._UpdateRowNumbers)
+
+    def _UpdateRowNumbers(self):
+        self._rowNumbersPending = False
+        if self._closing or not self or self.IsBeingDeleted():
+            return
+        if self.model.UpdateRowNumbers(self.mcTree):
+            self.mcTree.Refresh()
+        if hasattr(self, '_defaultTaskWidth'):
+            self._FitTaskColumns()
 
     def OnTaskAction(self, item, action_id='start'):
         """自定义操作分发入口，不是 wx 自动调用的重写方法。
@@ -1371,7 +1395,7 @@ class MainFrame(wx.Frame):
         if task is None or any(index < 0 or index >= len(task.childs) for index, _ in tasks):
             wx.MessageBox('任务不存在或分片已变化，请刷新后重试。', '提示')
             return 0
-        children = [task.childs[index] for index, _ in tasks if not Path(task.childs[index].fileName).is_file()]
+        children = [task.childs[index] for index, _ in tasks]
         if not children:
             return 0
         try:

@@ -5,6 +5,7 @@ import math
 import os
 import tempfile
 import subprocess
+import stat
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 
 from src.media.m3u8.m3u8_parser import M3U8Parser
@@ -133,15 +134,22 @@ class TaskService:
 
 
     def load_tasks(self):
-        """首次读取恢复中断状态，普通刷新只核对已登记文件，返回领域任务记录。"""
-        recovering = not self._recovered
-        records = []
-        for original in self.repository.list_tasks():
-            task = self.repository.mutate(original.id, lambda task: self._reconcile(task, recovering))
-            if task is not None:
-                records.append(task)
-        self._recovered = True
-        return records
+        """启动和刷新只读取数据库；首次启动仅将活动任务标记为中断。"""
+        records = self.repository.list_tasks()
+        if not self._recovered:
+            active = {TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING,
+                      TaskStatus.MERGING, TaskStatus.RECORDING, TaskStatus.STOPPING}
+            def interrupt(task):
+                if task.status in active:
+                    task.status, task.last_error = TaskStatus.INTERRUPTED, '上次任务未正常结束，请手动继续。'
+            records = [self.repository.mutate(task.id, interrupt) if task.status in active else task
+                       for task in records]
+            self._recovered = True
+        return [task for task in records if task is not None]
+
+    def check_files(self, task_id):
+        """仅在文件操作前核对当前任务，先保存差异，后续操作失败也不丢失修正。"""
+        return self.repository.mutate(task_id, self._reconcile)
 
     @staticmethod
     def _progress(task):
@@ -166,77 +174,78 @@ class TaskService:
             task.status = TaskStatus.FAILED if failed else TaskStatus.INTERRUPTED
             task.last_error = failed.last_error if failed else task.last_error
 
+    @staticmethod
+    def _file_size(path):
+        try:
+            info = path.stat()
+        except FileNotFoundError:
+            return None
+        return info.st_size if stat.S_ISREG(info.st_mode) else None
+
     @classmethod
-    def _reconcile(cls, task, recovering):
+    def _reconcile(cls, task):
+        """文件操作前核对已登记路径；不遍历目录，不在启动或刷新时调用。"""
         if not isinstance(task, M3U8Task):
-            # MP4 按 .part 实际长度恢复；只有经过完整性检查的文件才可恢复成已完成。
-            if isinstance(task, MP4Task) and recovering:
-                target = task.save_dir / task.details.target_path
-                partial = task.save_dir / task.details.temporary_path
+            target_size = cls._file_size(task.save_dir / task.details.target_path)
+            if isinstance(task, MP4Task):
                 verified = task.details.verified_bytes
-                if verified is not None and target.is_file() and target.stat().st_size == verified:
+                if verified is not None and target_size == verified:
                     task.status, task.last_error = TaskStatus.COMPLETED, None
                     task.progress = TaskProgress(downloaded_bytes=verified, total_bytes=verified)
                     for output in task.outputs:
                         output.status, output.size_bytes = FileStatus.COMPLETED, verified
-                elif partial.is_file():
-                    done = partial.stat().st_size
-                    total = task.progress.total_bytes
-                    task.progress = TaskProgress(downloaded_bytes=done,
-                        total_bytes=total if total is None or done <= total else None)
-            if recovering and task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING,
-                    TaskStatus.PAUSING, TaskStatus.RECORDING, TaskStatus.STOPPING):
-                task.status, task.last_error = TaskStatus.INTERRUPTED, '上次任务未正常结束。'
-            if task.status == TaskStatus.COMPLETED and not (task.save_dir / task.details.target_path).is_file():
-                task.status, task.last_error = TaskStatus.INTERRUPTED, '已完成的视频文件不存在。'
+                    return
+                invalid = target_size is None or (verified is not None and target_size != verified)
+            else:
+                invalid = target_size is None
+            if task.status == TaskStatus.COMPLETED and invalid:
+                task.status, task.last_error = TaskStatus.INTERRUPTED, '已完成的视频不存在或大小与记录不符。'
+                for output in task.outputs:
+                    output.status, output.size_bytes = FileStatus.MISSING, None
                 if isinstance(task, MP4Task):
                     task.details.verified_bytes = None
                     task.progress = TaskProgress()
-                for output in task.outputs:
-                    if not (task.save_dir / output.relative_path).is_file():
-                        output.status, output.size_bytes = FileStatus.MISSING, None
+            if isinstance(task, MP4Task) and task.status != TaskStatus.COMPLETED:
+                done = cls._file_size(task.save_dir / task.details.temporary_path) or 0
+                total = task.progress.total_bytes
+                task.progress = TaskProgress(downloaded_bytes=done,
+                    total_bytes=total if total is None or done <= total else None)
             return
         previous = task.status
-        previous_error = task.last_error
         active = previous in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING, TaskStatus.MERGING)
         missing = False
         for segment in task.details.segments:
             path = task.save_dir / segment.relative_path
-            if path.is_file():
-                segment.status, segment.size_bytes, segment.last_error = FileStatus.COMPLETED, path.stat().st_size, None
-            elif segment.status == FileStatus.COMPLETED:
-                segment.status, segment.size_bytes, segment.last_error = FileStatus.MISSING, None, '已下载分片不存在'
+            size = cls._file_size(path)
+            if size and (segment.size_bytes is None or segment.size_bytes == size):
+                segment.status, segment.size_bytes, segment.last_error = FileStatus.COMPLETED, size, None
+            elif segment.status == FileStatus.COMPLETED or size is not None:
+                segment.status, segment.last_error = FileStatus.MISSING, '分片不存在或大小与记录不符'
                 segment.duration_status, segment.duration_error = 'pending', None
                 missing = True
         for output in task.outputs:
             path = task.save_dir / output.relative_path
-            if path.is_file():
-                # FFmpeg 现在只在成功后发布正式文件；临时文件不能作为完成依据。
-                output.status, output.size_bytes = FileStatus.COMPLETED, path.stat().st_size
+            size = cls._file_size(path)
+            if size and (output.size_bytes is None or output.size_bytes == size):
+                # 正式文件只在转换成功后发布，临时文件不能作为完成依据。
+                output.status, output.size_bytes = FileStatus.COMPLETED, size
             elif output.status == FileStatus.COMPLETED:
                 output.status, output.size_bytes = FileStatus.MISSING, None
                 missing = True
         cls._progress(task)
-        if active and not recovering:
-            return  # 普通刷新不能把本次会话的活动状态改成中断。
-        if active or missing:
-            task.status = TaskStatus.INTERRUPTED
-            task.last_error = '上次任务未正常结束，请手动继续。' if active else '部分已下载文件不存在，请继续下载。'
+        if active:
+            return  # 恢复当前队列时，不覆盖仍在运行的任务状态。
+        if missing:
+            task.status, task.last_error = TaskStatus.INTERRUPTED, '部分已下载文件缺失或大小异常，请继续下载。'
         if task.status != TaskStatus.NEW or task.progress.completed_segments or any(
                 output.status == FileStatus.COMPLETED for output in task.outputs):
             cls._settle(task)
-        if recovering and previous == TaskStatus.MERGING and task.status != TaskStatus.COMPLETED:
-            task.status, task.last_error = TaskStatus.INTERRUPTED, '上次合并未完成，请重新转 MP4。'
-        elif recovering and active and task.status not in (TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):
-            task.status, task.last_error = TaskStatus.INTERRUPTED, '上次任务未正常结束，请手动继续。'
-        elif previous == TaskStatus.INTERRUPTED and task.status != TaskStatus.COMPLETED:
-            task.status, task.last_error = TaskStatus.INTERRUPTED, previous_error
 
     def begin_download(self, task_id, sequences):
         """先登记排队，再提交网络请求；只清除本次重试分片的错误。"""
         def change(task):
             self._require_m3u8(task)
-            self._reconcile(task, False)
+            self._reconcile(task)
             selected = set(sequences)
             if not selected or not selected <= {segment.sequence for segment in task.details.segments}:
                 raise ValueError('分片序号无效，请刷新后重试。')
@@ -278,13 +287,17 @@ class TaskService:
         return self.repository.mutate(task_id, change)
 
     def begin_merge(self, task_id):
+        record = self.repository.get(task_id)
+        if record is None:
+            return None
+        self._require_m3u8(record)
+        self.check_files(task_id)
         def change(task):
             self._require_m3u8(task)
-            self._reconcile(task, False)
-            if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.segments):
-                raise ValueError('分片时长尚未检测完成，请稍后合并。')
             if not task.details.segments or task.progress.completed_segments != task.progress.total_segments:
                 raise ValueError('分片尚未全部下载，不能合并。')
+            if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.segments):
+                raise ValueError('分片时长尚未检测完成，请稍后合并。')
             if any(output.status == FileStatus.COMPLETED for output in task.outputs):
                 raise ValueError('视频文件已经存在。')
             task.status, task.last_error = TaskStatus.MERGING, None

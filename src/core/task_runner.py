@@ -49,6 +49,11 @@ class TaskRunner:
             return 0
         task = self._task(task_id)
         if isinstance(task, MP4Task):
+            if self.mp4.busy(task_id):
+                return False
+            task = self.check_files(task_id)
+            if task.status == TaskStatus.COMPLETED:
+                return False
             return self.mp4.start(task_id)
         if not isinstance(task, M3U8Task):
             raise ValueError('此任务类型尚不支持下载。')
@@ -61,13 +66,16 @@ class TaskRunner:
         selected = None if sequences is None else set(sequences)
         if selected is not None and not selected <= {s.sequence for s in task.details.segments}:
             raise ValueError('分片序号无效，请刷新后重试。')
+        task = self.check_files(task_id)
         failed = M3U8Downloader.Snapshot()['failed']
         wanted = [s.sequence for s in task.details.segments
                   if (selected is None or s.sequence in selected)
-                  and not (task.save_dir / s.relative_path).is_file()
+                  and s.status != FileStatus.COMPLETED
                   and (not retry or s.status == FileStatus.FAILED
                        or M3U8Downloader.FileKey(task.save_dir / s.relative_path) in failed)]
         if not wanted:
+            if task.status == TaskStatus.WAITING_MERGE:
+                self.complete(task_id)
             return 0
         try:
             count = M3U8Downloader.StartTask(self.tasks, task_id, wanted)
@@ -79,6 +87,28 @@ class TaskRunner:
         except Exception:
             M3U8Downloader.Pause()
             raise
+
+    def check_files(self, task_id):
+        try:
+            task = self.tasks.check_files(task_id)
+            if task is None:
+                raise ValueError('任务不存在，请刷新后重试。')
+            return task
+        except (OSError, sqlite3.Error, TaskDataError, TaskConflictError):
+            M3U8Downloader.Pause()
+            raise
+        finally:
+            self._changes.put(task_id)
+
+    def _check_before_resume(self, task):
+        completed = {segment.sequence for segment in task.details.segments
+                     if segment.status == FileStatus.COMPLETED}
+        checked = self.check_files(task.id)
+        missing = [segment.sequence for segment in checked.details.segments
+                   if segment.sequence in completed and segment.status == FileStatus.MISSING]
+        if missing:
+            # 暂停期间丢失的已完成分片也要补下载，其余未选中的分片不加入队列。
+            self.start(task.id, sequences=missing)
 
     def activate(self, task_id, *, retry=False):
         """行内开始按钮：运行中暂停，已暂停队列继续；无队列才创建新下载请求。"""
@@ -93,6 +123,7 @@ class TaskRunner:
             pending = self._keys(task) & snapshot['pending']
             if pending:
                 if snapshot['paused'] or pending <= snapshot['paused_files']:
+                    self._check_before_resume(task)
                     M3U8Downloader.ResumeFiles(pending)
                 else:
                     M3U8Downloader.PauseFiles(pending)
@@ -113,6 +144,10 @@ class TaskRunner:
 
     def resume_all(self):
         """恢复现有队列；重启后的暂停/中断任务重新入队，不启动新建或失败任务。"""
+        snapshot = M3U8Downloader.Snapshot()
+        for task in self.tasks.repository.list_tasks():
+            if isinstance(task, M3U8Task) and self._keys(task) & snapshot['pending']:
+                self._check_before_resume(task)
         M3U8Downloader.Resume()
         pending = M3U8Downloader.Snapshot()['pending']
         started = set()
@@ -215,6 +250,7 @@ class TaskRunner:
             if self.busy(task_id):
                 raise ValueError('任务仍在下载、检测或合并中，请稍后操作。')
             output = task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged')
+            task = self.check_files(task_id)
             if output.exists():
                 raise ValueError('视频文件已经存在。')
             seed = self.write_playlist(task_id)
@@ -223,6 +259,9 @@ class TaskRunner:
                 raise ValueError('播放列表无效，无法生成合并清单。')
             try:
                 record = self.tasks.begin_merge(task_id)
+            except ValueError:
+                self._changes.put(task_id)
+                raise
             except (OSError, sqlite3.Error, TaskDataError, TaskConflictError):
                 M3U8Downloader.Pause()
                 raise

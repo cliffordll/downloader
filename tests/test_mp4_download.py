@@ -236,7 +236,10 @@ class MP4DownloadTests(unittest.TestCase):
         target = task.save_dir / task.details.target_path
         target.write_bytes(DATA)
         self.repository.mutate(task.id, lambda r: setattr(r.details, 'verified_bytes', len(DATA)))
-        TaskService(self.repository).load_tasks()
+        service = TaskService(self.repository)
+        service.load_tasks()
+        self.assertEqual(self.repository.get(task.id).status, TaskStatus.INTERRUPTED)
+        service.check_files(task.id)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.COMPLETED)
 
     def test_existing_target_is_preserved(self):

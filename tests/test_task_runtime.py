@@ -154,7 +154,8 @@ class TaskRuntimeTests(unittest.TestCase):
     def test_switch_default_while_merging_preserves_output_and_folder_actions(self):
         task = self.create()
         for sequence in range(2):
-            self.write_segment(task, sequence)
+            path = self.write_segment(task, sequence)
+            self.service.finish_segment(task.id, sequence, str(path), True)
         frame = self.frame()
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
         with patch.object(FFmpegConverter, 'ConvertTSFile') as convert:
@@ -245,6 +246,8 @@ class TaskRuntimeTests(unittest.TestCase):
         download.assert_not_called()
         self.assertEqual([item.task_status for item in tree.items],
                          [TaskStatus.INTERRUPTED] * 3 + [TaskStatus.PAUSED])
+        self.assertEqual(self.repository.get(tasks[0].id).progress.completed_segments, 0)
+        self.service.check_files(tasks[0].id)
         self.assertEqual(self.repository.get(tasks[0].id).progress.completed_segments, 1)
         self.assertEqual(tree.items[2].outputs, [])
 
@@ -396,7 +399,7 @@ class TaskRuntimeTests(unittest.TestCase):
         with patch.object(frame.runner, 'merge') as merge:
             for cycle in range(2):
                 with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue):
-                    frame.OnTaskAction(item, 'start')
+                    frame._CheckAndContinue(task.id)
                 path = self.write_segment(task, 0)
                 M3U8Downloader._pending.clear()
                 self.deliver(frame, True, str(path), (task.id, 0))
@@ -429,7 +432,9 @@ class TaskRuntimeTests(unittest.TestCase):
             self.deliver(frame, True, str(path), (task.id, 0))
             queue.assert_called_once()
             event.assert_not_called()
-            self.assertEqual(frame.model.TaskInfo(0)['status'], '检测时长')
+            self.assertEqual(frame.model.TaskInfo(0)['status'], '待检测时长')
+            with patch.object(frame.runner, 'busy_processing', return_value=True):
+                self.assertEqual(frame.model.TaskInfo(0)['status'], '检测时长')
             with patch('src.core.task_service.FFmpegConverter.ProbeDuration', return_value=3.5):
                 record = self.service.detect_durations(task.id)
             frame._DurationChecked(task.id, record, None)
@@ -478,6 +483,8 @@ class TaskRuntimeTests(unittest.TestCase):
         self.service.finish_segment(task.id, 0, str(path), True)
         path.unlink()
         load_tree(TaskService(TaskRepository(self.repository.path)))
+        self.assertEqual(self.repository.get(task.id).progress.completed_segments, 1)
+        self.service.check_files(task.id)
         restored = self.repository.get(task.id)
         self.assertEqual(restored.progress.completed_segments, 0)
         self.assertEqual(restored.details.segments[0].status, FileStatus.MISSING)

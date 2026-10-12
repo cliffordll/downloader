@@ -14,7 +14,7 @@ from src.core.task_runner import TaskRunner
 from src.core.task_service import TaskService
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.media.m3u8.m3u8_downloader import M3U8Downloader as Engine
-from src.schemas.task import TaskStatus
+from src.schemas.task import FileStatus, TaskStatus
 from src.storage.task_repository import TaskRepository
 
 
@@ -88,6 +88,74 @@ class TaskRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '序号无效'):
                 self.runner.start(task.id, sequences=[99])
             self.assertEqual(segment.call_count, 1)
+
+    def test_start_checks_only_selected_task_and_redownloads_missing_or_changed_segments(self):
+        task, other = self.m3u8(), self.m3u8('other')
+        self.complete_segments(task)
+        self.complete_segments(other)
+        (task.save_dir / task.details.segments[1].relative_path).unlink()
+        changed = task.save_dir / task.details.segments[2].relative_path
+        changed.write_bytes(b'bad')
+        (other.save_dir / other.details.segments[0].relative_path).unlink()
+        self.service.load_tasks()
+        self.assertEqual(self.repo.get(task.id).progress.completed_segments, 3)
+        with patch.object(Engine, 'DownloadTSFile', side_effect=self.enqueue) as download:
+            self.assertEqual(self.runner.start(task.id), 2)
+        self.assertEqual([call.args[3][1] for call in download.call_args_list], [1, 2])
+        self.assertEqual(self.repo.get(task.id).progress.completed_segments, 1)
+        self.assertEqual(self.repo.get(other.id).progress.completed_segments, 3)
+        # 已核对为异常的现存分片也应重新下载，而不是仅因存在就当作成功。
+        def consume(url, **kwargs):
+            response = SimpleNamespace(headers={}, iter_content=lambda **kw: [b'media'])
+            return True, kwargs['consume'](response)
+        with patch.object(Engine, 'DownloadContent', side_effect=consume):
+            success, _ = Engine._SaveFile('https://example.com/2.ts', str(changed))
+        self.assertTrue(success)
+        self.assertEqual(changed.read_bytes(), b'media')
+
+    def test_merge_missing_file_persists_correction_before_rejecting(self):
+        task = self.m3u8()
+        self.complete_segments(task)
+        (task.save_dir / task.details.segments[1].relative_path).unlink()
+        with patch.object(FFmpegConverter, 'ConvertTSFile') as convert:
+            with self.assertRaisesRegex(ValueError, '分片尚未全部下载'):
+                self.runner.merge(task.id)
+        convert.assert_not_called()
+        saved = self.repo.get(task.id)
+        self.assertEqual(saved.progress.completed_segments, 2)
+        self.assertEqual(saved.details.segments[1].status, FileStatus.MISSING)
+        self.assertIn(task.id, self.runner.changes())
+
+    def test_resume_repairs_deleted_completed_segment_without_starting_unselected_files(self):
+        task = self.m3u8()
+        path = self.write(task, 0)
+        self.service.finish_segment(task.id, 0, str(path), True)
+        with patch.object(Engine, 'DownloadTSFile', side_effect=self.enqueue) as download:
+            self.runner.start(task.id, sequences=[1])
+            Engine.Pause()
+            path.unlink()
+            download.reset_mock()
+            self.runner.activate(task.id)
+        self.assertEqual([call.args[3][1] for call in download.call_args_list], [0])
+        self.assertEqual(Engine.Snapshot()['pending'], {
+            Engine.FileKey(task.save_dir / task.details.segments[index].relative_path) for index in (0, 1)})
+
+    def test_mp4_missing_output_is_repaired_only_when_starting(self):
+        task = self.mp4()
+        def complete(current):
+            current.status = TaskStatus.COMPLETED
+            current.details.verified_bytes = 5
+            current.progress.downloaded_bytes = 5
+            current.outputs[0].status = FileStatus.COMPLETED
+            current.outputs[0].size_bytes = 5
+        self.repo.mutate(task.id, complete)
+        self.service.load_tasks()
+        self.assertEqual(self.repo.get(task.id).status, TaskStatus.COMPLETED)
+        with patch.object(self.runner.mp4, 'start', return_value=True) as download:
+            self.assertTrue(self.runner.start(task.id))
+        download.assert_called_once_with(task.id)
+        self.assertEqual(self.repo.get(task.id).status, TaskStatus.INTERRUPTED)
+        self.assertEqual(self.repo.get(task.id).progress.downloaded_bytes, 0)
 
     def test_row_resume_preserves_selected_queue_and_other_tasks_pause(self):
         task, other = self.m3u8(), self.m3u8('other')

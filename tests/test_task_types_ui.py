@@ -55,12 +55,12 @@ class TaskTypesUITests(unittest.TestCase):
             item = model.ObjectToItem(model._BuildKey((index,)))
             self.assertEqual(model.IsContainer(item), expected)
             children = []
-            self.assertEqual(model.GetChildren(item, children), (2, 1, 0)[index])
+            self.assertEqual(model.GetChildren(item, children), (1, 1, 0)[index])
         self.assertEqual(model.TaskInfo(1)['progress'], '50% · 1.0 KB / 2.0 KB')
         self.assertEqual(model.TaskInfo(2)['progress'], '01:01:01 · 1.0 KB')
         self.assertIsNone(model.TaskInfo(2)['percent'])
 
-    def test_manifests_and_output_appear_only_when_created(self):
+    def test_files_are_projected_from_records_not_directory_contents(self):
         task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/mixed.m3u8',
                                        '#EXTM3U\n#EXTINF:4,\na.ts\n')
         row = to_tree_item(task)
@@ -75,7 +75,7 @@ class TaskTypesUITests(unittest.TestCase):
         task.outputs[0].status = FileStatus.COMPLETED
         row = to_tree_item(task, previous=row)
         self.assertEqual([file.displayName for file in row.manifests.values()],
-                         ['download.m3u8', 'playlist.txt'])
+                         ['download.m3u8'])
         self.assertEqual([file.displayName for file in row.outputs], ['mixed.mp4'])
         self.assertEqual(len(row.childs), 1)
         self.assertEqual(row.download, 0)
@@ -325,22 +325,24 @@ class TaskTypesUITests(unittest.TestCase):
         row = load_tree(self.service).items[0]
         self.assertEqual(row.task_status, TaskStatus.NEW)
         self.assertEqual(row.outputs[0].displayName, 'video.part')
-        self.assertEqual(row.outputs[0].fileSize, '-')
+        self.assertEqual(row.outputs[0].fileSize, '0.00 B')
         self.repo.mutate(task.id, lambda task: setattr(task, 'status', TaskStatus.COMPLETED))
         row = load_tree(self.service).items[0]
         self.assertEqual(len(row.outputs), 1)
         self.assertEqual(row.save_dir, task.save_dir)
         target.unlink()
+        self.assertEqual(load_tree(self.service).items[0].task_status, TaskStatus.COMPLETED)
+        self.service.check_files(task.id)
         self.assertEqual(load_tree(self.service).items[0].task_status, TaskStatus.INTERRUPTED)
 
     def test_mp4_child_tracks_partial_and_completed_file(self):
-        task = self.mp4(status=TaskStatus.PAUSED)
+        task = self.mp4(status=TaskStatus.PAUSED, progress=TaskProgress(downloaded_bytes=5))
         task.save_dir.mkdir()
         partial = task.save_dir / task.details.temporary_path
         partial.write_bytes(b'video')
         model = self.model()
         child = model.ObjectToItem(model._BuildKey((0, 0)))
-        self.assertEqual(model.GetValue(child, 0), '1.1')
+        self.assertEqual(model.GetValue(child, 0), '')
         self.assertEqual(model.GetValue(child, 1), 'video.part')
         self.assertEqual(model.GetValue(child, 2), '5.00 B')
         self.assertEqual(model.GetValue(child, 6), '已暂停')
@@ -350,7 +352,7 @@ class TaskTypesUITests(unittest.TestCase):
         partial.rename(target)
         self.repo.mutate(task.id, lambda current: setattr(current, 'status', TaskStatus.COMPLETED))
         model.ApplyTaskRecord(self.repo.get(task.id))
-        self.assertEqual(model.GetValue(child, 1), 'nested/video.mp4')
+        self.assertEqual(model.GetValue(child, 1), 'video.mp4')
         self.assertEqual(model.GetValue(child, 6), '已完成')
         self.assertEqual(model.GetValue(child, 5), '')
         self.assertEqual(model.GetValue(child, 4), '')

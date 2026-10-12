@@ -5,62 +5,63 @@ import wx.dataview as dv
 from src.core.path_manager import PathManager
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
-import os
+from pathlib import Path
 from src.models.presentation import TaskSummary, single_file_info
 from src.schemas.task import FileStatus, TaskStatus, TaskType, M3U8Task
 from src.models.file_base import FileItem, TreeData, TreeItem
 
 
-def _file(path, display_name, source_url=''):
-    """只检查已记录的确切路径；内部用绝对路径，显示名称单独保存。"""
-    item = FileItem(fileName=str(path), displayName=display_name, absUri=source_url or '')
-    if path.is_file():
-        stat = path.stat()
-        item = FileItem(fileName=str(path), displayName=display_name, absUri=source_url or '',
-                        fileSize=stat.st_size, modifyAt=stat.st_mtime)
-    return item
+def _file(path, display_name, source_url='', *, size=None, status=FileStatus.PENDING):
+    """只投影任务记录；展示层不查询磁盘文件。"""
+    return FileItem(fileName=str(path), displayName=display_name, absUri=source_url or '',
+                    status=status, fileSize=size if size is not None else (
+                        '—' if status == FileStatus.COMPLETED else '-'), modifyAt='—')
+
 
 def to_tree_item(task, previous=None):
-    """将持久化记录投影到界面；磁盘上的正式文件才可显示为已下载。"""
+    """数据库记录决定文件行及状态，未知的文件信息显示为空缺。"""
+    name = Path(task.name).stem
     if not isinstance(task, M3U8Task):
         target = task.save_dir / task.details.target_path
-        parent = _file(target, task.name, task.source_url)
+        parent = _file(target, name, task.source_url, size=task.progress.downloaded_bytes)
         parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
-        outputs = [_file(target, task.details.target_path)] if (
-            task.status == TaskStatus.COMPLETED and target.is_file()) else []
-        if task.type == TaskType.MP4 and not outputs:
-            outputs = [_file(task.save_dir / task.details.temporary_path, task.details.temporary_path)]
+        outputs = []
+        if task.status == TaskStatus.COMPLETED:
+            outputs = [_file(target, target.name, size=task.progress.downloaded_bytes,
+                             status=FileStatus.COMPLETED)]
+        elif task.type == TaskType.MP4:
+            partial = task.save_dir / task.details.temporary_path
+            outputs = [_file(partial, partial.name, size=task.progress.downloaded_bytes)]
         return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
                         progress=task.progress, task_status=task.status,
                         last_error=task.last_error, parent=parent, outputs=outputs)
-    parent = _file(task.save_dir / (task.details.playlist_path or 'download.m3u8'), task.name)
+    playlist = task.save_dir / (task.details.playlist_path or 'download.m3u8')
+    parent = _file(playlist, name, size=task.progress.downloaded_bytes)
     parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
     children = []
     previous_children = {child.sequence: child for child in previous.childs} if previous else {}
     for segment in sorted(task.details.segments, key=lambda segment: segment.sequence):
         path = task.save_dir / segment.relative_path
         child = previous_children.get(segment.sequence)
-        # 状态回调复用未变化分片，避免每下载一片就在 UI 线程检查整份清单的文件。
-        # 显式刷新/启动恢复不传 previous，会重新核对全部登记文件。
         if child is None or child.status != segment.status or child.fileName != str(path):
-            child = _file(path, path.name, segment.source_url)
-        child.sequence, child.status = segment.sequence, segment.status
+            child = _file(path, path.name, segment.source_url, size=(
+                segment.size_bytes if segment.status == FileStatus.COMPLETED else None), status=segment.status)
+        child.sequence = segment.sequence
         children.append(child)
-    outputs = [_file(task.save_dir / output.relative_path, output.relative_path)
-               for output in task.outputs if output.status == FileStatus.COMPLETED
-               and (task.save_dir / output.relative_path).is_file()]
-    playlist = task.save_dir / (task.details.playlist_path or 'download.m3u8')
-    manifests = {key: _file(path, path.name) for key, path in (
-        (-2, playlist), (-3, playlist.parent / 'playlist.txt')) if path.is_file()}
+    outputs = [_file(task.save_dir / output.relative_path, Path(output.relative_path).name,
+                     size=output.size_bytes, status=output.status)
+               for output in task.outputs if output.status == FileStatus.COMPLETED]
     return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
-                    manifests=manifests,
+                    manifests={-2: _file(playlist, playlist.name)},
+                    work_dir=playlist.parent,
                     output_path=task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged'),
                     duration_pending=task.details.detect_duration and any(
                         s.status == FileStatus.COMPLETED and s.duration_status == 'pending'
                         for s in task.details.segments),
                     progress=task.progress, task_status=task.status, last_error=task.last_error,
                     parent=parent, childs=children, outputs=outputs,
-                    download=sum(child.fileSize != '-' for child in children))
+                    download=task.progress.completed_segments)
+
 
 def load_tree(service):
     """读取恢复后的任务记录，再转换成列表行；核心服务不依赖界面结构。"""
@@ -93,7 +94,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
 
     节点键使用零基索引：'0' 表示第一个任务，'0.1' 表示该任务的第二个子节点。
     非负文件索引先 outputs，再 childs；分片的父节点由 GetParent 指向 segments。
-    -1 是 segments 文件夹，-2/-3 是两个清单，不占用分片索引。
+    -4 是工作目录，-1 是 segments，-2 是播放列表；不占用分片索引。
     刷新后任务顺序可能改变，异步回调按任务 UUID 和分片序号定位。
     """
     def __init__(self, tree: TreeData, parent=None):
@@ -108,6 +109,26 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
 
         self.parent = parent
         self.merge_failed = set()
+        self.row_numbers = {}
+        self.UpdateRowNumbers()
+
+    def UpdateRowNumbers(self, tree=None):
+        """按展开顺序缓存可见行序号；不改变节点身份，也不访问磁盘。"""
+        numbers = {}
+
+        def visit(parent):
+            children = []
+            self.GetChildren(parent, children)
+            for item in children:
+                key = self.ItemToObject(item)
+                numbers[key] = str(len(numbers) + 1)
+                if tree is not None and self.IsContainer(item) and tree.IsExpanded(item):
+                    visit(item)
+
+        visit(dv.NullDataViewItem)
+        changed = numbers != self.row_numbers
+        self.row_numbers = numbers
+        return changed
 
     def ApplyTaskRecord(self, record):
         """只替换匹配 UUID 的行数据，回调不依赖刷新前的行号；不在此处整表重绘。"""
@@ -143,9 +164,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         paused = snapshot['paused'] or bool(pending and pending <= snapshot['paused_files'])
         merging = task.task_status == TaskStatus.MERGING or bool(
             task.output_path and FFmpegConverter.IsConverting(str(task.output_path)))
+        runner = getattr(self.parent, 'runner', None)
         if task.duration_pending and total and done == total:
-            status = '检测时长'
-            merging = True  # 检测结束前暂不可合并或删除，避免与后台检测交叉。
+            merging = bool(runner is not None and runner.busy_processing(task.task_id))
+            status = '检测时长' if merging else '待检测时长'
         elif merging:
             status = '合并中'
         elif task.parent.fileName in self.merge_failed or (
@@ -248,7 +270,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             '继续' if info['done'] or task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) else '开始')
         return [
             dict(id='start', label=label,
-                 enabled=bool(running or (downloadable and info['done'] < info['total']))),
+                 enabled=bool(running or (downloadable and (info['done'] < info['total'] or task.duration_pending)))),
             dict(id='retry', label='重试', enabled=bool(downloadable and info['failed'])),
             dict(id='delete', label='删除', enabled=idle),
             dict(id='more', label='更多', enabled=True),
@@ -324,7 +346,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             task = self.fileTree.items[objs[0]]
             return task.task_type in (TaskType.M3U8, TaskType.MP4) and bool(task.childs or task.outputs or task.manifests)
         elif len(objs) == 2:
-            return objs[1] == -1 and bool(self.fileTree.items[objs[0]].childs)
+            task = self.fileTree.items[objs[0]]
+            return (objs[1] == -1 and bool(task.childs)) or (objs[1] == -4 and bool(task.manifests or task.childs))
         else:
             pass
         return False
@@ -363,6 +386,12 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 children.append(self.ObjectToItem(_key))
                 idxj += 1
 
+            task = self.fileTree.items[idxi]
+            if task.task_type == TaskType.M3U8 and (task.manifests or task.childs):
+                children.append(self.ObjectToItem(self._BuildKey((idxi, -4))))
+            return len(children)
+        elif len(objs) == 2 and objs[1] == -4:
+            idxi = objs[0]
             task = self.fileTree.items[idxi]
             for key in task.manifests:
                 children.append(self.ObjectToItem(self._BuildKey((idxi, key))))
@@ -404,7 +433,13 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         # print("GetValue keys:", keys)
+        if col == 0:
+            return self.row_numbers.get(keys, '')
         if len(objs) == 2 and objs[1] < 0:
+            if objs[1] == -4:
+                task = self.fileTree.items[objs[0]]
+                directory = task.work_dir or Path(task.parent.fileName).parent
+                return directory.name + '/' if col == 1 else ''
             if objs[1] == -1:
                 return 'segments/' if col == 1 else ''
             file = self.fileTree.items[objs[0]].manifests.get(objs[1])
@@ -421,9 +456,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             parent = self.fileTree.items[idxi].parent
             if parent is None:
                 return ''
-            if col == 0:
-                return f"{idxi+1}"
-            elif col == 1:
+            if col == 1:
                 return parent.displayName or parent.fileName
             elif col == 2:
                 return parent.fileSize
@@ -438,9 +471,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             coutputs = len(self.fileTree.items[idxi].outputs)
             if coutputs > 0:
                 if idxj < coutputs:
-                    if col == 0:
-                        return f"{idxi+1}.{idxj+1}" if self.fileTree.items[idxi].task_type == TaskType.MP4 else f"{idxi+1}.{idxj}"
-                    elif col == 1:
+                    if col == 1:
                         # print("#############33", objs, self.fileTree.items[idxi].outputs[idxj])
                         output = self.fileTree.items[idxi].outputs[idxj]
                         return output.displayName or output.fileName
@@ -454,9 +485,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                     idxj -= coutputs
 
             # 处理 TS
-            if col == 0:
-                return f"{idxi+1}.{idxj+1}"
-            elif col == 1:
+            if col == 1:
                 child = self.fileTree.items[idxi].childs[idxj]
                 return child.displayName or child.fileName
             elif col == 2:
@@ -464,7 +493,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             elif col == 3:
                 return self.fileTree.items[idxi].childs[idxj].modifyAt
             else:
-                # return f"{idxi+1}.{idxj+1}"
+                # return ''
                 if self.fileTree.items[idxi].childs[idxj].fileSize != "-":
                     return ""
                 return "下载"
@@ -487,7 +516,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         elif len(objs) == 2:
             idxi = objs[0]
             task = self.fileTree.items[idxi]
-            _key = self._BuildKey((idxi, -1) if objs[1] >= len(task.outputs) else (idxi,))
+            parent = (idxi, -1) if objs[1] >= len(task.outputs) else (
+                (idxi, -4) if objs[1] in (-1, -2) else (idxi,))
+            _key = self._BuildKey(parent)
             # oi = self.ObjectToItem(_key)
             # print("GetParent", idxi, oi.GetID(), int(oi.GetID()))
             # return oi
@@ -642,22 +673,12 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 # attr.SetColour(wx.BLUE)
                 return True
             elif col == 1:
-                pass
+                return True
             elif col == 2:
                 # attr.SetAlignment(wx.ALIGN_RIGHT)
                 # attr.SetColour(wx.RED)  # 文件大小列右对齐
                 return True
-        elif len(objs) == 2:
-            idxi = objs[0]
-            idxj = objs[1]
-            coutputs = len(self.fileTree.items[idxi].outputs)
-            # 设置 MP4 样式
-            if coutputs > 0 and 0 <= idxj < coutputs:
-                attr.SetBold(True)
-                attr.SetColour(wx.GREEN)
-
-            # 设置 TS 样式
-            if col == 0:
-                attr.SetBold(True)
-                return True
+        elif len(objs) == 2 and col in (0, 1):
+            attr.SetBold(False)
+            return True
         return False

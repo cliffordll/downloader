@@ -9,7 +9,7 @@ import requests
 
 from src.core.sys_setting import SysSetting
 from src.media.downloader import Downloader
-from src.schemas.task import TaskStatus
+from src.schemas.task import FileStatus, TaskStatus
 
 
 class DownloadSnapshot(TypedDict):
@@ -79,7 +79,7 @@ class M3U8Downloader:
             count = 0
             missing = []
             for segment in record.details.segments:
-                if segment.sequence not in selected:
+                if segment.sequence not in selected or segment.status == FileStatus.COMPLETED:
                     continue
                 path = str(record.save_dir / segment.relative_path)
                 key = cls.FileKey(path)
@@ -335,8 +335,6 @@ class M3U8Downloader:
         """
         partial = str(fileName) + '.part'
         try:
-            if Path(fileName).is_file():
-                return True, fileName
             Path(fileName).parent.mkdir(parents=True, exist_ok=True)
 
             def save(response):
