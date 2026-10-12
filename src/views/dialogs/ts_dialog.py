@@ -11,7 +11,7 @@ from src.core.sys_setting import SysSetting
 class DownloadDialogTS(wx.Dialog):
     def __init__(self, parent, title, workPath, task_service: TaskService):
         # super(ModalDialog, self).__init__(parent, title=title)
-        super().__init__(parent=parent)
+        super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
         self.SetTitle(title)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -32,6 +32,7 @@ class DownloadDialogTS(wx.Dialog):
         # self.SetSize(width=728, height=600)
         # self.SetSize(width=1024, height=700)
         self.SetSize(self.FromDIP((960, 600)))
+        self.SetMinSize(self.FromDIP((880, 440)))
         # height = self.ClientToWindowSize(wx.Size(0, sizer.GetMinSize().height)).height
         # self.SetSize(width=960, height=height)
         # self.Fit()

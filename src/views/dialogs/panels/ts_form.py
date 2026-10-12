@@ -32,7 +32,9 @@ class DownloadEditTS(wx.Panel):
         # base uri
         uriSizer = wx.BoxSizer(wx.HORIZONTAL)
         lblUri = wx.StaticText(self, -1, label="列表网址：", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        self.tcURI = wx.TextCtrl(self)
+        self.tcURI = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_CHARWRAP)
+        # 与 M3U8、MP4 表单统一为两行高度，超长地址在框内滚动。
+        self.tcURI.SetMinSize(wx.Size(-1, self.tcURI.GetCharHeight() * 2 + self.FromDIP(10)))
         self.tcURI.SetHint("填写参考列表网址，用于补全 TS 相对地址")
         self.tcURI.SetToolTip("用于补全手动添加的 TS 相对地址。本窗口不会获取此网址；分片均为完整下载网址时可留空。")
         uriSizer.Add(lblUri, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
@@ -42,7 +44,8 @@ class DownloadEditTS(wx.Panel):
 
         pathSizer = wx.BoxSizer(wx.HORIZONTAL)
         lblPath = wx.StaticText(self, -1, label="路径改写：", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        self.tcPath = wx.TextCtrl(self)
+        self.tcPath = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_CHARWRAP)
+        self.tcPath.SetMinSize(wx.Size(-1, self.tcPath.GetCharHeight() * 2 + self.FromDIP(10)))
         self.tcPath.SetHint("通常留空；需要更改 TS 分片所在目录时填写")
         self.tcURI.Bind(wx.EVT_TEXT, self._UpdatePathToolTip)
         self._UpdatePathToolTip()

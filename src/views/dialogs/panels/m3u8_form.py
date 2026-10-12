@@ -16,7 +16,9 @@ class DownloadEditMU(wx.Panel):
 
         uriSizer = wx.BoxSizer(wx.HORIZONTAL)
         lblUri = wx.StaticText(self, -1, label="列表网址：", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        self.tcURI = wx.TextCtrl(self)
+        self.tcURI = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_CHARWRAP)
+        # 固定两行高度；长地址仅视觉换行，不改变 URL 内容。
+        self.tcURI.SetMinSize(wx.Size(-1, self.tcURI.GetCharHeight() * 2 + self.FromDIP(10)))
         self.tcURI.SetHint("粘贴 M3U8 完整网址")
         self.tcURI.SetToolTip("填写 M3U8 完整网址，用于获取列表；相对 TS 地址按该网址所在目录补全。")
         uriSizer.Add(lblUri, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_LEFT|wx.ALIGN_CENTER_VERTICAL|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
@@ -26,7 +28,8 @@ class DownloadEditMU(wx.Panel):
 
         pathSizer = wx.BoxSizer(wx.HORIZONTAL)
         lblPath = wx.StaticText(self, -1, label="路径改写：", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        self.tcPath = wx.TextCtrl(self)
+        self.tcPath = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_CHARWRAP)
+        self.tcPath.SetMinSize(wx.Size(-1, self.tcPath.GetCharHeight() * 2 + self.FromDIP(10)))
         self.tcPath.SetHint("通常留空；需要更改 TS 分片所在目录时填写")
         self.tcURI.Bind(wx.EVT_TEXT, self._UpdatePathToolTip)
         self._UpdatePathToolTip()
@@ -48,8 +51,8 @@ class DownloadEditMU(wx.Panel):
         self.tsList = PlaylistEditor(self)
         listSizer.Add(self.tsList, proportion=10, flag=wx.EXPAND|wx.TOP, border=self.FromDIP(5))
 
-        sizer.Add(uriSizer, flag=wx.EXPAND if wx.Platform == '__WXMAC__' else 0, border=0)
-        sizer.Add(pathSizer, flag=wx.EXPAND if wx.Platform == '__WXMAC__' else 0, border=0)
+        sizer.Add(uriSizer, flag=wx.EXPAND, border=0)
+        sizer.Add(pathSizer, flag=wx.EXPAND, border=0)
         sizer.Add(btnSizer, border=0)
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND, border=0)
         self.SetSizer(sizer)

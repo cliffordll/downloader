@@ -12,7 +12,8 @@ class DownloadEditMP4(wx.Panel):
 
         uriSizer = wx.BoxSizer(wx.HORIZONTAL)
         lblUri = wx.StaticText(self, -1, label='视频网址：', size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
-        self.tcURI = wx.TextCtrl(self)
+        self.tcURI = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_CHARWRAP)
+        self.tcURI.SetMinSize(wx.Size(-1, self.tcURI.GetCharHeight() * 2 + self.FromDIP(10)))
         self.tcURI.SetHint('填写 HTTP / HTTPS 视频文件直链')
         uriSizer.Add(lblUri, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(10))
         uriSizer.Add(self.tcURI, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(10))

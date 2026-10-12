@@ -9,7 +9,7 @@ from src.storage.task_repository import TaskDataError
 class DownloadDialogMU(wx.Dialog):
     def __init__(self, parent, title, workPath, task_service: TaskService):
         # super(ModalDialog, self).__init__(parent, title=title)
-        super().__init__(parent=parent)
+        super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
         self.SetTitle(title)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -29,6 +29,7 @@ class DownloadDialogMU(wx.Dialog):
         self.SetSizer(sizer)
         # self.SetSize(width=728, height=450)
         self.SetSize(self.FromDIP((728, 600)))
+        self.SetMinSize(self.FromDIP((640, 400)))
         # self.Fit()
         self.Center()
 
