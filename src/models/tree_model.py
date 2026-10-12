@@ -166,7 +166,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         merging = task.task_status == TaskStatus.MERGING or bool(
             task.output_path and FFmpegConverter.IsConverting(str(task.output_path)))
         runner = getattr(self.parent, 'runner', None)
-        if task.duration_pending and total and done == total:
+        if not merging and runner is not None and runner.busy_processing(task.task_id):
+            status, merging = '检测时长', True
+        elif task.duration_pending and total and done == total:
             merging = bool(runner is not None and runner.busy_processing(task.task_id))
             status = '检测时长' if merging else '待检测时长'
         elif merging:

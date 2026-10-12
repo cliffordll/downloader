@@ -44,7 +44,7 @@ class TaskRunnerTests(unittest.TestCase):
         return self.service.create_m3u8(self.root / name, 'https://example.com/index.m3u8',
             '#EXTM3U\n' + ''.join(f'#EXTINF:4,\n{i}.ts\n' for i in range(count)), detect_duration=detect)
 
-    def test_update_segment_url_persists_and_retry_uses_new_address(self):
+    def test_update_segment_info_persists_and_retry_uses_new_address(self):
         from src.models.tree_model import to_tree_item
         task = self.m3u8(count=2)
         path = task.save_dir / task.details.segments[1].relative_path
@@ -52,7 +52,7 @@ class TaskRunnerTests(unittest.TestCase):
         old = self.repo.get(task.id)
         previous = to_tree_item(old)
         url = 'https://cdn.example.com/fixed.ts?token=a%2Bb&part=2'
-        updated = self.runner.update_segment_url(task.id, 1, ' ' + url + ' ')
+        updated = self.runner.update_segment_info(task.id, 1, ' ' + url + ' ')
         reopened = TaskRepository(self.repo.path).get(task.id)
         self.assertEqual(reopened.details.segments[1].source_url, url)
         self.assertEqual(reopened.details.segments[0], old.details.segments[0])
@@ -63,24 +63,52 @@ class TaskRunnerTests(unittest.TestCase):
             self.assertEqual(self.runner.start(task.id, sequences=[1], retry=True), 1)
             self.assertEqual(download.call_args.args[0], url)
 
-    def test_update_segment_url_rejects_invalid_completed_and_queued_segments(self):
+    def test_edit_duration_persists_rebuilds_playlist_and_validates_atomically(self):
+        task = self.m3u8(count=2)
+        original = self.repo.get(task.id)
+        url = 'https://example.com/new.ts?token=123'
+        for duration in ('bad', '0', '-1', 'nan', 'inf'):
+            with self.subTest(duration=duration), self.assertRaises(ValueError):
+                self.runner.update_segment_info(task.id, 0, url, duration)
+            self.assertEqual(self.repo.get(task.id).details.segments, original.details.segments)
+        updated = self.runner.update_segment_info(task.id, 0, url, '5.125')
+        reloaded = TaskRepository(self.repo.path).get(task.id)
+        self.assertEqual(reloaded.details.segments[0].source_url, url)
+        self.assertEqual(reloaded.details.segments[0].duration, 5.125)
+        self.assertEqual(reloaded.details.segments[0].duration_status, 'detected')
+        self.assertEqual(reloaded.details.segments[1], original.details.segments[1])
+        playlist = updated.save_dir / updated.details.playlist_path
+        self.assertIn('#EXTINF:5.125,', playlist.read_text(encoding='utf-8'))
+        self.service.finish_segment(task.id, 0, self.write(task, 0), True)
+        updated = self.runner.update_segment_info(task.id, 0, url, '6.25')
+        self.assertEqual(updated.details.segments[0].status, FileStatus.COMPLETED)
+        self.assertEqual(updated.details.segments[0].duration, 6.25)
+        with self.assertRaises(ValueError):
+            self.runner.update_segment_info(task.id, 0, 'https://example.com/other.ts', '7')
+        self.assertEqual(self.repo.get(task.id).details.segments[0].duration, 6.25)
+        self.runner._duration_jobs.add(task.id)
+        with self.assertRaises(ValueError):
+            self.runner.update_segment_info(task.id, 0, url, '7')
+        self.runner._duration_jobs.clear()
+
+    def test_update_segment_info_rejects_invalid_completed_and_queued_segments(self):
         task = self.m3u8(count=2)
         original = task.details.segments[0].source_url
         for url in ('', '/relative.ts', 'ftp://example.com/a.ts', 'https://example.com/a b.ts'):
             with self.subTest(url=url), self.assertRaises(ValueError):
-                self.runner.update_segment_url(task.id, 0, url)
+                self.runner.update_segment_info(task.id, 0, url)
             self.assertEqual(self.repo.get(task.id).details.segments[0].source_url, original)
         key = Engine.FileKey(task.save_dir / task.details.segments[0].relative_path)
         for state in (Engine._pending, Engine._requesting):
             state.add(key)
             with self.assertRaises(ValueError):
-                self.runner.update_segment_url(task.id, 0, 'https://example.com/new.ts')
+                self.runner.update_segment_info(task.id, 0, 'https://example.com/new.ts')
             state.clear()
         self.service.finish_segment(task.id, 0, self.write(task, 0), True)
         with self.assertRaises(ValueError):
-            self.runner.update_segment_url(task.id, 0, 'https://example.com/new.ts')
+            self.runner.update_segment_info(task.id, 0, 'https://example.com/new.ts')
         with self.assertRaises(ValueError):
-            self.runner.update_segment_url(task.id, 99, 'https://example.com/new.ts')
+            self.runner.update_segment_info(task.id, 99, 'https://example.com/new.ts')
 
     def mp4(self, name='direct'):
         return self.service.create_mp4(self.root / name, 'https://example.com/video.mp4')
@@ -275,6 +303,40 @@ class TaskRunnerTests(unittest.TestCase):
         probe_call.assert_called_once()
         self.assertEqual(self.runner.duration_results.get_nowait(), (task.id, None))
         self.assertEqual(self.repo.get(task.id).details.segments[0].duration, 2.5)
+
+    def test_manual_duration_detects_completed_segments_without_enabling_auto_detect(self):
+        task = self.m3u8(count=3)
+        for sequence in (0, 1):
+            self.service.finish_segment(task.id, sequence, self.write(task, sequence), True)
+        with patch.object(SysSetting, 'GetFFprobe', return_value='ffprobe'), \
+             patch.object(FFmpegConverter, 'ProbeDuration', side_effect=[2.5, ValueError('bad media')]) as probe, \
+             patch.object(self.runner, 'merge') as merge:
+            self.runner.detect_durations(task.id)
+            self.wait(lambda: not self.runner.duration_results.empty())
+            self.assertEqual(self.runner.duration_results.get_nowait(), (task.id, None))
+            self.assertEqual(probe.call_count, 2)
+            merge.assert_not_called()
+        record = self.repo.get(task.id)
+        self.assertFalse(record.details.detect_duration)
+        self.assertEqual(record.details.segments[0].duration, 2.5)
+        self.assertEqual(record.details.segments[1].duration, 4)
+        self.assertEqual(record.details.segments[1].duration_status, 'failed')
+        self.assertEqual(record.details.segments[2].duration_status, 'pending')
+        with patch.object(SysSetting, 'GetFFprobe', return_value='ffprobe'), \
+             patch.object(FFmpegConverter, 'ProbeDuration', return_value=3.5) as probe:
+            self.runner.detect_durations(task.id)
+            self.wait(lambda: not self.runner.duration_results.empty())
+            self.runner.duration_results.get_nowait()
+            self.assertEqual(probe.call_count, 2)
+        playlist = self.runner.write_playlist(task.id).read_text(encoding='utf-8')
+        self.assertEqual(playlist.count('#EXTINF:3.5,'), 2)
+        with self.assertRaises(ValueError):
+            self.runner.detect_durations(self.mp4().id)
+        with self.assertRaises(ValueError):
+            self.runner.detect_durations(self.m3u8('empty').id)
+        with patch.object(SysSetting, 'GetFFprobe', return_value=''):
+            with self.assertRaises(ValueError):
+                self.runner.detect_durations(task.id)
 
     def test_duration_save_failure_requires_refresh_before_retry(self):
         task = self.m3u8(count=1, detect=True)

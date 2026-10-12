@@ -80,6 +80,27 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
+    def test_manual_duration_completion_updates_playlist_without_auto_merge(self):
+        from src.schemas.task import TaskStatus
+        self.task.task_status = TaskStatus.WAITING_MERGE
+        self.task.download = len(self.task.childs)
+        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(segments=[]))
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            frame._manualDurationChecks = {self.task.task_id}
+            with patch.object(frame.model, 'ApplyTaskRecord', return_value=0), \
+                 patch.object(frame, '_CreateM3U8File', return_value=True) as playlist, \
+                 patch.object(frame.model, '_SendEvent') as complete:
+                frame._DurationChecked(self.task.task_id, None, None)
+                playlist.assert_called_once_with(self.task.parent.fileName)
+                complete.assert_not_called()
+                self.assertIn(self.task.task_id, frame._completion_notified)
+                self.assertFalse(frame._manualDurationChecks)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_segment_rows_show_only_their_own_status(self):
         complete = self.model.ObjectToItem(self.model._BuildKey((0, 0)))
         pending = self.model.ObjectToItem(self.model._BuildKey((0, 1)))
@@ -305,7 +326,7 @@ class TaskProgressTests(unittest.TestCase):
             def inspect_menu(menu):
                 entries = {entry.GetItemLabelText(): entry for entry in menu.GetMenuItems()
                            if not entry.IsSeparator()}
-                self.assertEqual(set(entries), {'打开文件夹', '转 MP4', '播放视频', '另存为…'})
+                self.assertEqual(set(entries), {'打开文件夹', '检测分片时长', '转 MP4', '播放视频', '另存为…'})
                 self.assertTrue(entries['打开文件夹'].IsEnabled())
                 self.assertFalse(entries['播放视频'].IsEnabled())
                 self.assertFalse(entries['转 MP4'].IsEnabled())
@@ -337,22 +358,23 @@ class TaskProgressTests(unittest.TestCase):
             self.app.ProcessPendingEvents()
 
     def test_edit_segment_url_saves_only_on_confirmation(self):
-        segment = SimpleNamespace(sequence=7, source_url='https://example.com/old.ts')
+        segment = SimpleNamespace(sequence=7, source_url='https://example.com/old.ts', duration=4, status='pending')
         self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(segments=[segment]))
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
-            with patch('src.views.main_frame.SegmentURLDialog') as dialog, \
-                 patch.object(frame.runner, 'update_segment_url') as update, \
+            with patch('src.views.main_frame.SegmentEditDialog') as dialog, \
+                 patch.object(frame.runner, 'update_segment_info') as update, \
                  patch.object(frame, '_SyncDownloads') as sync:
                 dialog.return_value.ShowModal.return_value = wx.ID_CANCEL
-                frame._EditSegmentURL(self.task.task_id, 7)
+                frame._EditSegmentInfo(self.task.task_id, 7)
                 update.assert_not_called()
                 sync.assert_not_called()
                 dialog.return_value.ShowModal.return_value = wx.ID_OK
-                dialog.return_value.GetValue.return_value = 'https://example.com/new.ts?token=a%2Bb'
-                frame._EditSegmentURL(self.task.task_id, 7)
-                update.assert_called_once_with(self.task.task_id, 7, 'https://example.com/new.ts?token=a%2Bb')
+                dialog.return_value.GetURL.return_value = 'https://example.com/new.ts?token=a%2Bb'
+                dialog.return_value.GetDuration.return_value = '5.25'
+                frame._EditSegmentInfo(self.task.task_id, 7)
+                update.assert_called_once_with(self.task.task_id, 7, 'https://example.com/new.ts?token=a%2Bb', '5.25')
                 sync.assert_called_once()
                 self.assertEqual(dialog.return_value.Destroy.call_count, 2)
         finally:
@@ -405,7 +427,8 @@ class TaskProgressTests(unittest.TestCase):
         try:
             cases = [(-2, ['打开', '打开所在文件夹', '|', '查看内容']),
                      (0, ['打开', '打开所在文件夹', '|', '另存为…']),
-                     (1, ['打开', '打开所在文件夹', '|', '另存为…']), (2, ['下载', '|', '修改下载地址'])]
+                     (1, ['打开', '打开所在文件夹', '|', '修改分片信息', '|', '另存为…']),
+                     (2, ['下载', '|', '修改分片信息'])]
             for key, labels in cases:
                 item = frame.model.ObjectToItem(frame.model._BuildKey((0, key)))
                 def inspect(menu):

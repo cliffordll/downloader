@@ -88,21 +88,24 @@ class TaskRunner:
             M3U8Downloader.Pause()
             raise
 
-    def update_segment_url(self, task_id, sequence, source_url):
-        """队列保存了请求 URL，排队中的分片（包括暂停的队列）不能直接改库。"""
+    def update_segment_info(self, task_id, sequence, source_url, duration=None):
+        """修改前排除下载/媒体处理，保存后重建本地清单。"""
         with self._lock:
             task = self._task(task_id)
             if not isinstance(task, M3U8Task):
-                raise ValueError('只有 TS 分片可以修改下载地址。')
+                raise ValueError('只有 TS 分片可以修改分片信息。')
             segment = next((s for s in task.details.segments if s.sequence == sequence), None)
             if segment is None:
                 raise ValueError('分片不存在，请刷新后重试。')
-            key = M3U8Downloader.FileKey(task.save_dir / segment.relative_path)
-            snapshot = M3U8Downloader.Snapshot()
-            if key in snapshot['pending'] or key in snapshot['requesting'] or self.busy_processing(task_id):
-                raise ValueError('分片仍在队列中或任务正在处理，请结束后再修改。')
-            record = self.tasks.update_segment_url(task_id, sequence, source_url)
-            self._changes.put(task_id)
+            if self.busy(task_id) or self._keys(task) & M3U8Downloader.Snapshot()['requesting']:
+                raise ValueError('任务仍在下载、检测或合并中，请结束后再修改。')
+            record = self.tasks.update_segment_info(task_id, sequence, source_url, duration)
+            try:
+                self.write_playlist(task_id)
+            except OSError as error:
+                raise OSError(f'分片信息已保存，但本地 M3U8 更新失败：{error}') from error
+            finally:
+                self._changes.put(task_id)
             return record
 
     def check_files(self, task_id):
@@ -218,7 +221,22 @@ class TaskRunner:
                     break
         return ids
 
-    def queue_duration(self, task_id):
+    def detect_durations(self, task_id):
+        """手动重检已完成分片，不修改自动检测选项，也不启动合并。"""
+        with self._lock:
+            task = self._task(task_id)
+            if not isinstance(task, M3U8Task):
+                raise ValueError('只有 M3U8 和 TS 任务可以检测分片时长。')
+            if self.busy(task_id):
+                raise ValueError('任务仍在下载、检测或合并中，请结束后再检测。')
+            if not any(s.status == FileStatus.COMPLETED for s in task.details.segments):
+                raise ValueError('没有已下载的分片可供检测。')
+            if not SysSetting.GetFFprobe():
+                raise ValueError('找不到 ffprobe，请先配置 FFmpeg 所在目录。')
+            self._duration_blocked.discard(task_id)
+            self.queue_duration(task_id, force=True)
+
+    def queue_duration(self, task_id, *, force=False):
         """每项任务同时只运行一次检测；数据库故障后等待显式刷新再尝试。"""
         with self._lock:
             if (self.closed.is_set() or task_id in self._duration_jobs
@@ -226,7 +244,7 @@ class TaskRunner:
                 return
             self._duration_jobs.add(task_id)
             try:
-                future = self._duration_pool.submit(self.tasks.detect_durations, task_id, self.closed)
+                future = self._duration_pool.submit(self.tasks.detect_durations, task_id, self.closed, force=force)
             except Exception:
                 self._duration_jobs.discard(task_id)
                 raise

@@ -257,19 +257,32 @@ class TaskService:
             self._progress(task)
         return self.repository.mutate(task_id, change)
 
-    def update_segment_url(self, task_id, sequence, source_url):
-        """更新单个未完成分片的来源，保留本地路径、序号及失败状态供重试。"""
+    def update_segment_info(self, task_id, sequence, source_url, duration=None):
+        """原子保存分片地址和时长，不改变本地路径、序号和下载状态。"""
         source_url = source_url.strip()
         if not source_url:
             raise ValueError('下载地址不能为空。')
+        if duration is not None:
+            try:
+                duration = float(duration)
+            except (TypeError, ValueError):
+                raise ValueError('播放时长必须是大于 0 的秒数，支持小数。') from None
+            if not math.isfinite(duration) or duration <= 0:
+                raise ValueError('播放时长必须是大于 0 的秒数，支持小数。')
         def change(task):
             self._require_m3u8(task)
             segment = next((s for s in task.details.segments if s.sequence == sequence), None)
             if segment is None:
                 raise ValueError('分片不存在，请刷新后重试。')
-            if segment.status == FileStatus.COMPLETED or task.status == TaskStatus.MERGING:
-                raise ValueError('已完成的分片或正在合并的任务不能修改下载地址。')
+            if task.status == TaskStatus.MERGING:
+                raise ValueError('正在合并的任务不能修改分片信息。')
+            if segment.status == FileStatus.COMPLETED and source_url != segment.source_url:
+                raise ValueError('已完成的分片不能修改下载地址。')
             segment.source_url = source_url  # 数据模型校验完整 HTTP/HTTPS 地址。
+            if duration is not None:
+                segment.duration = duration
+                # 手动确认的时长无需自动补测；显式“检测分片时长”仍可覆盖。
+                segment.duration_status, segment.duration_error = 'detected', None
         record = self.repository.mutate(task_id, change)
         if record is None:
             raise ValueError('任务不存在，请刷新后重试。')
@@ -339,15 +352,15 @@ class TaskService:
                 task.status, task.last_error = TaskStatus.FAILED, 'FFmpeg 合并失败，请检查分片或重新合并。'
         return self.repository.mutate(task_id, change)
 
-    def detect_durations(self, task_id, stop=None):
+    def detect_durations(self, task_id, stop=None, *, force=False):
         """后台逐片检测，逐片入库；重启仅补做 pending，失败保留原时长。"""
         task = self.repository.get(task_id)
-        if not isinstance(task, M3U8Task) or not task.details.detect_duration:
+        if not isinstance(task, M3U8Task) or (not force and not task.details.detect_duration):
             return task
         for segment in task.details.segments:
             if stop is not None and stop.is_set():
                 return None
-            if segment.status != FileStatus.COMPLETED or segment.duration_status != 'pending':
+            if segment.status != FileStatus.COMPLETED or (not force and segment.duration_status != 'pending'):
                 continue
             path = task.save_dir / segment.relative_path
             duration, error = None, None
@@ -362,7 +375,7 @@ class TaskService:
                 self._require_m3u8(current)
                 target = next((s for s in current.details.segments if s.sequence == segment.sequence), None)
                 if (target is None or target.status != FileStatus.COMPLETED
-                        or target.duration_status != 'pending' or target.relative_path != segment.relative_path):
+                        or target.duration_status != segment.duration_status or target.relative_path != segment.relative_path):
                     return
                 # 检测期间文件可能被删除或重新下载，不把旧结果写到新文件上。
                 if duration is not None:

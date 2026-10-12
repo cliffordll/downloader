@@ -77,7 +77,18 @@ class TSOptionsTests(unittest.TestCase):
             form.tcReg.SetValue('seg-{idx:03d}.ts')
             form.tcStart.SetValue('1')
             form.tcEnd.SetValue('2')
+            self.assertEqual(form.tcPlay.GetValue(), '5.000000')
+            form.tcPlay.SetValue('5.125000')
             form.OnBtnAppendClicked(SimpleNamespace(Skip=lambda: None))
+            self.assertEqual(form.GetContent().count('#EXTINF:5.125000,'), 2)
+            content = form.GetContent()
+            for invalid in ('', '0', '-1', 'nan', 'inf', '#EXTINF:5,'):
+                form.tcPlay.SetValue(invalid)
+                with patch('wx.MessageBox') as message:
+                    form.OnBtnAppendClicked(SimpleNamespace(Skip=lambda: None))
+                    message.assert_called_once()
+                self.assertEqual(form.GetContent(), content)
+            form.tcPlay.SetValue('5.125000')
             self.assertIn('seg-001.ts', form.GetContent())
             self.assertIn('seg-002.ts', form.GetContent())
             form.tcCookie.SetValue('session=test')

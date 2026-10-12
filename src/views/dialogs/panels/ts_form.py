@@ -2,6 +2,7 @@ import wx
 from wx.lib.buttons import GenToggleButton
 from urllib.parse import urljoin, urlsplit
 import re
+import math
 
 from src.views.dialogs.panels.path_picker import DownloadHelpDialog, form_label_size
 from src.media.m3u8.m3u8_parser import M3U8Parser
@@ -54,6 +55,8 @@ class DownloadEditTS(wx.Panel):
         lblPlay = wx.StaticText(self, -1, label="播放时长:", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         # self.tcPlay = wx.TextCtrl(self, size=(60, -1), style=wx.TE_PROCESS_ENTER)
         self.tcPlay = wx.TextCtrl(self)
+        self.tcPlay.SetHint('例如 5.000000')
+        self.tcPlay.SetToolTip('填写大于 0 的秒数，支持小数；自动生成 #EXTINF，无需填写前缀和逗号。')
         tsSizer = wx.BoxSizer(wx.HORIZONTAL)
         lblReg = wx.StaticText(self, -1, label="段名规则:", size=form_label_size(self, 60), style=wx.ALIGN_LEFT|wx.ST_NO_AUTORESIZE)
         self.tcReg = wx.TextCtrl(self)
@@ -77,6 +80,7 @@ class DownloadEditTS(wx.Panel):
         tsSizer.Add(lblPlay, proportion=0 if wx.Platform == '__WXMAC__' else 1, flag=wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
         # 横向分配宽度，纵向保留控件默认高度并居中，避免输入框被按钮撑高。
         tsSizer.Add(self.tcPlay, proportion=40, flag=wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=self.FromDIP(5))
+        tsSizer.Add(wx.StaticText(self, label='秒'), flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(5))
         # 与本行其他标签使用相同的 StaticText 绘制文字，不再靠平台像素偏移补偿。
         detectSizer = wx.BoxSizer(wx.HORIZONTAL)
         detectSizer.Add(self.detectDuration, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(2))
@@ -228,8 +232,7 @@ class DownloadEditTS(wx.Panel):
         m3u8_url = "http://127.0.0.1:8000/videos/2025/test2/index.m3u8"
         self.tcURI.SetValue(m3u8_url)
 
-        # self.tcPlay.SetValue(f"{9:.6f}")
-        self.tcPlay.SetValue(f"#EXTINF:{5:.6f},")
+        self.tcPlay.SetValue(f"{5:.6f}")
         self.tcReg.SetValue("seg-{idx}-v1-a1.ts")
         self.tcStart.SetValue(f"1")
         self.tcEnd.SetValue(f"10")
@@ -278,9 +281,14 @@ class DownloadEditTS(wx.Panel):
         #############################################
         '''检查ts开始和结束'''
         txtPaly = self.tcPlay.GetValue().strip()
-        if not txtPaly:
-            wx.MessageBox("请输入播放时长！", "提示", wx.OK|wx.ICON_WARNING)
+        try:
+            duration = float(txtPaly)
+            if not math.isfinite(duration) or duration <= 0:
+                raise ValueError
+        except ValueError:
+            wx.MessageBox("播放时长请输入大于 0 的秒数，支持小数。", "提示", wx.OK|wx.ICON_WARNING)
             return
+        txtPaly = f'#EXTINF:{txtPaly},'
         txtReg = self.tcReg.GetValue().strip()
         try:
             self.FormatSegmentName(txtReg, 1)

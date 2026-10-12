@@ -13,7 +13,7 @@ from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 from src.views.dialogs.ts_dialog import DownloadDialogTS
 from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 from src.views.dialogs.information_dialog import InformationDialog
-from src.views.dialogs.segment_url_dialog import SegmentURLDialog
+from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
 from src.core.task_runner import TaskRunner
 from src.core.file_export import save_file_as
 
@@ -24,7 +24,7 @@ from src.core.task_service import TaskService
 from src.models.file_base import TreeData
 from src.core.path_manager import PathManager
 from src.storage.task_repository import TaskDataError, TaskConflictError
-from src.schemas.task import TaskStatus, TaskType
+from src.schemas.task import FileStatus, TaskStatus, TaskType
 
 from src.views.components.icons import app_icons, icon_image, toolbar_icon, set_titlebar_icon
 from src.views.components.renderers import TaskProgressRenderer, TaskActionRenderer
@@ -738,7 +738,7 @@ class MainFrame(wx.Frame):
             return
         self._ShowInformation('查看内容：' + path.name, text, line_numbers=True)
 
-    def _EditSegmentURL(self, task_id, sequence):
+    def _EditSegmentInfo(self, task_id, sequence):
         try:
             record = self.tasks.repository.get(task_id)
             if record is None:
@@ -746,20 +746,33 @@ class MainFrame(wx.Frame):
             segment = next((s for s in record.details.segments if s.sequence == sequence), None)
             if segment is None:
                 raise ValueError('分片不存在，请刷新后重试。')
-            dialog = SegmentURLDialog(self, segment.source_url or '')
+            dialog = SegmentEditDialog(self, segment.source_url or '', segment.duration,
+                                       completed=segment.status == FileStatus.COMPLETED)
             try:
                 while dialog.ShowModal() == wx.ID_OK:
                     try:
-                        self.runner.update_segment_url(task_id, sequence, dialog.GetValue())
+                        self.runner.update_segment_info(task_id, sequence, dialog.GetURL(), dialog.GetDuration())
                     except ValueError as error:
-                        wx.MessageBox(str(error), '无法修改下载地址', parent=dialog)
+                        wx.MessageBox(str(error), '无法修改分片信息', parent=dialog)
                         continue
                     self._SyncDownloads()
                     break
             finally:
                 dialog.Destroy()
         except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
-            wx.MessageBox(str(error), '无法修改下载地址', parent=self)
+            wx.MessageBox(str(error), '无法修改分片信息', parent=self)
+
+    def _DetectSegmentDurations(self, task_id):
+        try:
+            self.runner.detect_durations(task_id)
+        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(str(error), '无法检测分片时长', parent=self)
+            return
+        if not hasattr(self, '_manualDurationChecks'):
+            self._manualDurationChecks = set()
+        self._manualDurationChecks.add(task_id)
+        self.statusBar.SetStatusText('正在检测已下载分片的播放时长…', 0)
+        self.OnTaskProgress(None)
 
     def _CheckAndContinue(self, task_id):
         """已完成任务也可显式检查并补下载，不在展示时检查磁盘。"""
@@ -829,12 +842,10 @@ class MainFrame(wx.Frame):
                     task.parent.absUri if task.task_type == TaskType.MP4 else '')
                 if source_url:
                     add('查看下载地址', lambda: self._ShowInformation('下载地址', source_url), new_group=True)
-                if pending:
-                    snapshot = M3U8Downloader.Snapshot()
-                    file_key = M3U8Downloader.FileKey(path)
-                    add('修改下载地址', lambda: self._EditSegmentURL(task.task_id, file.sequence),
-                        not info['merging'] and file_key not in snapshot['pending']
-                        and file_key not in snapshot['requesting'], new_group=not source_url)
+                if segment_index >= 0:
+                    info = self.model.TaskInfo(index)
+                    add('修改分片信息', lambda: self._EditSegmentInfo(task.task_id, file.sequence),
+                        not info['merging'] and not info['pending'], new_group=not source_url)
                 if not pending and not partial:
                     add('另存为…', lambda: self._SaveFileAs(path), new_group=True)
             try:
@@ -860,9 +871,11 @@ class MainFrame(wx.Frame):
             add('查看失败原因', lambda: self._ShowInformation('MP4 下载失败', task.last_error),
                 new_group=not task.parent.absUri)
         if task.task_type == TaskType.M3U8:
+            add('检测分片时长', lambda: self._DetectSegmentDurations(task.task_id),
+                bool(info['done']) and not info['pending'] and not info['merging'], new_group=True)
             add('转 MP4', lambda: self.OnTaskAction(parent_item, 'merge'),
                 bool(info['total']) and info['done'] == info['total'] and not task.outputs
-                and not info['pending'] and not info['merging'], new_group=True)
+                and not info['pending'] and not info['merging'])
         if task.task_type in (TaskType.M3U8, TaskType.MP4) and task.task_status in (TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):
             add('检查并继续下载', lambda: self._CheckAndContinue(task.task_id),
                 new_group=task.task_type != TaskType.M3U8)
@@ -1524,6 +1537,9 @@ class MainFrame(wx.Frame):
             self.runner.queue_duration(task.task_id)
 
     def _DurationChecked(self, task_id, record, error):
+        manual = task_id in getattr(self, '_manualDurationChecks', set())
+        if manual:
+            self._manualDurationChecks.discard(task_id)
         if not self or self.IsBeingDeleted() or self.runner.closed.is_set():
             return
         if error:
@@ -1542,15 +1558,19 @@ class MainFrame(wx.Frame):
         if index is None:
             return
         task = self.model.fileTree.items[index]
-        if task.duration_pending:
+        if task.duration_pending and not manual:
             self._QueueDurationCheck(task)
             return
-        self._CreateM3U8File(task.parent.fileName)
+        playlist_saved = self._CreateM3U8File(task.parent.fileName)
         failures = sum(s.duration_status == 'failed' for s in record.details.segments)
         if failures:
             self.statusBar.SetStatusText(f'{task.parent.displayName}：{failures} 个分片时长检测失败，保留原时长。', 0)
+        elif manual and playlist_saved:
+            self.statusBar.SetStatusText('分片时长检测完成，本地播放列表已更新。', 0)
+        if manual:
+            self._completion_notified.add(task_id)
         pending = M3U8Downloader.Snapshot()['pending']
-        if (task.task_status == TaskStatus.WAITING_MERGE
+        if (not manual and task.task_status == TaskStatus.WAITING_MERGE
                 and task.childs and task.download == len(task.childs) and not task.outputs
                 and task_id not in self._completion_notified
                 and not any(M3U8Downloader.FileKey(child.fileName) in pending for child in task.childs)):
@@ -1563,6 +1583,8 @@ class MainFrame(wx.Frame):
         for task in self.model.fileTree.items:
             if task.task_id != task_id:
                 continue
+            if task_id in getattr(self, '_manualDurationChecks', set()):
+                break
             pending = M3U8Downloader.Snapshot()['pending']
             if (task.task_status == TaskStatus.WAITING_MERGE
                     and task.childs and task.download == len(task.childs) and not task.outputs
