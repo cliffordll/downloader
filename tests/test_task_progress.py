@@ -297,6 +297,29 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
+    def test_edit_segment_url_saves_only_on_confirmation(self):
+        segment = SimpleNamespace(sequence=7, source_url='https://example.com/old.ts')
+        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(segments=[segment]))
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            with patch('src.views.main_frame.SegmentURLDialog') as dialog, \
+                 patch.object(frame.runner, 'update_segment_url') as update, \
+                 patch.object(frame, '_SyncDownloads') as sync:
+                dialog.return_value.ShowModal.return_value = wx.ID_CANCEL
+                frame._EditSegmentURL(self.task.task_id, 7)
+                update.assert_not_called()
+                sync.assert_not_called()
+                dialog.return_value.ShowModal.return_value = wx.ID_OK
+                dialog.return_value.GetValue.return_value = 'https://example.com/new.ts?token=a%2Bb'
+                frame._EditSegmentURL(self.task.task_id, 7)
+                update.assert_called_once_with(self.task.task_id, 7, 'https://example.com/new.ts?token=a%2Bb')
+                sync.assert_called_once()
+                self.assertEqual(dialog.return_value.Destroy.call_count, 2)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_download_address_menu_preserves_full_url(self):
         from src.schemas.task import TaskType, TaskStatus
         task_url = 'https://example.com/index.m3u8?token=a%2Bb&part=1'
@@ -343,7 +366,7 @@ class TaskProgressTests(unittest.TestCase):
         try:
             cases = [(-2, ['打开', '打开所在文件夹', '|', '查看内容']),
                      (0, ['打开', '打开所在文件夹', '|', '另存为…']),
-                     (1, ['打开', '打开所在文件夹', '|', '另存为…']), (2, ['下载'])]
+                     (1, ['打开', '打开所在文件夹', '|', '另存为…']), (2, ['下载', '|', '修改下载地址'])]
             for key, labels in cases:
                 item = frame.model.ObjectToItem(frame.model._BuildKey((0, key)))
                 def inspect(menu):

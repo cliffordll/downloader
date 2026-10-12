@@ -43,7 +43,8 @@ def to_tree_item(task, previous=None):
     for segment in sorted(task.details.segments, key=lambda segment: segment.sequence):
         path = task.save_dir / segment.relative_path
         child = previous_children.get(segment.sequence)
-        if child is None or child.status != segment.status or child.fileName != str(path):
+        if (child is None or child.status != segment.status or child.fileName != str(path)
+                or child.absUri != (segment.source_url or '')):
             child = _file(path, path.name, segment.source_url, size=(
                 segment.size_bytes if segment.status == FileStatus.COMPLETED else None), status=segment.status)
         child.sequence = segment.sequence

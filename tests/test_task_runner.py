@@ -44,6 +44,44 @@ class TaskRunnerTests(unittest.TestCase):
         return self.service.create_m3u8(self.root / name, 'https://example.com/index.m3u8',
             '#EXTM3U\n' + ''.join(f'#EXTINF:4,\n{i}.ts\n' for i in range(count)), detect_duration=detect)
 
+    def test_update_segment_url_persists_and_retry_uses_new_address(self):
+        from src.models.tree_model import to_tree_item
+        task = self.m3u8(count=2)
+        path = task.save_dir / task.details.segments[1].relative_path
+        self.service.finish_segment(task.id, 1, path, False, 'old URL failed')
+        old = self.repo.get(task.id)
+        previous = to_tree_item(old)
+        url = 'https://cdn.example.com/fixed.ts?token=a%2Bb&part=2'
+        updated = self.runner.update_segment_url(task.id, 1, ' ' + url + ' ')
+        reopened = TaskRepository(self.repo.path).get(task.id)
+        self.assertEqual(reopened.details.segments[1].source_url, url)
+        self.assertEqual(reopened.details.segments[0], old.details.segments[0])
+        self.assertEqual(reopened.details.segments[1].relative_path, old.details.segments[1].relative_path)
+        self.assertEqual(reopened.details.segments[1].status, FileStatus.FAILED)
+        self.assertEqual(to_tree_item(updated, previous).childs[1].absUri, url)
+        with patch.object(Engine, 'DownloadTSFile', side_effect=self.enqueue) as download:
+            self.assertEqual(self.runner.start(task.id, sequences=[1], retry=True), 1)
+            self.assertEqual(download.call_args.args[0], url)
+
+    def test_update_segment_url_rejects_invalid_completed_and_queued_segments(self):
+        task = self.m3u8(count=2)
+        original = task.details.segments[0].source_url
+        for url in ('', '/relative.ts', 'ftp://example.com/a.ts', 'https://example.com/a b.ts'):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                self.runner.update_segment_url(task.id, 0, url)
+            self.assertEqual(self.repo.get(task.id).details.segments[0].source_url, original)
+        key = Engine.FileKey(task.save_dir / task.details.segments[0].relative_path)
+        for state in (Engine._pending, Engine._requesting):
+            state.add(key)
+            with self.assertRaises(ValueError):
+                self.runner.update_segment_url(task.id, 0, 'https://example.com/new.ts')
+            state.clear()
+        self.service.finish_segment(task.id, 0, self.write(task, 0), True)
+        with self.assertRaises(ValueError):
+            self.runner.update_segment_url(task.id, 0, 'https://example.com/new.ts')
+        with self.assertRaises(ValueError):
+            self.runner.update_segment_url(task.id, 99, 'https://example.com/new.ts')
+
     def mp4(self, name='direct'):
         return self.service.create_mp4(self.root / name, 'https://example.com/video.mp4')
 

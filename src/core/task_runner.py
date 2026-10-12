@@ -88,6 +88,23 @@ class TaskRunner:
             M3U8Downloader.Pause()
             raise
 
+    def update_segment_url(self, task_id, sequence, source_url):
+        """队列保存了请求 URL，排队中的分片（包括暂停的队列）不能直接改库。"""
+        with self._lock:
+            task = self._task(task_id)
+            if not isinstance(task, M3U8Task):
+                raise ValueError('只有 TS 分片可以修改下载地址。')
+            segment = next((s for s in task.details.segments if s.sequence == sequence), None)
+            if segment is None:
+                raise ValueError('分片不存在，请刷新后重试。')
+            key = M3U8Downloader.FileKey(task.save_dir / segment.relative_path)
+            snapshot = M3U8Downloader.Snapshot()
+            if key in snapshot['pending'] or key in snapshot['requesting'] or self.busy_processing(task_id):
+                raise ValueError('分片仍在队列中或任务正在处理，请结束后再修改。')
+            record = self.tasks.update_segment_url(task_id, sequence, source_url)
+            self._changes.put(task_id)
+            return record
+
     def check_files(self, task_id):
         try:
             task = self.tasks.check_files(task_id)

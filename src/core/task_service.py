@@ -257,6 +257,24 @@ class TaskService:
             self._progress(task)
         return self.repository.mutate(task_id, change)
 
+    def update_segment_url(self, task_id, sequence, source_url):
+        """更新单个未完成分片的来源，保留本地路径、序号及失败状态供重试。"""
+        source_url = source_url.strip()
+        if not source_url:
+            raise ValueError('下载地址不能为空。')
+        def change(task):
+            self._require_m3u8(task)
+            segment = next((s for s in task.details.segments if s.sequence == sequence), None)
+            if segment is None:
+                raise ValueError('分片不存在，请刷新后重试。')
+            if segment.status == FileStatus.COMPLETED or task.status == TaskStatus.MERGING:
+                raise ValueError('已完成的分片或正在合并的任务不能修改下载地址。')
+            segment.source_url = source_url  # 数据模型校验完整 HTTP/HTTPS 地址。
+        record = self.repository.mutate(task_id, change)
+        if record is None:
+            raise ValueError('任务不存在，请刷新后重试。')
+        return record
+
     def runtime_status(self, task_id, status, *, preserve_terminal=False):
         def change(task):
             if preserve_terminal and task.status in (TaskStatus.MERGING, TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):

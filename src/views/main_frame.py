@@ -12,6 +12,7 @@ from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 from src.views.dialogs.ts_dialog import DownloadDialogTS
 from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 from src.views.dialogs.information_dialog import InformationDialog
+from src.views.dialogs.segment_url_dialog import SegmentURLDialog
 from src.core.task_runner import TaskRunner
 from src.core.file_export import save_file_as
 
@@ -657,6 +658,29 @@ class MainFrame(wx.Frame):
             return
         self._ShowInformation('查看内容：' + path.name, text, line_numbers=True)
 
+    def _EditSegmentURL(self, task_id, sequence):
+        try:
+            record = self.tasks.repository.get(task_id)
+            if record is None:
+                raise ValueError('任务不存在，请刷新后重试。')
+            segment = next((s for s in record.details.segments if s.sequence == sequence), None)
+            if segment is None:
+                raise ValueError('分片不存在，请刷新后重试。')
+            dialog = SegmentURLDialog(self, segment.source_url or '')
+            try:
+                while dialog.ShowModal() == wx.ID_OK:
+                    try:
+                        self.runner.update_segment_url(task_id, sequence, dialog.GetValue())
+                    except ValueError as error:
+                        wx.MessageBox(str(error), '无法修改下载地址', parent=dialog)
+                        continue
+                    self._SyncDownloads()
+                    break
+            finally:
+                dialog.Destroy()
+        except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
+            wx.MessageBox(str(error), '无法修改下载地址', parent=self)
+
     def _CheckAndContinue(self, task_id):
         """已完成任务也可显式检查并补下载，不在展示时检查磁盘。"""
         try:
@@ -725,6 +749,12 @@ class MainFrame(wx.Frame):
                     task.parent.absUri if task.task_type == TaskType.MP4 else '')
                 if source_url:
                     add('查看下载地址', lambda: self._ShowInformation('下载地址', source_url), new_group=True)
+                if pending:
+                    snapshot = M3U8Downloader.Snapshot()
+                    file_key = M3U8Downloader.FileKey(path)
+                    add('修改下载地址', lambda: self._EditSegmentURL(task.task_id, file.sequence),
+                        not info['merging'] and file_key not in snapshot['pending']
+                        and file_key not in snapshot['requesting'], new_group=not source_url)
                 if not pending and not partial:
                     add('另存为…', lambda: self._SaveFileAs(path), new_group=True)
             try:
