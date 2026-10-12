@@ -677,7 +677,9 @@ class MainFrame(wx.Frame):
         directory = task.save_dir or Path(PathManager.GetAbsPath(task.parent.fileName)).parent
         menu = wx.Menu()
 
-        def add(label, callback, enabled=True):
+        def add(label, callback, enabled=True, *, new_group=False):
+            if new_group and menu.GetMenuItemCount():
+                menu.AppendSeparator()
             entry = menu.Append(wx.ID_ANY, label)
             entry.Enable(enabled)
             menu.Bind(wx.EVT_MENU, lambda event: callback(), entry)
@@ -696,8 +698,8 @@ class MainFrame(wx.Frame):
                 # 清单节点单独登记在 manifests 中，当前 -2 对应 download.m3u8。
                 path = Path(task.manifests[key].fileName)
                 add('打开', lambda: self._OpenLocalPath(path))
-                add('查看内容', lambda: self._ViewPlaylist(path))
                 add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
+                add('查看内容', lambda: self._ViewPlaylist(path), new_group=True)
             elif 0 <= key < len(task.outputs) + len(task.childs):
                 # 非负键先排列 outputs（成品或 .part），再排列 childs（TS 分片）。
                 # 减去输出数量后，负数表示输出文件，非负数才是分片列表的索引。
@@ -705,9 +707,10 @@ class MainFrame(wx.Frame):
                 segment_index = key - len(task.outputs)
                 file = task.outputs[key] if segment_index < 0 else task.childs[segment_index]
                 path = Path(file.fileName)
-                # 未完成的直链 MP4 输出行代表 .part，只允许打开所在目录。
+                # 未完成的直链 MP4 输出行代表 .part，不提供播放和另存为。
                 partial = segment_index < 0 and task.task_type == TaskType.MP4 and task.task_status != TaskStatus.COMPLETED
-                if segment_index >= 0 and file.fileSize == '-':
+                pending = segment_index >= 0 and file.fileSize == '-'
+                if pending:
                     # '-' 是展示模型的未完成分片标记；此处不访问磁盘检查文件。
                     info = self.model.TaskInfo(index)
                     add('下载', lambda: self._DownloadFiles(task.parent.fileName, [(segment_index, item)]),
@@ -716,8 +719,14 @@ class MainFrame(wx.Frame):
                     if not partial:
                         add('打开', lambda: self._OpenLocalPath(path))
                     add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
-                    if not partial:
-                        add('另存为…', lambda: self._SaveFileAs(path))
+                # 分片使用自己的 URL；直链 MP4（含 .part）使用任务 URL。
+                # 合成 MP4 是本地生成文件，没有独立下载地址。
+                source_url = file.absUri if segment_index >= 0 else (
+                    task.parent.absUri if task.task_type == TaskType.MP4 else '')
+                if source_url:
+                    add('查看下载地址', lambda: self._ShowInformation('下载地址', source_url), new_group=True)
+                if not pending and not partial:
+                    add('另存为…', lambda: self._SaveFileAs(path), new_group=True)
             try:
                 if menu.GetMenuItemCount():
                     self.mcTree.PopupMenu(menu)
@@ -728,32 +737,36 @@ class MainFrame(wx.Frame):
 
         info = self.model.TaskInfo(index)
         parent_item = self.model.ObjectToItem(self.model._BuildKey((index,)))
-        if task.task_type == TaskType.M3U8:
-            add('转 MP4', lambda: self.OnTaskAction(parent_item, 'merge'),
-                bool(info['total']) and info['done'] == info['total'] and not task.outputs
-                and not info['pending'] and not info['merging'])
         add('打开文件夹', lambda: self._OpenLocalPath(directory))
-        if task.task_type in (TaskType.M3U8, TaskType.MP4) and task.task_status in (TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):
-            add('检查并继续下载', lambda: self._CheckAndContinue(task.task_id))
-        if task.task_type == TaskType.MP4 and task.last_error:
-            add('查看失败原因', lambda: self._ShowInformation('MP4 下载失败', task.last_error))
         if task.outputs and (task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
             for output in task.outputs:
                 path = PathManager.GetAbsPath(output.fileName)
                 add('播放视频：' + Path(path).name, lambda path=path: self._OpenLocalPath(path))
         else:
             add('播放视频', lambda: None, False)
+        if task.parent.absUri:
+            add('查看下载地址', lambda: self._ShowInformation('下载地址', task.parent.absUri), new_group=True)
+        if task.task_type == TaskType.MP4 and task.last_error:
+            add('查看失败原因', lambda: self._ShowInformation('MP4 下载失败', task.last_error),
+                new_group=not task.parent.absUri)
+        if task.task_type == TaskType.M3U8:
+            add('转 MP4', lambda: self.OnTaskAction(parent_item, 'merge'),
+                bool(info['total']) and info['done'] == info['total'] and not task.outputs
+                and not info['pending'] and not info['merging'], new_group=True)
+        if task.task_type in (TaskType.M3U8, TaskType.MP4) and task.task_status in (TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):
+            add('检查并继续下载', lambda: self._CheckAndContinue(task.task_id),
+                new_group=task.task_type != TaskType.M3U8)
         completed_files = []
         if task.task_type == TaskType.M3U8 or task.task_status == TaskStatus.COMPLETED:
             completed_files = [Path(PathManager.GetAbsPath(output.fileName)) for output in task.outputs]
             if not completed_files and task.task_type != TaskType.M3U8:
                 completed_files = [Path(PathManager.GetAbsPath(task.parent.fileName))]
         if completed_files:
-            for path in completed_files:
+            for position, path in enumerate(completed_files):
                 label = '另存为…' if len(completed_files) == 1 else '另存为：' + path.name
-                add(label, lambda path=path: self._SaveFileAs(path))
+                add(label, lambda path=path: self._SaveFileAs(path), new_group=position == 0)
         else:
-            add('另存为…', lambda: None, False)
+            add('另存为…', lambda: None, False, new_group=True)
         try:
             self.mcTree.PopupMenu(menu)
         finally:

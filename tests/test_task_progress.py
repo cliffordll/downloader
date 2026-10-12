@@ -297,6 +297,43 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
+    def test_download_address_menu_preserves_full_url(self):
+        from src.schemas.task import TaskType, TaskStatus
+        task_url = 'https://example.com/index.m3u8?token=a%2Bb&part=1'
+        segment_url = 'https://cdn.example.com/000001.ts?token=x%2Fy&part=2'
+        self.task.parent.absUri = task_url
+        self.task.childs[1].absUri = segment_url
+        self.task.outputs = [FileItem(fileName='task/output.mp4', fileSize=10)]
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            for key, expected in [((0,), task_url), ((0, 2), segment_url), ((0, 0), None), ((0, -1), None)]:
+                item = frame.model.ObjectToItem(frame.model._BuildKey(key))
+                def inspect(menu):
+                    entries = [entry for entry in menu.GetMenuItems() if entry.GetItemLabelText() == '查看下载地址']
+                    self.assertEqual(len(entries), int(expected is not None))
+                    if entries:
+                        menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entries[0].GetId()))
+                with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect), \
+                     patch.object(frame, '_ShowInformation') as show:
+                    frame.OnTaskMenu(item)
+                    if expected:
+                        show.assert_called_once_with('下载地址', expected)
+                    else:
+                        show.assert_not_called()
+            self.task.task_type = TaskType.MP4
+            self.task.task_status = TaskStatus.DOWNLOADING
+            self.task.outputs[0].fileName = 'task/video.mp4.part'
+            expected = task_url
+            item = frame.model.ObjectToItem(frame.model._BuildKey((0, 0)))
+            with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect), \
+                 patch.object(frame, '_ShowInformation') as show:
+                frame.OnTaskMenu(item)
+                show.assert_called_once_with('下载地址', task_url)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_file_context_menus_and_selected_segment_download(self):
         from src.schemas.task import TaskType, TaskStatus
         self.task.manifests[-2] = FileItem(fileName='task/download.m3u8')
@@ -304,13 +341,14 @@ class TaskProgressTests(unittest.TestCase):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
-            cases = [(-2, ['打开', '查看内容', '打开所在文件夹']),
-                     (0, ['打开', '打开所在文件夹', '另存为…']),
-                     (1, ['打开', '打开所在文件夹', '另存为…']), (2, ['下载'])]
+            cases = [(-2, ['打开', '打开所在文件夹', '|', '查看内容']),
+                     (0, ['打开', '打开所在文件夹', '|', '另存为…']),
+                     (1, ['打开', '打开所在文件夹', '|', '另存为…']), (2, ['下载'])]
             for key, labels in cases:
                 item = frame.model.ObjectToItem(frame.model._BuildKey((0, key)))
                 def inspect(menu):
-                    self.assertEqual([entry.GetItemLabelText() for entry in menu.GetMenuItems()], labels)
+                    self.assertEqual(['|' if entry.IsSeparator() else entry.GetItemLabelText()
+                                      for entry in menu.GetMenuItems()], labels)
                     if key == 2:
                         event = wx.CommandEvent(wx.EVT_MENU.typeId, menu.GetMenuItems()[0].GetId())
                         menu.ProcessEvent(event)

@@ -36,7 +36,7 @@ def to_tree_item(task, previous=None):
                         progress=task.progress, task_status=task.status,
                         last_error=task.last_error, parent=parent, outputs=outputs)
     playlist = task.save_dir / (task.details.playlist_path or 'download.m3u8')
-    parent = _file(playlist, name, size=task.progress.downloaded_bytes)
+    parent = _file(playlist, name, task.source_url, size=task.progress.downloaded_bytes)
     parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
     children = []
     previous_children = {child.sequence: child for child in previous.childs} if previous else {}

@@ -64,6 +64,7 @@ class TaskTypesUITests(unittest.TestCase):
         task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/mixed.m3u8',
                                        '#EXTM3U\n#EXTINF:4,\na.ts\n')
         row = to_tree_item(task)
+        self.assertEqual(row.parent.absUri, task.source_url)
         self.assertEqual([file.displayName for file in row.manifests.values()], ['download.m3u8'])
         self.assertEqual(row.outputs, [])
         self.assertEqual(row.childs[0].displayName, '000000.ts')
@@ -226,7 +227,7 @@ class TaskTypesUITests(unittest.TestCase):
                 self.assertFalse(event.GetSkipped())
 
             def inspect_menu(menu):
-                self.assertEqual([entry.GetItemLabelText() for entry in menu.GetMenuItems()],
+                self.assertEqual([entry.GetItemLabelText() for entry in menu.GetMenuItems() if not entry.IsSeparator()],
                                  ['打开文件夹', '播放视频', '另存为…'])
 
             with patch.object(tree, 'PopupMenu', side_effect=inspect_menu) as menu:
@@ -417,8 +418,8 @@ class TaskTypesUITests(unittest.TestCase):
         item = model.ObjectToItem(model._BuildKey((0,)))
         opened = Mock()
         def inspect_menu(menu):
-            labels = [entry.GetItemLabelText() for entry in menu.GetMenuItems()]
-            self.assertEqual(labels, ['打开文件夹', '播放视频', '另存为…'])
+            labels = ['|' if entry.IsSeparator() else entry.GetItemLabelText() for entry in menu.GetMenuItems()]
+            self.assertEqual(labels, ['打开文件夹', '播放视频', '|', '查看下载地址', '|', '另存为…'])
             entry = menu.GetMenuItems()[0]
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=inspect_menu),
