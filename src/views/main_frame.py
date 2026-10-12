@@ -280,7 +280,7 @@ class MainFrame(wx.Frame):
         self.mcTree.AppendTextColumn("文件大小", 2, width=self.FromDIP(90), align=wx.ALIGN_RIGHT)
         self.mcTree.AppendTextColumn("修改时间", 3, width=self.FromDIP(130))
         self._actionRenderer = TaskActionRenderer(self)
-        initial_action_width = self.FromDIP(200 if wx.Platform == '__WXMAC__' else 240)
+        initial_action_width = self.FromDIP(160 if wx.Platform == '__WXMAC__' else 192)
         actionColumn = dv.DataViewColumn("操作", self._actionRenderer, 4,
                                        width=initial_action_width, align=wx.ALIGN_CENTER)
         # Mac 原生控件在首次布局时会重新调整列宽，必须同时约束原生最小宽度。
@@ -292,8 +292,6 @@ class MainFrame(wx.Frame):
             column.SetFlags(column.GetFlags() & ~wx.COL_RESIZABLE)
         # self.mcTree.AppendTextColumn("下载地址", 5)
         # self.model.DecRef()  # 避免内存泄漏
-        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_EXPANDED, self.OnTaskExpansionChanged)
-        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_COLLAPSED, self.OnTaskExpansionChanged)
         # 默认折叠；用户开启查看菜单中的偏好后，首次加载才主动展开。
         # self.OnExpandAll(None)
         if SysSetting.GetAll()['default_expand_tasks']:
@@ -323,7 +321,7 @@ class MainFrame(wx.Frame):
 
 
     def OnTaskListMouseDown(self, event):
-        """Mac 行首箭头使用与操作列相同的程序展开路径。"""
+        """Mac 行首箭头使用统一的程序展开路径。"""
         self._disclosureClick = False
         if self._closing:
             event.Skip()
@@ -611,29 +609,6 @@ class MainFrame(wx.Frame):
         if status_changed and self.statusFilter.GetSelection() > 0:
             self._ApplyTaskFilter()
 
-
-    def OnTaskExpansionChanged(self, event):
-        event.Skip()
-        if self._closing:
-            return
-        item = event.GetItem()
-        if not item.IsOk():
-            return
-        keys = self.model.ParseKey(self.model.ItemToObject(item))
-        if len(keys) != 1:
-            return
-        task = self.model.fileTree.items[keys[0]]
-        # 先让原生控件完成展开；只更新操作文字，避免整行通知干扰树布局。
-        wx.CallAfter(self._UpdateExpansionAction, task.task_id or task.parent.fileName)
-
-    def _UpdateExpansionAction(self, identity):
-        if self._closing or not self or self.IsBeingDeleted():
-            return
-        for index, task in enumerate(self.model.fileTree.items):
-            if (task.task_id or task.parent.fileName) == identity:
-                item = self.model.ObjectToItem(self.model._BuildKey((index,)))
-                self.model.ValueChanged(item, 4)
-                return
 
     def OnTaskContextMenu(self, event):
         self.OnTaskMenu(event.GetItem())
@@ -1019,7 +994,7 @@ class MainFrame(wx.Frame):
             '筛选区域可按文件名、路径和任务状态筛选；关键词也匹配任务下的 MP4 和分片。'
             '清空关键词并选择“全部状态”恢复全部任务。隐藏任务仍继续下载。\n\n'
             '2. 下载与合并\n'
-            '任务行固定显示“开始/暂停/继续、重试、删除、展开/折叠、更多”，不可用的操作会置灰。'
+            '任务行固定显示“开始/暂停/继续、重试、删除、更多”，不可用的操作会置灰。'
             '“更多”或右键菜单提供转 MP4、播放视频、打开文件夹和另存为。'
             '已完成的视频可另存到其他目录，原文件和任务记录保持不变。删除只移除任务记录，保留本地文件。'
             '行内“暂停/继续”只控制当前任务，已发出的请求允许完成。进度按已完成分片数计算。\n'
@@ -1144,9 +1119,7 @@ class MainFrame(wx.Frame):
             return
         keys = self.model.ItemToObject(item)
         objs = self.model.ParseKey(keys)
-        if len(objs) == 1:
-            self.OnTaskAction(item, 'toggle')
-        elif self.model.IsContainer(item):
+        if self.model.IsContainer(item):
             self._SetTaskExpanded(item)
         elif len(objs) == 2 and objs[1] in self.model.fileTree.items[objs[0]].manifests:
             self._OpenLocalPath(self.model.fileTree.items[objs[0]].manifests[objs[1]].fileName)
@@ -1170,7 +1143,7 @@ class MainFrame(wx.Frame):
 
         行内渲染器识别点击区域后传入 item 和操作 id；“转 MP4”菜单传入 merge。
         item 指明具体任务行，不依赖当前选中行；默认 start 表示开始/暂停/继续。
-        start 表示开始/暂停/继续，retry 重试失败，delete 删除，toggle 展开/折叠，more 打开菜单。
+        start 表示开始/暂停/继续，retry 重试失败，delete 删除，more 打开菜单。
         """
         if not item.IsOk():
             return
@@ -1194,9 +1167,6 @@ class MainFrame(wx.Frame):
             # 再检查 enabled，防止过期的界面状态触发已不可用的操作。
             action = next((entry for entry in self.model.TaskActions(index) if entry['id'] == action_id), None)
             if action is None or not action['enabled']:
-                return
-            if action_id == 'toggle':
-                self._SetTaskExpanded(item)
                 return
             if action_id == 'more':
                 if self._manualActionClicks:

@@ -43,11 +43,14 @@ class TaskTypesUITests(unittest.TestCase):
         return MultiColumnTreeModel(load_tree(self.service))
 
     def test_mixed_list_has_children_for_m3u8_and_mp4(self):
-        self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
+        hls = self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
                                  '#EXTM3U\n#EXTINF:4,\na.ts\n')
-        self.mp4(progress=TaskProgress(downloaded_bytes=1024, total_bytes=2048))
-        self.live(progress=TaskProgress(downloaded_bytes=1024, recorded_seconds=3661))
+        mp4 = self.mp4(progress=TaskProgress(downloaded_bytes=1024, total_bytes=2048))
+        live = self.live(progress=TaskProgress(downloaded_bytes=1024, recorded_seconds=3661))
         model = self.model()
+        # 同一时刻创建的记录可能按 UUID 排序，此处按类型身份验证展示行为。
+        order = [hls.id, mp4.id, live.id]
+        model.fileTree.items.sort(key=lambda row: order.index(row.task_id))
         for index, expected in enumerate((True, True, False)):
             item = model.ObjectToItem(model._BuildKey((index,)))
             self.assertEqual(model.IsContainer(item), expected)
@@ -91,7 +94,7 @@ class TaskTypesUITests(unittest.TestCase):
             renderer.SetValue(label)
             self.assertEqual(renderer.percent, expected)
 
-    def test_mp4_action_click_includes_toggle_and_task_dispatch(self):
+    def test_mp4_action_click_dispatches_four_actions(self):
         self.mp4()
         model = self.model()
         item = model.ObjectToItem(model._BuildKey((0,)))
@@ -99,11 +102,11 @@ class TaskTypesUITests(unittest.TestCase):
         renderer = TaskActionRenderer(frame)
         cell = wx.Rect(0, 0, 200, 24)
         actions = model.TaskActions(0)
-        self.assertEqual([a['id'] for a in actions], ['start', 'retry', 'delete', 'toggle', 'more'])
+        self.assertEqual([a['id'] for a in actions], ['start', 'retry', 'delete', 'more'])
         for action, rect in zip(actions, renderer._ActionRects(cell, len(actions))):
             mouse = Mock(GetPosition=Mock(return_value=wx.Point(rect.x + rect.width // 2, 12)))
             self.assertEqual(renderer.ActivateCell(cell, model, item, 4, mouse), action['enabled'])
-        self.assertEqual([call.args[1] for call in frame.OnTaskAction.call_args_list], ['start', 'delete', 'toggle', 'more'])
+        self.assertEqual([call.args[1] for call in frame.OnTaskAction.call_args_list], ['start', 'delete', 'more'])
         frame.OnSegmentDownload.assert_not_called()
 
     def test_manual_mouse_route_converts_coordinates_and_dispatches_once(self):

@@ -216,9 +216,6 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         """
         task = self.fileTree.items[index]
         if task.task_type == TaskType.MP4:
-            tree = getattr(self.parent, 'mcTree', None)
-            item = self.ObjectToItem(self._BuildKey((index,)))
-            expanded = tree.IsExpanded(item) if tree is not None else False
             active = task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING)
             finished = task.task_status == TaskStatus.COMPLETED
             label = '暂停' if active else ('继续' if task.progress.downloaded_bytes or
@@ -227,7 +224,6 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 dict(id='start', label=label, enabled=not finished and task.task_status != TaskStatus.PAUSING),
                 dict(id='retry', label='重试', enabled=task.task_status == TaskStatus.FAILED),
                 dict(id='delete', label='删除', enabled=not active),
-                dict(id='toggle', label='折叠' if expanded else '展开', enabled=bool(task.outputs)),
                 dict(id='more', label='更多', enabled=True),
             ]
         if task.task_type != TaskType.M3U8:
@@ -250,16 +246,11 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         running = bool(info['pending']) and not info['merging']
         label = ('继续' if info['paused'] else '暂停') if running else (
             '继续' if info['done'] or task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) else '开始')
-        # 展开状态以列表控件为准，避免行首箭头或全部展开后文字不同步。
-        tree = getattr(self.parent, 'mcTree', None)
-        item = self.ObjectToItem(self._BuildKey((index,)))
-        expanded = tree.IsExpanded(item) if tree is not None else False
         return [
             dict(id='start', label=label,
                  enabled=bool(running or (downloadable and info['done'] < info['total']))),
             dict(id='retry', label='重试', enabled=bool(downloadable and info['failed'])),
             dict(id='delete', label='删除', enabled=idle),
-            dict(id='toggle', label='折叠' if expanded else '展开', enabled=bool(task.childs or task.outputs or task.manifests)),
             dict(id='more', label='更多', enabled=True),
         ]
 

@@ -96,7 +96,7 @@ class TaskProgressTests(unittest.TestCase):
             model = frame.model
             root = model.ObjectToItem(model._BuildKey((0,)))
             folder = model.ObjectToItem(model._BuildKey((0, -1)))
-            frame.OnTaskAction(root, 'toggle')
+            frame._SetTaskExpanded(root)
             self.assertTrue(frame.mcTree.IsExpanded(root))
             self.assertFalse(frame.mcTree.IsExpanded(folder))
             children = []
@@ -206,8 +206,8 @@ class TaskProgressTests(unittest.TestCase):
 
             actions = frame.model.TaskActions(0)
             self.assertFalse(frame.mcTree.IsExpanded(item))
-            self.assertEqual([a['label'] for a in actions], ['继续', '重试', '删除', '展开', '更多'])
-            self.assertEqual([a['enabled'] for a in actions], [True, False, True, True, True])
+            self.assertEqual([a['label'] for a in actions], ['继续', '重试', '删除', '更多'])
+            self.assertEqual([a['enabled'] for a in actions], [True, False, True, True])
             self.assertFalse(click(1))
             M3U8Downloader._failed.add(self.key)
             with patch.object(frame.runner, 'activate', return_value=1) as download:
@@ -218,18 +218,13 @@ class TaskProgressTests(unittest.TestCase):
                 self.app.ProcessPendingEvents()
                 delete.assert_called_once_with(self.task)
             with patch.object(frame, 'OnTaskMenu') as menu:
-                self.assertTrue(click(4))
+                self.assertTrue(click(3))
                 self.app.ProcessPendingEvents()
                 menu.assert_called_once_with(item)
-            # 同一点击区域切换展开状态，箭头操作后也重新读取正确文字。
-            self.assertTrue(click(3))
-            self.assertTrue(frame.mcTree.IsExpanded(item))
-            self.assertEqual(frame.model.TaskActions(0)[3]['label'], '折叠')
-            self.assertTrue(click(3))
-            self.assertFalse(frame.mcTree.IsExpanded(item))
-            self.assertEqual(frame.model.TaskActions(0)[3]['label'], '展开')
+            # 展开状态不再改变操作列内容。
+            before = frame.model.TaskActions(0)
             frame.mcTree.Expand(item)
-            self.assertEqual(frame.model.TaskActions(0)[3]['label'], '折叠')
+            self.assertEqual(frame.model.TaskActions(0), before)
             bitmap = wx.Bitmap(size.width, size.height)
             dc = wx.MemoryDC(bitmap)
             renderer.SetValue(frame.model.GetValue(item, 4))
@@ -237,7 +232,7 @@ class TaskProgressTests(unittest.TestCase):
             dc.SelectObject(wx.NullBitmap)
             M3U8Downloader._pending.add(self.key)
             M3U8Downloader.Pause()
-            self.assertEqual([a['enabled'] for a in frame.model.TaskActions(0)], [True, False, False, True, True])
+            self.assertEqual([a['enabled'] for a in frame.model.TaskActions(0)], [True, False, False, True])
             for index in (1, 2):
                 self.assertFalse(click(index))
             M3U8Downloader._pending.clear()
@@ -443,7 +438,7 @@ class TaskProgressTests(unittest.TestCase):
             self.app.ProcessPendingEvents()
 
     @unittest.skipUnless(wx.Platform == '__WXMAC__', 'Mac 行首箭头路径')
-    def test_mac_disclosure_uses_action_toggle_and_consumes_mouse_release(self):
+    def test_mac_disclosure_toggles_and_consumes_mouse_release(self):
         frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             self.app.Yield()
@@ -456,40 +451,16 @@ class TaskProgressTests(unittest.TestCase):
                 hit, column = tree.HitTest(position)
                 self.assertEqual(hit, item)
                 self.assertEqual(column.GetModelColumn(), 0)
-                with patch.object(frame, 'OnTaskAction', wraps=frame.OnTaskAction) as toggle:
+                with patch.object(frame, '_SetTaskExpanded', wraps=frame._SetTaskExpanded) as toggle:
                     for kind in (wx.wxEVT_LEFT_DOWN, wx.wxEVT_LEFT_UP):
                         event = wx.MouseEvent(kind)
                         event.SetEventObject(window)
                         event.SetPosition(window.ScreenToClient(tree.ClientToScreen(position)))
                         window.GetEventHandler().ProcessEvent(event)
                         self.assertFalse(event.GetSkipped())
-                    toggle.assert_called_once_with(item, 'toggle')
+                    toggle.assert_called_once_with(item)
                 self.assertEqual(tree.IsExpanded(item), expanded)
                 self.app.Yield()
-        finally:
-            frame.Destroy()
-            self.app.ProcessPendingEvents()
-
-    def test_expansion_defers_only_action_cell_refresh(self):
-        with patch.object(MainFrame, 'Show'):
-            frame = MainFrame(None, 'test', self.service, self.tree)
-        try:
-            item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-            event = SimpleNamespace(GetItem=lambda: item, Skip=Mock())
-            with patch('src.views.main_frame.wx.CallAfter') as deferred, \
-                    patch.object(frame.model, 'ItemChanged') as row, \
-                    patch.object(frame.model, 'ValueChanged') as cell:
-                frame.OnTaskExpansionChanged(event)
-                event.Skip.assert_called_once()
-                row.assert_not_called()
-                cell.assert_not_called()
-                callback, identity = deferred.call_args.args
-                callback(identity)
-                cell.assert_called_once_with(item, 4)
-                frame._closing = True
-                callback(identity)
-                cell.assert_called_once_with(item, 4)
-                frame._closing = False
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
@@ -683,7 +654,7 @@ class TaskProgressTests(unittest.TestCase):
                                         dc.GetTextExtent(frame.model.TaskInfo(0)['progress'])[0]
                                         + frame.FromDIP(20))
                 buttons = frame._actionRenderer._ActionRects(wx.Rect(0, 0, layouts[1024][6], 24))
-                for label in ('开始', '暂停', '继续', '重试', '删除', '展开', '折叠', '更多', '录制', '停止'):
+                for label in ('开始', '暂停', '继续', '重试', '删除', '更多', '录制', '停止'):
                     self.assertGreaterEqual(min(rect.width for rect in buttons),
                                             dc.GetTextExtent(label)[0] + frame.FromDIP(8))
             with patch.object(frame.mcTree, 'GetColumn') as get_column:

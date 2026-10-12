@@ -111,11 +111,11 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         FromDIP 按屏幕缩放比例换算尺寸；实际绘制区域以 Render 的 cell 参数为准。
         """
         column = self.GetOwner()
-        width = column.GetWidth() if column is not None else self.frame.FromDIP(200)
+        width = column.GetWidth() if column is not None else self.frame.FromDIP(160)
         return wx.Size(max(1, width - self.frame.FromDIP(8)), self.frame.FromDIP(24))
 
-    def _ActionRects(self, cell, count=5):
-        """左右留白后按 count 等分；M3U8 五项、MP4/RTMP 四项。
+    def _ActionRects(self, cell, count=4):
+        """左右留白后按 count 等分；各任务类型均为四项。
 
         这是本类自定义的辅助方法，不是 wx 的重写回调，由 Render/ActivateCell 调用。
         绘制与点击判断共用此方法，确保显示位置和点击区域始终对应。
@@ -153,14 +153,14 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         return True
 
     def MinimumWidth(self, dc):
-        """按五项操作的最长文字预留间距，以及原生单元格的左右留白。"""
-        labels = ('开始', '暂停', '继续', '重试', '删除', '展开', '折叠', '更多', '录制', '停止')
+        """按四项操作的最长文字预留间距，以及原生单元格的左右留白。"""
+        labels = ('开始', '暂停', '继续', '重试', '删除', '更多', '录制', '停止')
         text_width = max(dc.GetTextExtent(label)[0] for label in labels)
         if wx.Platform == '__WXMAC__':
-            return max(self.frame.FromDIP(200),
-                       5 * (text_width + self.frame.FromDIP(8)) + self.frame.FromDIP(16))
-        return max(self.frame.FromDIP(240),
-                   5 * (text_width + self.frame.FromDIP(16)) + self.frame.FromDIP(16))
+            return max(self.frame.FromDIP(160),
+                       4 * (text_width + self.frame.FromDIP(8)) + self.frame.FromDIP(16))
+        return max(self.frame.FromDIP(192),
+                   4 * (text_width + self.frame.FromDIP(16)) + self.frame.FromDIP(16))
 
     def ActivateCell(self, cell, model, item, col, mouseEvent):
         """非 Mac 鼠标使用单元格局部坐标；Mac 鼠标由窗口统一处理。"""
