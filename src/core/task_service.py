@@ -8,6 +8,7 @@ import subprocess
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 
 from src.media.m3u8.m3u8_parser import M3U8Parser
+from src.core.path_manager import PathManager
 from src.storage.task_repository import TaskRepository
 from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus
 
@@ -19,35 +20,77 @@ class TaskService:
         self.repository = repository
         self._recovered = False
 
-    def create_mp4(self, save_dir, source_url):
-        """直链任务使用独立目录和临时文件；建任务不请求网络。"""
-        directory = Path(save_dir).expanduser().resolve()
-        task = MP4Task(name=directory.name, save_dir=directory, source_url=source_url.strip(),
-                       details=MP4Details(target_path='video.mp4', temporary_path='video.mp4.part'),
-                       outputs=[TaskOutput(relative_path='video.mp4', kind='download')])
-        for existing in self.repository.list_tasks():
-            saved = existing.save_dir.resolve()
-            if saved == directory or saved in directory.parents or directory in saved.parents:
-                raise ValueError('保存目录与已有任务重叠，请换一个独立的任务子目录。')
-        directory.mkdir(parents=True, exist_ok=False)
-        try:
-            return self.repository.create(task)
-        except Exception:
-            directory.rmdir()  # 仅移除此调用刚创建的空目录。
-            raise
-
-    def create_m3u8(self, save_dir, source_url, content, base_path='', *,
-                    source_type=SourceType.M3U8, ts_pattern=None, detect_duration=False, request_headers=None):
-        """两种添加入口统一入库。目录必须是新目录，避免同名任务覆盖文件。
-
-        分片按序号保存，不把带查询参数的 URL 当作文件名；重复 URL 或不同
-        服务器上的同名分片各有独立路径。download.m3u8 是本地播放/合并用的
-        派生文件，不承担任务持久化职责，也不会用于重新发现任务。
-        """
+    def _create_named(self, save_dir, filename, source_url, build):
+        """文件、同名工作目录及数据库记录共同参与重名检查。"""
         directory = Path(save_dir).expanduser()
         if not directory.is_absolute():
-            raise ValueError('任务保存目录必须是绝对路径。')
+            raise ValueError('保存目录必须是绝对路径。')
         directory = directory.resolve()
+        name = PathManager.ValidateFileName(filename) if filename and filename.strip() else PathManager.GetFileNameFromURI(source_url)
+        created_files, created_dirs = [], []
+
+        def allocate(existing):
+            reserved = set()
+            for task in existing:
+                reserved.update(PathManager.GetPathKey(task.save_dir / output.relative_path) for output in task.outputs)
+                if isinstance(task, MP4Task):
+                    reserved.add(PathManager.GetPathKey(task.save_dir / task.details.temporary_path))
+                if isinstance(task, M3U8Task) and task.details.playlist_path:
+                    work = (task.save_dir / task.details.playlist_path).parent
+                    if PathManager.GetPathKey(directory) == PathManager.GetPathKey(work) or PathManager.GetPathKey(directory).startswith(PathManager.GetPathKey(work) + os.sep):
+                        raise ValueError('保存目录不能位于已有任务的分片工作目录内。')
+                    reserved.add(PathManager.GetPathKey(work))
+            directory.mkdir(parents=True, exist_ok=True)
+            occupied = reserved | {PathManager.GetPathKey(path) for path in directory.iterdir()}
+            index = 0
+            while True:
+                stem = name[:-4] + (f' ({index})' if index else '')
+                target = stem + '.mp4'
+                candidates = [directory / value for value in
+                              (target, stem, target + '.part', target + '.part.mp4')]
+                if any(PathManager.GetPathKey(path) in occupied or path.exists() or path.is_symlink() for path in candidates):
+                    index += 1
+                    continue
+                task = build(directory, stem, target)
+                try:
+                    if isinstance(task, M3U8Task):
+                        work = directory / stem
+                        work.mkdir(exist_ok=False)
+                        created_dirs.append(work)
+                        playlist = directory / task.details.playlist_path
+                        created_files.append(playlist)
+                        playlist.write_text(self.local_playlist(task), encoding='utf-8')
+                    else:
+                        partial = directory / task.details.temporary_path
+                        with partial.open('xb'):
+                            pass
+                        created_files.append(partial)
+                except FileExistsError:
+                    if created_dirs:
+                        raise
+                    index += 1
+                    continue
+                return task
+        try:
+            return self.repository.create_allocated(allocate)
+        except Exception:
+            for path in reversed(created_files):
+                path.unlink(missing_ok=True)
+            for path in reversed(created_dirs):
+                path.rmdir()
+            raise
+
+    def create_mp4(self, save_dir, source_url, *, filename=None):
+        """直链保存在所选目录；正式名称和 .part 名称在创建时确定。"""
+        def build(directory, stem, target):
+            return MP4Task(name=target, save_dir=directory, source_url=source_url.strip(),
+                           details=MP4Details(target_path=target, temporary_path=target + '.part'),
+                           outputs=[TaskOutput(relative_path=target, kind='download')])
+        return self._create_named(save_dir, filename, source_url, build)
+
+    def create_m3u8(self, save_dir, source_url, content, base_path='', *, filename=None,
+                    source_type=SourceType.M3U8, ts_pattern=None, detect_duration=False, request_headers=None):
+        """分片写入同名工作目录，最终 MP4 位于保存目录；两个入口共用命名规则。"""
         if not content.strip():
             raise ValueError('请先获取播放列表或添加 TS 分片。')
         parser = M3U8Parser(content=content, base_path=base_path, m3u8_uri=source_url)
@@ -63,35 +106,17 @@ class TaskService:
                 raise ValueError('分片地址不完整，请填写参考列表网址或使用完整的分片网址。')
             segments.append(TaskSegment(sequence=index, relative_path=f'segments/{index:06d}.ts',
                                         source_url=resolved.absUri, duration=parsed.duration))
-        task = M3U8Task(name=directory.name, save_dir=directory, source_type=source_type,
-                        source_url=source_url or None,
-                        details=M3U8Details(playlist_path='download.m3u8', ts_pattern=ts_pattern,
-                                            detect_duration=detect_duration,
-                                            request_headers=request_headers or {},
-                                            segments=segments),
-                        progress=TaskProgress(total_segments=len(segments)),
-                        outputs=[TaskOutput(relative_path='output.mp4', kind='merged')])
-        # 已入库任务即使目录被手动删除，也不能被新任务复用。
-        for existing in self.repository.list_tasks():
-            saved = existing.save_dir.resolve()
-            if saved == directory or saved in directory.parents or directory in saved.parents:
-                raise ValueError('保存目录与已有任务重叠，请换一个独立的任务子目录。')
-        try:
-            directory.mkdir(parents=True, exist_ok=False)
-        except FileExistsError as error:
-            raise ValueError('保存目录已存在，请换一个新的任务子目录，避免覆盖文件。') from error
-        playlist = directory / task.details.playlist_path
-        try:
-            playlist.write_text(self.local_playlist(task), encoding='utf-8')
-            return self.repository.create(task)
-        except Exception:
-            # 只清理此次新建的派生文件/空目录，不递归删除任何下载文件。
-            playlist.unlink(missing_ok=True)
-            try:
-                directory.rmdir()
-            except OSError:
-                pass
-            raise
+        def build(directory, stem, target):
+            children = [segment.model_copy(update={'relative_path': f'{stem}/{segment.relative_path}'})
+                        for segment in segments]
+            return M3U8Task(name=target, save_dir=directory, source_type=source_type,
+                           source_url=source_url or None,
+                           details=M3U8Details(playlist_path=f'{stem}/download.m3u8', ts_pattern=ts_pattern,
+                                               detect_duration=detect_duration,
+                                               request_headers=request_headers or {}, segments=children),
+                           progress=TaskProgress(total_segments=len(children)),
+                           outputs=[TaskOutput(relative_path=target, kind='merged')])
+        return self._create_named(save_dir, filename, source_url, build)
 
     @staticmethod
     def local_playlist(task):
@@ -99,7 +124,9 @@ class TaskService:
         lines = ['#EXTM3U', '#EXT-X-VERSION:3', f'#EXT-X-TARGETDURATION:{max(1, math.ceil(maximum))}',
                  '#EXT-X-MEDIA-SEQUENCE:0', '#EXT-X-PLAYLIST-TYPE:VOD']
         for segment in sorted(task.details.segments, key=lambda segment: segment.sequence):
-            lines.extend([f'#EXTINF:{segment.duration or 0},', segment.relative_path])
+            relative = os.path.relpath(task.save_dir / segment.relative_path,
+                                       (task.save_dir / task.details.playlist_path).parent)
+            lines.extend([f'#EXTINF:{segment.duration or 0},', Path(relative).as_posix()])
         return '\n'.join(lines + ['#EXT-X-ENDLIST', ''])
 
 

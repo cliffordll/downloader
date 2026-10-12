@@ -18,12 +18,13 @@ class DownloadDialogMU(wx.Dialog):
         self.downPath = DownloadPath(self, workPath)
         self.downEdit.Bind(wx.EVT_BUTTON, self.OnEditBtnClicked)
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
+        self.downEdit.tcURI.Bind(wx.EVT_TEXT, self.downPath.OnSourceChanged)
 
         # sizer.Add(uriSizer, flag=wx.ALIGN_CENTER|wx.TOP|wx.BOTTOM, border=5)
-        panel_flag = wx.EXPAND if wx.Platform == '__WXMAC__' else wx.ALIGN_CENTER
+        panel_flag = wx.EXPAND
         sizer.Add(self.downEdit, proportion=100, flag=panel_flag|wx.ALL, border=self.FromDIP(5))
         # sizer.Add(btnSizer, proportion=1, flag=wx.ALIGN_CENTER|wx.TOP|wx.BOTTOM, border=5)
-        sizer.Add(self.downPath, proportion=1, flag=panel_flag|wx.ALL, border=self.FromDIP(5))
+        sizer.Add(self.downPath, proportion=0, flag=panel_flag|wx.ALL, border=self.FromDIP(5))
  
         self.SetSizer(sizer)
         # self.SetSize(width=728, height=450)
@@ -51,7 +52,8 @@ class DownloadDialogMU(wx.Dialog):
 
         try:
             downPath = self.downPath.GetDownPath()
-            self.tasks.create_m3u8(downPath, baseUri, content, basePath)
+            self.tasks.create_m3u8(downPath, baseUri, content, basePath,
+                                   filename=self.downPath.GetFileName())
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f"下载任务创建失败：{error}", "提示", wx.ICON_WARNING, parent=self)
             return

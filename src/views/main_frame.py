@@ -335,7 +335,7 @@ class MainFrame(wx.Frame):
             event.Skip()
             return
         keys = self.model.ParseKey(self.model.ItemToObject(item))
-        if len(keys) != 1 or not self.model.IsContainer(item):
+        if not self.model.IsContainer(item):
             event.Skip()
             return
         cell = self.mcTree.GetItemRect(item, column)
@@ -346,7 +346,7 @@ class MainFrame(wx.Frame):
         self._disclosureClick = True
         self.mcTree.SetFocus()
         self.mcTree.Select(item)
-        self.OnTaskAction(item, 'toggle')
+        self._SetTaskExpanded(item)
         event.Skip(False)
 
     def OnTaskListClick(self, event):
@@ -595,6 +595,9 @@ class MainFrame(wx.Frame):
             root = self.model.ObjectToItem(self.model._BuildKey((index,)))
             if self.mcTree.IsExpanded(root):
                 for child_index in range(len(task.outputs) + len(task.childs)):
+                    folder = self.model.ObjectToItem(self.model._BuildKey((index, -1)))
+                    if child_index >= len(task.outputs) and not self.mcTree.IsExpanded(folder):
+                        continue
                     key = (task.parent.fileName, child_index)
                     child_status = self.model.ChildStatus(index, child_index, snapshot)
                     child_display[key] = child_status
@@ -815,8 +818,7 @@ class MainFrame(wx.Frame):
                 if self.mcTree.IsExpanded(child):
                     obj = self.model.ItemToObject(child)
                     expandeds.add(obj)
-            else:
-                self._SaveExpandState(child, expandeds)
+                    self._SaveExpandState(child, expandeds)
             child, cookie = self.model.GetNextChild(parent, cookie)
 
     def _RestoreExpandState(self, parent, expandeds):
@@ -827,8 +829,7 @@ class MainFrame(wx.Frame):
                 obj = self.model.ItemToObject(child)
                 if obj in expandeds:
                     self._SetTaskExpanded(child, True)
-            else:
-                self._RestoreExpandState(child, expandeds)
+                    self._RestoreExpandState(child, expandeds)
             child, cookie = self.model.GetNextChild(parent, cookie)
 
 
@@ -892,7 +893,9 @@ class MainFrame(wx.Frame):
                 if index is None:
                     continue
                 current = self.model.fileTree.items[index]
-                structure_changed = structure_changed or (previous is not None and len(previous.outputs) != len(current.outputs))
+                structure_changed = structure_changed or (previous is not None and (
+                    len(previous.outputs) != len(current.outputs)
+                    or previous.manifests.keys() != current.manifests.keys()))
                 if record.type == TaskType.M3U8:
                     # 只刷新变化的分片，不因每次状态变化重绘整棵树。
                     for offset, child in enumerate(current.childs):
@@ -1010,7 +1013,9 @@ class MainFrame(wx.Frame):
         self._ShowInformation('使用帮助', (
             '1. 添加任务\n'
             '通过“文件 → 下载M3U8”输入播放列表网址，或通过“下载TS”按分片命名规则创建任务。\n\n'
-            '通过“文件 → 下载 MP4”（Ctrl+P）添加视频直链，填写任务子目录后开始下载。\n\n'
+            '通过“文件 → 下载 MP4”（Ctrl+P）添加视频直链。三个下载窗口均可选择保存目录和文件名，'
+            '默认使用设置中的下载目录，文件名自动生成、可修改，重名自动追加序号。\n'
+            'MP4 直接保存在所选目录；M3U8、TS 的分片放入同名子目录，合并后的 MP4 位于外层保存目录。\n\n'
             '筛选区域可按文件名、路径和任务状态筛选；关键词也匹配任务下的 MP4 和分片。'
             '清空关键词并选择“全部状态”恢复全部任务。隐藏任务仍继续下载。\n\n'
             '2. 下载与合并\n'
@@ -1114,13 +1119,19 @@ class MainFrame(wx.Frame):
             return
         # 删除或新增记录会改变行号，先按任务身份保存展开状态，再映射到新行。
         expanded_ids = set()
+        expanded_folders = set()
         for index, task in enumerate(self.model.fileTree.items):
             item = self.model.ObjectToItem(self.model._BuildKey((index,)))
             if self.mcTree.IsExpanded(item):
                 expanded_ids.add(task.task_id or task.parent.fileName)
+                folder = self.model.ObjectToItem(self.model._BuildKey((index, -1)))
+                if task.childs and self.mcTree.IsExpanded(folder):
+                    expanded_folders.add(task.task_id or task.parent.fileName)
         self.model.fileTree = tree
         expanded = {self.model._BuildKey((index,)) for index, task in enumerate(tree.items)
                     if (task.task_id or task.parent.fileName) in expanded_ids}
+        expanded.update(self.model._BuildKey((index, -1)) for index, task in enumerate(tree.items)
+                        if (task.task_id or task.parent.fileName) in expanded_folders)
         self._ApplyTaskFilter(force=True, expanded_keys=expanded)
 
     def OnActivatedChanged(self, event):
@@ -1135,6 +1146,10 @@ class MainFrame(wx.Frame):
         objs = self.model.ParseKey(keys)
         if len(objs) == 1:
             self.OnTaskAction(item, 'toggle')
+        elif self.model.IsContainer(item):
+            self._SetTaskExpanded(item)
+        elif len(objs) == 2 and objs[1] in self.model.fileTree.items[objs[0]].manifests:
+            self._OpenLocalPath(self.model.fileTree.items[objs[0]].manifests[objs[1]].fileName)
 
     # 窗口把点击位置转换为稳定的任务 UUID；执行规则由 TaskRunner 重新核对。
     def _SetTaskExpanded(self, item, expanded=None):

@@ -54,7 +54,8 @@ class TaskRunner:
             raise ValueError('此任务类型尚不支持下载。')
         with self._lock:
             merging = task_id in self._merging
-        if merging or FFmpegConverter.IsConverting(str(task.save_dir / 'output.mp4')):
+        output = task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged')
+        if merging or FFmpegConverter.IsConverting(str(output)):
             raise ValueError('任务正在合并，请稍后操作。')
         # 已完成分片的时长检测可与剩余分片下载并行；服务会校验文件身份再保存时长。
         selected = None if sequences is None else set(sequences)
@@ -139,7 +140,7 @@ class TaskRunner:
         task = self._task(task_id)
         if isinstance(task, M3U8Task):
             return bool(self._keys(task) & M3U8Downloader.Snapshot()['pending']) or FFmpegConverter.IsConverting(
-                str(task.save_dir / 'output.mp4'))
+                str(task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged')))
         return task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING,
                                TaskStatus.RECORDING, TaskStatus.STOPPING)
 
@@ -213,12 +214,12 @@ class TaskRunner:
                 raise ValueError('只有 M3U8 分片任务可以合并。')
             if self.busy(task_id):
                 raise ValueError('任务仍在下载、检测或合并中，请稍后操作。')
-            output = task.save_dir / 'output.mp4'
+            output = task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged')
             if output.exists():
                 raise ValueError('视频文件已经存在。')
             seed = self.write_playlist(task_id)
-            playlist = task.save_dir / 'playlist.txt'
-            if not FFmpegConverter.ConcatPlaylist(str(seed), str(task.save_dir), str(playlist)):
+            playlist = seed.parent / 'playlist.txt'
+            if not FFmpegConverter.ConcatPlaylist(str(seed), str(seed.parent), str(playlist)):
                 raise ValueError('播放列表无效，无法生成合并清单。')
             try:
                 record = self.tasks.begin_merge(task_id)

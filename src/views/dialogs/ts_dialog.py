@@ -20,6 +20,7 @@ class DownloadDialogTS(wx.Dialog):
         self.downPath = DownloadPath(self, workPath)
         self.downEdit.Bind(wx.EVT_BUTTON, self.OnEditBtnClicked)
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
+        self.downEdit.tcURI.Bind(wx.EVT_TEXT, self.downPath.OnSourceChanged)
 
         # 两块之间只保留保存目录行的顶部边距，避免多层底部边距叠加。
         border = self.FromDIP(5)
@@ -57,6 +58,7 @@ class DownloadDialogTS(wx.Dialog):
             downPath = self.downPath.GetDownPath()
             self.tasks.create_m3u8(downPath, baseUri, content, basePath,
                                    source_type=SourceType.TS_PATTERN,
+                                   filename=self.downPath.GetFileName(),
                                    ts_pattern=self.downEdit.tcReg.GetValue().strip() or None,
                                    detect_duration=detect_duration,
                                    request_headers=self.downEdit.GetRequestHeaders())

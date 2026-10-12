@@ -149,7 +149,7 @@ class TaskRuntimeTests(unittest.TestCase):
         finally:
             dialog.Destroy()
         self.assertEqual({record.save_dir for record in self.repository.list_tasks()},
-                         {task.save_dir, new_default / 'new-task'})
+                         {task.save_dir, new_default})
 
     def test_switch_default_while_merging_preserves_output_and_folder_actions(self):
         task = self.create()
@@ -164,7 +164,7 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertTrue(FFmpegConverter.IsBusy())
         new_default = self.root / 'new-default'
         self.save_default_directory(frame, new_default)
-        self.assertEqual(output, task.save_dir / 'output.mp4')
+        self.assertEqual(output, task.save_dir / task.outputs[0].relative_path)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.MERGING)
         output.write_bytes(b'video')
         frame.runner._merge_finished(True, str(output), task.id)
@@ -238,7 +238,7 @@ class TaskRuntimeTests(unittest.TestCase):
         for task, status in zip(tasks, (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.MERGING, TaskStatus.PAUSED)):
             self.service.runtime_status(task.id, status)
         self.write_segment(tasks[0], 0)  # 文件已写完，但退出前尚未来得及保存回调。
-        partial = tasks[2].save_dir / 'output.mp4.part.mp4'
+        partial = tasks[2].save_dir / (tasks[2].outputs[0].relative_path + '.part.mp4')
         partial.write_bytes(b'incomplete')
         with patch.object(M3U8Downloader, 'DownloadTSFile') as download:
             tree = load_tree(TaskService(TaskRepository(self.repository.path)))
@@ -436,7 +436,7 @@ class TaskRuntimeTests(unittest.TestCase):
             frame._DurationChecked(task.id, record, None)
             event.assert_called_once()
             self.assertEqual(frame.model.TaskInfo(0)['status'], '待合并')
-            self.assertIn('#EXTINF:3.5,', (task.save_dir / 'download.m3u8').read_text())
+            self.assertIn('#EXTINF:3.5,', (task.save_dir / task.details.playlist_path).read_text())
 
     def test_restored_task_passes_saved_headers_to_segment_queue(self):
         task = self.create(count=1)
@@ -501,14 +501,16 @@ class TaskRuntimeTests(unittest.TestCase):
         record = self.service.runtime_status(task.id, TaskStatus.QUEUED)
         with patch('src.models.tree_model._file', wraps=tree_model._file) as read_file:
             frame.model.ApplyTaskRecord(record)
-        self.assertEqual(read_file.call_count, 1)  # 只更新任务清单的显示信息，不再检查全部 20 个分片。
+        # 任务行和清单子行可以更新文件信息，未变化的 20 个分片不能重新扫描。
+        segment_paths = {task.save_dir / segment.relative_path for segment in task.details.segments}
+        self.assertTrue(segment_paths.isdisjoint(call.args[0] for call in read_file.call_args_list))
 
     def test_merge_result_and_failure_survive_restart(self):
         task = self.create()
         for index in range(2):
             self.write_segment(task, index)
         self.service.begin_merge(task.id)
-        output = task.save_dir / 'output.mp4'
+        output = task.save_dir / task.outputs[0].relative_path
         self.service.finish_merge(task.id, str(output), False)
         failed = load_tree(TaskService(TaskRepository(self.repository.path))).items[0]
         self.assertEqual(failed.task_status, TaskStatus.FAILED)

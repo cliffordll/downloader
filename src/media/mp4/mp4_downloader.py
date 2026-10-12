@@ -9,6 +9,7 @@ import time
 import requests
 
 from src.core.sys_setting import SysSetting
+from src.core.path_manager import PathManager
 from src.media.downloader import Downloader
 from src.schemas.task import MP4Task, TaskProgress, TaskStatus, FileStatus
 
@@ -245,7 +246,7 @@ class MP4Downloader:
                     self._write(task_id, lambda current: setattr(current.details, 'verified_bytes', done))
                     if target.exists():
                         raise ValueError('目标文件已存在，已保留下载临时文件，请核对后重试。')
-                    os.rename(path, target)
+                    PathManager.PublishFile(path, target)
                     def completed(current):
                         current.status, current.last_error = TaskStatus.COMPLETED, None
                         current.progress = TaskProgress(downloaded_bytes=done, total_bytes=done)

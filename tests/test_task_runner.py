@@ -206,7 +206,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_merge_success_saves_result_in_background_without_gui(self):
         task = self.m3u8(count=1)
         self.complete_segments(task)
-        output = task.save_dir / 'output.mp4'
+        output = task.save_dir / task.outputs[0].relative_path
         threads = []
         original = self.service.finish_merge
 
@@ -250,7 +250,7 @@ class TaskRunnerTests(unittest.TestCase):
             self.runner.merge(task.id)
         self.runner.shutdown()
         self.assertEqual(self.repo.get(task.id).status, TaskStatus.INTERRUPTED)
-        output = task.save_dir / 'output.mp4'
+        output = task.save_dir / task.outputs[0].relative_path
         output.write_bytes(b'finished-after-close')
         callback = convert.call_args.args[2]
         callback(True, str(output), task.id)

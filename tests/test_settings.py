@@ -417,7 +417,8 @@ class DownloadSettingsTests(unittest.TestCase):
         process.wait.return_value = 0
         with patch.object(SysSetting, 'GetFFmpeg', return_value='custom-ffmpeg'), \
              patch('subprocess.Popen', return_value=process) as popen, \
-             patch('os.path.isfile', return_value=True), patch('os.replace') as replace, patch('wx.CallAfter') as deliver:
+             patch('os.path.isfile', return_value=True), \
+             patch('src.media.m3u8.ffmpeg_converter.PathManager.PublishFile') as replace, patch('wx.CallAfter') as deliver:
             callback = Mock()
             FFmpegConverter._ConvertTSFile('playlist.txt', 'out.mp4', callback)
         self.assertEqual(popen.call_args.args[0][0], 'custom-ffmpeg')

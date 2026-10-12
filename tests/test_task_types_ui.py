@@ -13,8 +13,8 @@ import wx
 
 from src.storage.task_repository import TaskRepository
 from src.core.task_service import TaskService
-from src.models.tree_model import MultiColumnTreeModel
-from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskProgress, TaskStatus
+from src.models.tree_model import MultiColumnTreeModel, to_tree_item
+from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskProgress, TaskStatus, FileStatus
 from src.views.main_frame import MainFrame, TaskActionRenderer, TaskProgressRenderer
 
 
@@ -52,10 +52,33 @@ class TaskTypesUITests(unittest.TestCase):
             item = model.ObjectToItem(model._BuildKey((index,)))
             self.assertEqual(model.IsContainer(item), expected)
             children = []
-            self.assertEqual(model.GetChildren(item, children), 1 if expected else 0)
+            self.assertEqual(model.GetChildren(item, children), (2, 1, 0)[index])
         self.assertEqual(model.TaskInfo(1)['progress'], '50% · 1.0 KB / 2.0 KB')
         self.assertEqual(model.TaskInfo(2)['progress'], '01:01:01 · 1.0 KB')
         self.assertIsNone(model.TaskInfo(2)['percent'])
+
+    def test_manifests_and_output_appear_only_when_created(self):
+        task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/mixed.m3u8',
+                                       '#EXTM3U\n#EXTINF:4,\na.ts\n')
+        row = to_tree_item(task)
+        self.assertEqual([file.displayName for file in row.manifests.values()], ['download.m3u8'])
+        self.assertEqual(row.outputs, [])
+        self.assertEqual(row.childs[0].displayName, '000000.ts')
+        playlist = task.save_dir / task.details.playlist_path
+        concat = playlist.parent / 'playlist.txt'
+        concat.write_text('concat', encoding='utf-8')
+        output = task.save_dir / task.outputs[0].relative_path
+        output.write_bytes(b'video')
+        task.outputs[0].status = FileStatus.COMPLETED
+        row = to_tree_item(task, previous=row)
+        self.assertEqual([file.displayName for file in row.manifests.values()],
+                         ['download.m3u8', 'playlist.txt'])
+        self.assertEqual([file.displayName for file in row.outputs], ['mixed.mp4'])
+        self.assertEqual(len(row.childs), 1)
+        self.assertEqual(row.download, 0)
+        concat.unlink()
+        row = to_tree_item(task, previous=row)
+        self.assertNotIn(-3, row.manifests)
 
     def test_unknown_size_and_renderer_do_not_invent_percent(self):
         self.mp4(progress=TaskProgress(downloaded_bytes=1234))

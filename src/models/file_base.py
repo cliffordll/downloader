@@ -42,12 +42,14 @@ class TreeItem(BaseModel):
     duration_pending: bool = False
     task_type: TaskType = TaskType.M3U8
     save_dir: Optional[Path] = None
+    output_path: Optional[Path] = None
     progress: TaskProgress = Field(default_factory=TaskProgress)
     task_id: Optional[UUID] = None  # 数据库身份，不使用行号作为持久化标识。
     task_status: Optional[TaskStatus] = None
     last_error: Optional[str] = None
     parent: Optional[FileItem]  = None
     outputs: List[FileItem]     = []    # 输出文件，mp4，支持多个
+    manifests: dict[int, FileItem] = Field(default_factory=dict)  # 清单独立展示，不计入分片进度。
     childs: List[FileItem]      = []
     # total: int                  = 0     # 总TS个数
     download: int               = 0     # 已下载TS个数

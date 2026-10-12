@@ -38,7 +38,7 @@ class PlaylistFetchTests(unittest.TestCase):
                 self.panel.OnBtnM3U8Clicked(Mock())
                 self.assertTrue(started.wait(2))
                 self.assertFalse(self.panel.fetchButton.IsEnabled())
-                self.assertEqual(self.dialog.downPath.tcDown.GetValue(), '')
+                self.assertTrue(self.dialog.downPath.tcDown.GetValue().startswith('video_'))
                 self.panel.OnBtnM3U8Clicked(Mock())
                 request.assert_called_once()
             finally:
@@ -49,7 +49,7 @@ class PlaylistFetchTests(unittest.TestCase):
         self.assertEqual(on_main_thread, [False])
         self.assertTrue(self.panel.fetchButton.IsEnabled())
         self.assertTrue(self.panel.tsList.GetValue().startswith('#EXTM3U'))
-        self.assertEqual(self.dialog.downPath.tcDown.GetValue(), 'media')
+        self.assertTrue(self.dialog.downPath.tcDown.GetValue().endswith('.mp4'))
 
     def test_error_and_changed_url_leave_existing_content_intact(self):
         self.panel.tsList.SetValue('existing')

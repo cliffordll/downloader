@@ -67,6 +67,8 @@ class TaskProgressTests(unittest.TestCase):
         try:
             root = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
             frame.mcTree.Expand(root)
+            folder = frame.model.ObjectToItem(frame.model._BuildKey((0, -1)))
+            frame.mcTree.Expand(folder)
             self.task.childs[0].fileSize = '-'
             first_key = M3U8Downloader.FileKey(PathManager.GetAbsPath('task/a.ts'))
             M3U8Downloader._pending.update({self.key, first_key})
@@ -82,6 +84,44 @@ class TaskProgressTests(unittest.TestCase):
             with patch.object(frame.model, 'ValueChanged') as changed:
                 frame.OnTaskProgress(None)
                 changed.assert_not_called()
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_task_expand_keeps_segments_collapsed_and_refresh_preserves_choice(self):
+        self.task.manifests[-2] = FileItem(fileName='task/download.m3u8', displayName='download.m3u8')
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            model = frame.model
+            root = model.ObjectToItem(model._BuildKey((0,)))
+            folder = model.ObjectToItem(model._BuildKey((0, -1)))
+            frame.OnTaskAction(root, 'toggle')
+            self.assertTrue(frame.mcTree.IsExpanded(root))
+            self.assertFalse(frame.mcTree.IsExpanded(folder))
+            children = []
+            model.GetChildren(root, children)
+            self.assertEqual([model.GetValue(item, 1) for item in children], ['download.m3u8', 'segments/'])
+            segments = []
+            model.GetChildren(folder, segments)
+            self.assertEqual(len(segments), 2)
+            self.assertTrue(all(model.GetParent(item) == folder for item in segments))
+            self.assertEqual(model.GetParent(folder), root)
+            self.assertEqual(model.GetValue(children[0], 4), '')
+            with patch.object(frame, '_DownloadFiles') as download:
+                frame.OnSegmentDownload(children[0])
+                frame.OnSegmentDownload(folder)
+                download.assert_not_called()
+                frame.OnSegmentDownload(segments[1])
+                download.assert_called_once()
+            self.assertEqual(model.TaskInfo(0)['progress'], '50% · 1/2')
+            frame._RefreshWithState()
+            self.assertFalse(frame.mcTree.IsExpanded(folder))
+            frame._SetTaskExpanded(folder, True)
+            frame._RefreshWithState()
+            self.assertTrue(frame.mcTree.IsExpanded(folder))
+            frame.OnRefresh(None)
+            self.assertTrue(frame.mcTree.IsExpanded(folder))
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
@@ -118,6 +158,7 @@ class TaskProgressTests(unittest.TestCase):
         self.task.childs[1].fileSize = '10 B'
         self.assertEqual(self.model.TaskInfo(0)['status'], '待合并')
         output = os.path.join(os.path.dirname(PathManager.GetAbsPath(self.task.parent.fileName)), 'output.mp4')
+        self.task.output_path = output
         FFmpegConverter._outputs.add(os.path.abspath(output))
         self.assertEqual(self.model.TaskInfo(0)['status'], '合并中')
         FFmpegConverter._outputs.clear()

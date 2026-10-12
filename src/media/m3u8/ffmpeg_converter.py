@@ -7,6 +7,7 @@ import os
 import subprocess
 
 from src.core.sys_setting import SysSetting
+from src.core.path_manager import PathManager
 from src.media.m3u8.m3u8_parser import M3U8Parser
 
 
@@ -74,6 +75,7 @@ class FFmpegConverter:
     @classmethod
     def _ConvertTSFile(cls, playlist, outputFile='output.mp4', callback=None, item=None):
         success = False
+        preserve_temporary = False
         # 正式文件只在 FFmpeg 成功退出后出现，重启时不会把半成品判为已完成。
         temporary = str(outputFile) + '.part.mp4'
         try:
@@ -90,14 +92,15 @@ class FFmpegConverter:
                 if line.startswith('out_time_ms='):
                     print(line.strip())
             if process.wait() == 0 and os.path.isfile(temporary):
+                preserve_temporary = True
                 if os.path.exists(outputFile):
                     raise FileExistsError('输出文件已存在。')
-                os.replace(temporary, outputFile)
+                PathManager.PublishFile(temporary, outputFile)
                 success = True
         except (OSError, subprocess.SubprocessError) as error:
             print(f'转换失败：{error}')
         finally:
-            if os.path.isfile(temporary):
+            if not preserve_temporary and os.path.isfile(temporary):
                 try:
                     os.unlink(temporary)
                 except OSError:

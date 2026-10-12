@@ -139,6 +139,18 @@ class TaskRepository:
             self._write_children(connection, task)
         return task
 
+    def create_allocated(self, build: Callable[[list[Task]], Task]) -> Task:
+        """在写事务内分配文件名并入库，避免多个创建入口同时占用同一路径。"""
+        with self._transaction(write=True) as connection:
+            existing = [self._read(connection, row)
+                        for row in connection.execute('SELECT * FROM tasks').fetchall()]
+            task = self._validated(build(existing))
+            placeholders = ','.join('?' for _ in _COLUMNS)
+            connection.execute(f"INSERT INTO tasks({','.join(_COLUMNS)}) VALUES ({placeholders})",
+                               self._values(task))
+            self._write_children(connection, task)
+        return task
+
     def update(self, task: Task) -> Task:
         """保存修改并返回新快照；下次更新必须使用返回值中的 updated_at。
 
