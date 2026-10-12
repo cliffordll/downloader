@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import textwrap
 from queue import Empty
 from pathlib import Path
 from threading import Thread
@@ -312,6 +313,15 @@ class MainFrame(wx.Frame):
         if self._manualActionClicks:
             self.mcTree.GetMainWindow().Bind(wx.EVT_LEFT_DOWN, self.OnTaskListMouseDown)
             self.mcTree.GetMainWindow().Bind(wx.EVT_LEFT_UP, self.OnTaskListClick)
+        self._taskTip = ''
+        self._taskTipWindow = None
+        self._taskTipDelay = None
+        # Windows 的表格正文可能是子窗口，Mac 则使用原生表格窗口。
+        for window in {self.mcTree, self.mcTree.GetMainWindow()}:
+            window.Bind(wx.EVT_MOTION, self.OnTaskHover)
+            for event_type in (wx.EVT_LEAVE_WINDOW, wx.EVT_MOUSEWHEEL, wx.EVT_SCROLLWIN,
+                               wx.EVT_LEFT_DOWN, wx.EVT_RIGHT_DOWN, wx.EVT_KILL_FOCUS):
+                window.Bind(event_type, self.ClearTaskToolTip)
         self.Bind(EVT_ALL_DOWNLOAD, self.OnAllTSDownload)
 
         sizer.Add(uriSizer, flag=wx.EXPAND, border=0)
@@ -324,6 +334,75 @@ class MainFrame(wx.Frame):
             frameSizer.Add(panel, proportion=1, flag=wx.EXPAND)
             self.SetSizer(frameSizer)
 
+
+    def ClearTaskToolTip(self, event=None):
+        delay = getattr(self, '_taskTipDelay', None)
+        if delay is not None:
+            delay.Stop()
+            self._taskTipDelay = None
+        popup = getattr(self, '_taskTipWindow', None)
+        if popup is not None:
+            popup.Hide()
+            popup.Destroy()
+            self._taskTipWindow = None
+        self._taskTip = ''
+        if event is not None:
+            event.Skip()
+
+    def _ShowTaskToolTip(self):
+        # 系统 ToolTip 会超时消失；使用普通浮窗，只在离开、滚动等事件中关闭。
+        self._taskTipDelay = None
+        if self._closing or not self._taskTip:
+            return
+        popup = wx.PopupWindow(self, wx.BORDER_SIMPLE)
+        colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_INFOBK)
+        popup.SetBackgroundColour(colour)
+        label = wx.StaticText(popup, label=self._taskTip)
+        label.SetBackgroundColour(colour)
+        label.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_INFOTEXT))
+        layout = wx.BoxSizer(wx.VERTICAL)
+        layout.Add(label, flag=wx.ALL, border=self.FromDIP(6))
+        popup.SetSizerAndFit(layout)
+        popup.Position(wx.GetMousePosition(), self.FromDIP(wx.Size(12, 20)))
+        self._taskTipWindow = popup
+        popup.Show()
+
+    def OnTaskHover(self, event):
+        event.Skip()
+        if self._closing:
+            return
+        source = event.GetEventObject()
+        pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
+        item, column = self.mcTree.HitTest(pos)
+        text = ''
+        if item.IsOk() and column is not None and not event.Dragging():
+            if column.GetModelColumn() != 4:
+                text = self.model.GetItemToolTip(item)
+            else:
+                value = self.model.GetValue(item, 4)
+                if value.startswith('['):
+                    actions = json.loads(value)
+                    cell = wx.Rect(self.mcTree.GetItemRect(item, column))
+                    if wx.Platform == '__WXMAC__':
+                        width = min(cell.width, self._actionRenderer.GetSize().width)
+                        cell.x += (cell.width - width) // 2
+                        cell.width = width
+                    for action, rect in zip(actions, self._actionRenderer._ActionRects(cell, len(actions))):
+                        if rect.Contains(pos):
+                            text = action['label'] + ('任务' if action['id'] != 'more' else '操作')
+                            if not action['enabled']:
+                                text += '（当前不可用）'
+                            break
+                elif value:
+                    text = '下载此分片'
+        # 长 URL 只在提示中折行；数据与“查看下载地址”的内容保持原样。
+        text = '\n'.join(textwrap.fill(line, width=90, replace_whitespace=False,
+                                       break_on_hyphens=False) for line in text.splitlines())
+        if text != self._taskTip:
+            self.ClearTaskToolTip()
+            if text:
+                self._taskTip = text
+                self._taskTipDelay = wx.CallLater(500, self._ShowTaskToolTip)
 
     def OnTaskListMouseDown(self, event):
         """Mac 行首箭头使用统一的程序展开路径。"""
@@ -542,6 +621,7 @@ class MainFrame(wx.Frame):
         if self._closing:
             return
         self._closing = True
+        self.ClearTaskToolTip()
         # Cocoa 的销毁通知晚于部分原生控件清理，必须在开始销毁前停表。
         for name in ('_progressTimer', '_searchTimer'):
             timer = getattr(self, name, None)
@@ -828,6 +908,7 @@ class MainFrame(wx.Frame):
             self.emptyPanel.Layout()
 
     def _ApplyTaskFilter(self, force=False, expanded_keys=None):
+        self.ClearTaskToolTip()
         """只筛选根任务，保持原始任务索引，避免筛选后暂停、删除或下载回调操作错行。"""
         text = self._filterText
         status = self.statusFilter.GetStringSelection()
@@ -1188,6 +1269,7 @@ class MainFrame(wx.Frame):
         self._RecursiveExpand(root, False)
 
     def OnRefresh(self, event):
+        self.ClearTaskToolTip()
         self.runner.reset_duration_failures()
         # 只从数据库恢复任务；读取失败保留当前列表，不退回扫描目录。
         try:
@@ -1251,6 +1333,7 @@ class MainFrame(wx.Frame):
         self._QueueRowNumbers()
 
     def _QueueRowNumbers(self, event=None):
+        self.ClearTaskToolTip()
         if event is not None:
             event.Skip()
         if self._closing or getattr(self, '_rowNumbersPending', False):

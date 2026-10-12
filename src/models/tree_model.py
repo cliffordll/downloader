@@ -319,6 +319,41 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         """自定义方法：例如将 '2.3' 还原为 (2, 3)，用于定位任务和子节点。"""
         return tuple(map(int, keyStr.split(".")))
 
+    def GetItemToolTip(self, item):
+        """从现有任务快照生成提示，不查询磁盘或网络。"""
+        if not item.IsOk():
+            return ''
+        keys = self.ParseKey(self.ItemToObject(item))
+        task = self.fileTree.items[keys[0]]
+        if len(keys) == 1:
+            lines = ['名称：' + (task.parent.displayName or Path(task.parent.fileName).name)]
+            if task.parent.absUri:
+                lines.append('来源地址：' + task.parent.absUri)
+            lines.append('保存目录：' + str(task.save_dir or Path(task.parent.fileName).parent))
+            return '\n'.join(lines)
+        key = keys[1]
+        if key in (-4, -1):
+            directory = task.work_dir or Path(task.parent.fileName).parent
+            if key == -1:
+                directory /= 'segments'
+            return '目录：' + str(directory)
+        if key in task.manifests:
+            file = task.manifests[key]
+            source_url = ''
+        elif 0 <= key < len(task.outputs) + len(task.childs):
+            if key < len(task.outputs):
+                file = task.outputs[key]
+                source_url = task.parent.absUri if task.task_type == TaskType.MP4 else ''
+            else:
+                file = task.childs[key - len(task.outputs)]
+                source_url = file.absUri
+        else:
+            return ''
+        lines = ['文件名：' + (file.displayName or Path(file.fileName).name), '本地路径：' + file.fileName]
+        if source_url:
+            lines.append('下载地址：' + source_url)
+        return '\n'.join(lines)
+
     def GetColumnCount(self):
         """重写：wx 查询模型列数，模型列编号与界面显示顺序不一定相同。
 

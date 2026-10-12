@@ -41,6 +41,45 @@ class TaskProgressTests(unittest.TestCase):
         self.addCleanup(self.model.DecRef)
         self.key = M3U8Downloader.FileKey(PathManager.GetAbsPath('task/b.ts'))
 
+    def test_hover_details_and_clear_without_disk_access(self):
+        from pathlib import Path
+        self.task.parent.absUri = 'https://example.com/index.m3u8?token=1'
+        self.task.childs[1].absUri = 'https://cdn.example.com/b.ts?token=2'
+        self.task.work_dir = Path('task')
+        self.task.manifests[-2] = FileItem(fileName='task/download.m3u8')
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            model = frame.model
+            root = model.ObjectToItem(model._BuildKey((0,)))
+            child = model.ObjectToItem(model._BuildKey((0, 1)))
+            folder = model.ObjectToItem(model._BuildKey((0, -1)))
+            playlist = model.ObjectToItem(model._BuildKey((0, -2)))
+            with patch.object(Path, 'stat', side_effect=AssertionError('tooltip must not check files')):
+                self.assertIn(self.task.parent.absUri, model.GetItemToolTip(root))
+                self.assertIn(self.task.childs[1].absUri, model.GetItemToolTip(child))
+                self.assertEqual(model.GetItemToolTip(folder), '目录：' + str(Path('task') / 'segments'))
+                self.assertNotIn('下载地址', model.GetItemToolTip(playlist))
+            source = frame.mcTree.GetMainWindow()
+            event = SimpleNamespace(Skip=Mock(), GetEventObject=lambda: source,
+                                    GetPosition=lambda: wx.Point(10, 10), Dragging=lambda: False)
+            with patch.object(frame.mcTree, 'HitTest', return_value=(child, frame.mcTree.GetColumn(1))), \
+                 patch('src.views.main_frame.wx.CallLater') as delay:
+                frame.OnTaskHover(event)
+                delay.assert_called_once_with(500, frame._ShowTaskToolTip)
+                frame._ShowTaskToolTip()
+                self.assertIsNotNone(frame._taskTipWindow)
+                self.assertIn(self.task.childs[1].absUri, frame._taskTipWindow.GetChildren()[0].GetLabel())
+                # 显示后不安排关闭定时器，重复悬停也不重建提示。
+                frame.OnTaskHover(event)
+                delay.assert_called_once()
+            frame.ClearTaskToolTip(event)
+            self.assertIsNone(frame._taskTipWindow)
+            self.assertEqual(frame._taskTip, '')
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_segment_rows_show_only_their_own_status(self):
         complete = self.model.ObjectToItem(self.model._BuildKey((0, 0)))
         pending = self.model.ObjectToItem(self.model._BuildKey((0, 1)))
