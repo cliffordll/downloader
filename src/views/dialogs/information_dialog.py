@@ -2,18 +2,25 @@
 import wx
 
 from src.views.components.icons import app_icons
+from src.views.components.playlist_editor import PlaylistEditor
 
 
 class InformationDialog(wx.Dialog):
-    def __init__(self, parent, title, text, *, usage=False):
+    def __init__(self, parent, title, text, *, usage=False, line_numbers=False):
         super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.SetIcons(app_icons())
         spacing = self.FromDIP(5)
         layout = wx.BoxSizer(wx.VERTICAL)
-        self.body = wx.TextCtrl(self, value=text,
-                                style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_LEFT
-                                | wx.TE_RICH2 | wx.TE_NO_VSCROLL)
-        self.body.SetInsertionPoint(0)
+        if line_numbers:
+            self.body = PlaylistEditor(self)
+            self.body.SetText(text)
+            self.body.SetReadOnly(True)
+            self.body.GotoPos(0)
+        else:
+            self.body = wx.TextCtrl(self, value=text,
+                                    style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_LEFT
+                                    | wx.TE_RICH2)
+            self.body.SetInsertionPoint(0)
         layout.Add(self.body, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
                    border=spacing)
         # 原生标准按钮 sizer 会额外插入平台留白，单按钮采用紧凑布局。

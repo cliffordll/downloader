@@ -273,10 +273,17 @@ class TaskProgressTests(unittest.TestCase):
 
 
             M3U8Downloader._pending.add(self.key)
-            with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect_menu):
+            with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect_menu) as popup:
                 frame.OnTaskMenu(item)
-                child = frame.model.ObjectToItem(frame.model._BuildKey((0, 0)))
-                frame.OnTaskMenu(child)
+                popup.assert_called_once()
+            for key in (-4, -1):
+                folder = frame.model.ObjectToItem(frame.model._BuildKey((0, key)))
+                def inspect_folder_menu(menu):
+                    self.assertEqual([entry.GetItemLabelText() for entry in menu.GetMenuItems()],
+                                     ['打开文件夹'])
+                with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect_folder_menu) as popup:
+                    frame.OnTaskMenu(folder)
+                    popup.assert_called_once()
             M3U8Downloader._pending.clear()
             with patch.object(frame.runner, 'busy', return_value=False), \
                  patch.object(frame.tasks.repository, 'delete') as delete, \
@@ -286,6 +293,49 @@ class TaskProgressTests(unittest.TestCase):
                 delete.assert_not_called()
                 dialog.return_value.Destroy.assert_called_once()
                 self.assertTrue(dialog.call_args.args[3] & wx.NO_DEFAULT)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_file_context_menus_and_selected_segment_download(self):
+        from src.schemas.task import TaskType, TaskStatus
+        self.task.manifests[-2] = FileItem(fileName='task/download.m3u8')
+        self.task.outputs = [FileItem(fileName='task/output.mp4', fileSize=10)]
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            cases = [(-2, ['打开', '查看内容', '打开所在文件夹']),
+                     (0, ['打开', '打开所在文件夹', '另存为…']),
+                     (1, ['打开', '打开所在文件夹', '另存为…']), (2, ['下载'])]
+            for key, labels in cases:
+                item = frame.model.ObjectToItem(frame.model._BuildKey((0, key)))
+                def inspect(menu):
+                    self.assertEqual([entry.GetItemLabelText() for entry in menu.GetMenuItems()], labels)
+                    if key == 2:
+                        event = wx.CommandEvent(wx.EVT_MENU.typeId, menu.GetMenuItems()[0].GetId())
+                        menu.ProcessEvent(event)
+                with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect), \
+                     patch.object(frame, '_DownloadFiles') as download:
+                    frame.OnTaskMenu(item)
+                    if key == 2:
+                        download.assert_called_once_with(self.task.parent.fileName, [(1, item)])
+            self.task.task_type = TaskType.MP4
+            self.task.task_status = TaskStatus.DOWNLOADING
+            self.task.outputs[0].fileName = 'task/video.mp4.part'
+            item = frame.model.ObjectToItem(frame.model._BuildKey((0, 0)))
+            def inspect_partial(menu):
+                self.assertEqual([entry.GetItemLabelText() for entry in menu.GetMenuItems()], ['打开所在文件夹'])
+            with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect_partial):
+                frame.OnTaskMenu(item)
+            with patch('src.views.main_frame.Path.read_text', return_value='#EXTM3U\nsegments/000000.ts') as read, \
+                 patch.object(frame, '_ShowInformation') as show:
+                frame._ViewPlaylist('task/download.m3u8')
+                read.assert_called_once_with(encoding='utf-8-sig')
+                show.assert_called_once_with('查看内容：download.m3u8', '#EXTM3U\nsegments/000000.ts', line_numbers=True)
+            with patch('src.views.main_frame.Path.read_text', side_effect=FileNotFoundError), \
+                 patch('src.views.main_frame.wx.MessageBox') as message:
+                frame._ViewPlaylist('task/download.m3u8')
+                message.assert_called_once()
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()

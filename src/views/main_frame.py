@@ -648,6 +648,15 @@ class MainFrame(wx.Frame):
         if errors:
             wx.MessageBox(errors[0], '另存为失败', wx.OK | wx.ICON_ERROR, self)
 
+    def _ViewPlaylist(self, path):
+        path = Path(path)
+        try:
+            text = path.read_text(encoding='utf-8-sig')
+        except (OSError, UnicodeError) as error:
+            wx.MessageBox(f'无法读取播放列表：{error}', '查看内容失败', parent=self)
+            return
+        self._ShowInformation('查看内容：' + path.name, text, line_numbers=True)
+
     def _CheckAndContinue(self, task_id):
         """已完成任务也可显式检查并补下载，不在展示时检查磁盘。"""
         try:
@@ -660,7 +669,10 @@ class MainFrame(wx.Frame):
     def OnTaskMenu(self, item):
         if not item.IsOk():
             return
-        index = self.model.ParseKey(self.model.ItemToObject(item))[0]
+        keys = self.model.ParseKey(self.model.ItemToObject(item))
+        if len(keys) not in (1, 2):
+            return
+        index = keys[0]
         task = self.model.fileTree.items[index]
         directory = task.save_dir or Path(PathManager.GetAbsPath(task.parent.fileName)).parent
         menu = wx.Menu()
@@ -669,6 +681,50 @@ class MainFrame(wx.Frame):
             entry = menu.Append(wx.ID_ANY, label)
             entry.Enable(enabled)
             menu.Bind(wx.EVT_MENU, lambda event: callback(), entry)
+
+        # keys=[任务索引] 表示任务；[任务索引, 节点键] 表示该任务的文件或目录。
+        # 节点键不表示目录深度；工作目录里的分片也使用两个元素的 keys。
+        if len(keys) == 2:
+            key = keys[1]
+            # 负数是特殊节点：-4 为工作目录，-1 为 segments 分片目录。
+            if key in (-4, -1):
+                directory = task.work_dir or Path(task.parent.fileName).parent
+                if key == -1:
+                    directory = directory / 'segments'
+                add('打开文件夹', lambda: self._OpenLocalPath(directory))
+            elif key in task.manifests:
+                # 清单节点单独登记在 manifests 中，当前 -2 对应 download.m3u8。
+                path = Path(task.manifests[key].fileName)
+                add('打开', lambda: self._OpenLocalPath(path))
+                add('查看内容', lambda: self._ViewPlaylist(path))
+                add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
+            elif 0 <= key < len(task.outputs) + len(task.childs):
+                # 非负键先排列 outputs（成品或 .part），再排列 childs（TS 分片）。
+                # 减去输出数量后，负数表示输出文件，非负数才是分片列表的索引。
+                # 例如有 1 个输出：key=0 是输出，key=1 是第 0 个分片。
+                segment_index = key - len(task.outputs)
+                file = task.outputs[key] if segment_index < 0 else task.childs[segment_index]
+                path = Path(file.fileName)
+                # 未完成的直链 MP4 输出行代表 .part，只允许打开所在目录。
+                partial = segment_index < 0 and task.task_type == TaskType.MP4 and task.task_status != TaskStatus.COMPLETED
+                if segment_index >= 0 and file.fileSize == '-':
+                    # '-' 是展示模型的未完成分片标记；此处不访问磁盘检查文件。
+                    info = self.model.TaskInfo(index)
+                    add('下载', lambda: self._DownloadFiles(task.parent.fileName, [(segment_index, item)]),
+                        not info['merging'] and self.model.ChildStatus(index, key) not in ('下载中', '等待下载'))
+                else:
+                    if not partial:
+                        add('打开', lambda: self._OpenLocalPath(path))
+                    add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
+                    if not partial:
+                        add('另存为…', lambda: self._SaveFileAs(path))
+            try:
+                if menu.GetMenuItemCount():
+                    self.mcTree.PopupMenu(menu)
+            finally:
+                menu.Destroy()
+            # 文件/目录菜单处理完即返回，不再追加下面的任务菜单。
+            return
 
         info = self.model.TaskInfo(index)
         parent_item = self.model.ObjectToItem(self.model._BuildKey((index,)))
@@ -981,8 +1037,8 @@ class MainFrame(wx.Frame):
         self.statusBar.Show(self.showStatusItem.IsChecked())
         self.SendSizeEvent()
 
-    def _ShowInformation(self, title, text):
-        dlg = InformationDialog(self, title, text, usage=title == '使用帮助')
+    def _ShowInformation(self, title, text, *, line_numbers=False):
+        dlg = InformationDialog(self, title, text, usage=title == '使用帮助', line_numbers=line_numbers)
         try:
             dlg.ShowModal()
         finally:
@@ -1115,7 +1171,7 @@ class MainFrame(wx.Frame):
         self._ApplyTaskFilter(force=True, expanded_keys=expanded)
 
     def OnActivatedChanged(self, event):
-        """任务双击/键盘激活只展开或折叠，普通分片单元格激活不下载。"""
+        """双击/键盘激活展开目录，打开播放列表或已完成的视频。"""
         column = event.GetDataViewColumn()
         if column is not None and column.GetModelColumn() == 4:
             return  # The custom renderer handles action cells on a single click.
@@ -1128,6 +1184,13 @@ class MainFrame(wx.Frame):
             self._SetTaskExpanded(item)
         elif len(objs) == 2 and objs[1] in self.model.fileTree.items[objs[0]].manifests:
             self._OpenLocalPath(self.model.fileTree.items[objs[0]].manifests[objs[1]].fileName)
+        elif len(objs) == 2:
+            task = self.model.fileTree.items[objs[0]]
+            if 0 <= objs[1] < len(task.outputs):
+                output = task.outputs[objs[1]]
+                if Path(output.fileName).suffix.lower() == '.mp4' and (
+                        task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
+                    self._OpenLocalPath(output.fileName)
 
     # 窗口把点击位置转换为稳定的任务 UUID；执行规则由 TaskRunner 重新核对。
     def _SetTaskExpanded(self, item, expanded=None):
