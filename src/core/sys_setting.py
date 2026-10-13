@@ -23,6 +23,7 @@ class SysSetting:
         return {
             'download_dir': str(Path(__file__).resolve().parents[2] / 'downloads'),
             'max_workers': 3,
+            'max_tasks': 2,
             'request_interval': 0.5,
             'max_retries': 2,
             'connect_timeout': 10,
@@ -37,7 +38,8 @@ class SysSetting:
         result = cls.Defaults()
         result.update({k: v for k, v in values.items() if k in result})
         for key, label, lower, upper, integral in (
-            ('max_workers', '最大并发数', 1, 16, True),
+            ('max_tasks', '同时下载任务数', 1, 16, True),
+            ('max_workers', '每任务最大并发数', 1, 16, True),
             ('request_interval', '请求启动间隔', 0, 60, False),
             ('max_retries', '最大重试次数', 0, 10, True),
             ('connect_timeout', '连接超时', 1, 300, False),

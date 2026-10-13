@@ -21,7 +21,10 @@ class TabSetting(wx.Panel):
         row('download_dir', '默认下载目录', wx.DirPickerCtrl(self, message='选择默认下载文件夹', style=wx.DIRP_USE_TEXTCTRL))
         self.controls['download_dir'].GetPickerCtrl().SetLabel('选择文件夹')
         self.controls['download_dir'].SetToolTip('用于之后新建任务；已有任务仍保存到各自的原目录。')
-        row('max_workers', '最大并发数（1～16）', wx.SpinCtrl(self, min=1, max=16))
+        row('max_tasks', '同时下载任务数（1～16）', wx.SpinCtrl(self, min=1, max=16))
+        self.controls['max_tasks'].SetToolTip('M3U8、TS、MP4 共用任务名额，超出的任务按开始顺序排队。')
+        row('max_workers', '每任务最大并发数（1～16）', wx.SpinCtrl(self, min=1, max=16))
+        self.controls['max_workers'].SetToolTip('每个 M3U8/TS 任务同时下载的分片数；MP4 直链任务只使用一个连接。')
         row('request_interval', '请求启动间隔（秒）', wx.SpinCtrlDouble(self, min=0, max=60, inc=0.1))
         self.controls['request_interval'].SetDigits(1)
         row('max_retries', '失败后重试次数（0～10）', wx.SpinCtrl(self, min=0, max=10))
@@ -63,7 +66,7 @@ class TabSetting(wx.Panel):
         for key, control in self.controls.items():
             if key in ('download_dir', 'ffmpeg_path'):
                 control.SetPath(values[key])
-            elif key in ('max_workers', 'max_retries', 'connect_timeout', 'read_timeout'):
+            elif key in ('max_tasks', 'max_workers', 'max_retries', 'connect_timeout', 'read_timeout'):
                 control.SetValue(int(values[key]))
             else:
                 control.SetValue(values[key])

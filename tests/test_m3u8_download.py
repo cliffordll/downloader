@@ -118,6 +118,40 @@ class M3U8DownloadTests(unittest.TestCase):
         self.assertIn('503', saved.details.segments[0].last_error)
         self.assertEqual(list(task.save_dir.rglob('*.part')), [])
 
+    def test_tasks_have_independent_segment_limits_and_excess_task_stays_queued(self):
+        SysSetting._values.update(max_tasks=2, max_workers=2)
+        tasks = [self.create(3) for _ in range(3)]
+        gates = [threading.Event() for _ in tasks]
+        started = [0, 0, 0]
+        lock = threading.Lock()
+        original = Engine._SaveFile
+        paths = [{str(task.save_dir / segment.relative_path) for segment in task.details.segments}
+                 for task in tasks]
+
+        def download(uri, filename, headers=None):
+            index = next(i for i, group in enumerate(paths) if str(filename) in group)
+            with lock:
+                started[index] += 1
+            gates[index].wait(5)
+            return original(uri, filename, headers)
+
+        with patch.object(Engine, '_SaveFile', side_effect=download):
+            try:
+                for task in tasks:
+                    Engine.StartTask(self.service, task.id, range(3))
+                self.wait(lambda: started[:2] == [2, 2])
+                self.assertEqual(started[2], 0)
+                self.assertEqual(self.repository.get(tasks[2].id).status, TaskStatus.QUEUED)
+                gates[0].set()
+                self.wait(lambda: started[2] == 2)
+                self.assertEqual(started[1], 2)
+            finally:
+                for gate in gates:
+                    gate.set()
+                self.finish()
+        for task in tasks:
+            self.assertEqual(self.repository.get(task.id).status, TaskStatus.WAITING_MERGE)
+
     def test_truncated_stream_does_not_publish_incomplete_segment(self):
         task = self.create()
         self.server.mode = 'truncate'

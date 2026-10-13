@@ -1,4 +1,4 @@
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, CancelledError, wait
 import os
 from pathlib import Path
 from queue import Queue, SimpleQueue, Empty
@@ -36,6 +36,7 @@ class M3U8Downloader:
     """
     isStop = True  # 调度线程是否已退出，不等于用户是否点击了暂停。
     threadQueue = Queue()  # 待调度元组：(网址, 文件路径, 后台回调, 任务身份, 文件键)。
+    _scheduled = {}  # 文件键 → 统一任务调度器中的 Future。
     threadLock = threading.Lock()  # 保护队列调度相关状态与下方文件集合。
     _pending = set()  # 已接收且尚未保存结果的文件，用于防重复提交和判断忙碌。
     _requesting = set()  # 已获准发出请求、尚未结束的文件，用于区分暂停中/已暂停。
@@ -313,18 +314,11 @@ class M3U8Downloader:
 
     @classmethod
     def _DownLoadFile(cls, baseUrl, fileName, headers=None):
-        """TS 与 MP4 共用并发额度；实际文件写入由 _SaveFile 完成。"""
-        def check():
-            if cls._shutdown.is_set():
+        """由统一调度器分配额度；实际文件写入由 _SaveFile 完成。"""
+        with cls.threadLock:
+            if cls._shutdown.is_set() or cls.IsPaused() or cls.FileKey(fileName) in cls._paused_files:
                 raise _TaskPaused()
-            with cls.threadLock:
-                if cls.IsPaused() or cls.FileKey(fileName) in cls._paused_files:
-                    raise _TaskPaused()
-        Downloader.AcquireTransfer(check)
-        try:
-            return cls._SaveFile(baseUrl, fileName, headers)
-        finally:
-            Downloader.ReleaseTransfer()
+        return cls._SaveFile(baseUrl, fileName, headers)
 
     @classmethod
     def _SaveFile(cls, baseUrl, fileName, headers=None):
@@ -393,6 +387,12 @@ class M3U8Downloader:
             cls._errors.pop(key, None)
             # 请求头随分片快照入队；不同任务不共享 Session 或可变字典。
             task = (absUri, absFile, callback, item, key)
+            task_id = item[0] if isinstance(item, tuple) and len(item) == 2 else 'legacy-ts'
+            options = {'headers': dict(headers)} if headers else {}
+            cls._scheduled[key] = Downloader.Submit(
+                task_id, cls._DownLoadFile, absUri, absFile,
+                ready=lambda: not cls.IsPaused() and key not in cls._paused_files,
+                cancelled=cls._shutdown.is_set, **options)
             cls.threadQueue.put(task + (dict(headers),) if headers else task)
             if cls.isStop:
                 cls.isStop = False
@@ -427,60 +427,60 @@ class M3U8Downloader:
 
     @classmethod
     def _MasterThreadRun(cls):
-        """后台调度循环：按当前并发配置补足工作线程，收集结果后保存数据库，并发出变化通知。"""
+        """后台收集结果、保存数据库并通知变化；请求名额由统一调度器管理。"""
         # Future → 原始任务元组；只由调度线程维护，工作线程不直接修改。
         active = {}
-        # 线程池上限固定为设置允许的最大值；实际并发由调度器按最新配置限制。
-        # 降低并发时不会中断已有任务，等活动数量下降后再补充。
-        with ThreadPoolExecutor(max_workers=16) as pool:
-            while True:
-                # 已完成但尚未保存的结果必须先处理；暂停时不反复冲击出错的数据库。
-                if not cls.IsPaused() or cls._shutdown.is_set():
-                    for task, success in list(cls._unsaved.values()):
-                        cls._Deliver(task, success)
-                cls._SyncRuntime()
-                with cls.threadLock:
-                    if not cls._shutdown.is_set() and not cls.IsPaused():
-                        # 每轮最多扫描一次队列，跳过暂停任务，避免挡住其他任务或忙循环。
-                        remaining = cls.threadQueue.qsize()
-                        while len(active) < SysSetting.GetMaxWorkers() and remaining:
-                            remaining -= 1
-                            try:
-                                task = cls.threadQueue.get_nowait()
-                            except Empty:
-                                break
-                            if task[4] in cls._paused_files:
-                                cls.threadQueue.put(task)
-                                continue
-                            options = {'headers': task[5]} if len(task) > 5 else {}
-                            active[pool.submit(cls._DownLoadFile, task[0], task[1], **options)] = task
-                    if not active and ((cls.threadQueue.empty() and not cls._unsaved) or cls._shutdown.is_set()):
-                        cls.isStop = True
+        # 不再在本层创建线程池；所有网络请求由统一调度器按任务分配。
+        while True:
+            # 已完成但尚未保存的结果必须先处理；暂停时不反复冲击出错的数据库。
+            if not cls.IsPaused() or cls._shutdown.is_set():
+                for task, success in list(cls._unsaved.values()):
+                    cls._Deliver(task, success)
+            cls._SyncRuntime()
+            with cls.threadLock:
+                # 收集各请求的 Future；暂停/任务名额由统一调度器管理。
+                remaining = cls.threadQueue.qsize()
+                while remaining:
+                    remaining -= 1
+                    try:
+                        task = cls.threadQueue.get_nowait()
+                    except Empty:
                         break
-                if active:
-                    # 任意一个任务完成就处理并补位，不必等整批最慢的分片结束。
-                    done, _ = wait(active, timeout=0.1, return_when=FIRST_COMPLETED)
-                    for future in done:
-                        task = active.pop(future)
-                        try:
-                            success, _ = future.result()
-                        except _TaskPaused:
-                            # 已分配线程、尚未发请求时遇到暂停：重新入队，不记为失败。
-                            with cls.threadLock:
-                                if cls._shutdown.is_set():
-                                    cls._pending.discard(task[4])
-                                else:
-                                    cls.threadQueue.put(task)
-                            continue
-                        except Exception as exc:
-                            print(f'下载任务异常：{exc}')
-                            with cls.threadLock:
-                                cls._errors[task[4]] = str(exc)
-                            success = False
-                        # 保存和通知均在后台执行，不再通过 wx.CallAfter 写库。
-                        cls._Deliver(task, success)
-                else:
-                    cls._shutdown.wait(0.1)
+                    active[cls._scheduled.pop(task[4])] = task
+                if not active and ((cls.threadQueue.empty() and not cls._unsaved) or cls._shutdown.is_set()):
+                    cls.isStop = True
+                    break
+            if active:
+                # 任意一个任务完成就处理并补位，不必等整批最慢的分片结束。
+                done, _ = wait(active, timeout=0.1, return_when=FIRST_COMPLETED)
+                for future in done:
+                    task = active.pop(future)
+                    try:
+                        success, _ = future.result()
+                    except (_TaskPaused, CancelledError):
+                        # 已分配线程、尚未发请求时遇到暂停：重新入队，不记为失败。
+                        with cls.threadLock:
+                            if cls._shutdown.is_set():
+                                cls._pending.discard(task[4])
+                            else:
+                                task_id = task[3][0] if isinstance(task[3], tuple) and len(task[3]) == 2 else 'legacy-ts'
+                                key = task[4]
+                                options = {'headers': task[5]} if len(task) > 5 else {}
+                                cls._scheduled[key] = Downloader.Submit(
+                                    task_id, cls._DownLoadFile, task[0], task[1],
+                                    ready=lambda key=key: not cls.IsPaused() and key not in cls._paused_files,
+                                    cancelled=cls._shutdown.is_set, **options)
+                                cls.threadQueue.put(task)
+                        continue
+                    except Exception as exc:
+                        print(f'下载任务异常：{exc}')
+                        with cls.threadLock:
+                            cls._errors[task[4]] = str(exc)
+                        success = False
+                    # 保存和通知均在后台执行，不再通过 wx.CallAfter 写库。
+                    cls._Deliver(task, success)
+            else:
+                cls._shutdown.wait(0.1)
 
     @classmethod
     def Shutdown(cls):
@@ -492,6 +492,7 @@ class M3U8Downloader:
         cls._shutdown.set()
         with cls.threadLock:
             cls._paused_files.clear()
-            while not cls.threadQueue.empty():
-                task = cls.threadQueue.get_nowait()
-                cls._pending.discard(task[4])
+            # 队列里的 Future 可能已开始执行。只取消尚未开始的请求，
+            # 统一交给收集线程取结果，避免丢掉在途请求的落库通知。
+            for future in cls._scheduled.values():
+                future.cancel()

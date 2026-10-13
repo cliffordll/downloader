@@ -1,5 +1,5 @@
 """MP4 直链下载：后台流式写入、校验续传、限频持久化；不访问 wx 控件。"""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait
 import os
 from queue import SimpleQueue, Empty
 import re
@@ -21,7 +21,7 @@ class _Paused(Exception):
 class MP4Downloader:
     def __init__(self, repository):
         self.repository = repository
-        self._pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix='mp4-download')
+        self._futures = set()
         self._lock = threading.RLock()
         self._jobs = {}  # UUID → 暂停事件；直到后台关闭文件并保存最终状态才移除。
         self._closed = threading.Event()
@@ -62,7 +62,10 @@ class MP4Downloader:
             pause = threading.Event()
             self._jobs[task_id] = pause
             try:
-                self._pool.submit(self._run, task_id, pause)
+                future = Downloader.Submit(task_id, self._run, task_id, pause,
+                    cancelled=lambda: pause.is_set() or self._closed.is_set(), limit=1)
+                self._futures.add(future)
+                future.add_done_callback(lambda result: self._scheduled_finished(task_id, result))
             except Exception:
                 self._jobs.pop(task_id, None)
                 self._write(task_id, lambda task: setattr(task, 'status', TaskStatus.INTERRUPTED))
@@ -79,23 +82,30 @@ class MP4Downloader:
                         task.status = TaskStatus.PAUSING
                 self._write(task_id, pausing)
 
-    def shutdown(self):
+    def _scheduled_finished(self, task_id, future):
+        with self._lock:
+            if future.cancelled():
+                self._finish_state(task_id, TaskStatus.INTERRUPTED if self._closed.is_set() else TaskStatus.PAUSED)
+                self._jobs.pop(task_id, None)
+            self._futures.discard(future)
+        self._changes.put(task_id)
+
+    def shutdown(self, wait_for_jobs=False):
         self._closed.set()
         with self._lock:
             for pause in self._jobs.values():
                 pause.set()
-        # 工作线程会保存 INTERRUPTED；不在 GUI 线程等待网络超时。
-        self._pool.shutdown(wait=False)
+            futures = list(self._futures)
+        # 工作线程会保存 INTERRUPTED；默认不在 GUI 线程等待网络超时。
+        if wait_for_jobs:
+            wait(futures)
 
     def _check(self, pause):
         if pause.is_set() or self._closed.is_set():
             raise _Paused()
 
     def _run(self, task_id, pause):
-        acquired = False
         try:
-            Downloader.AcquireTransfer(lambda: self._check(pause))
-            acquired = True
             retries = SysSetting.GetAll()['max_retries']
             for attempt in range(retries + 1):
                 self._check(pause)
@@ -122,8 +132,6 @@ class MP4Downloader:
         finally:
             with self._lock:
                 self._jobs.pop(task_id, None)
-                if acquired:
-                    Downloader.ReleaseTransfer()
             self._changes.put(task_id)
 
     def _finish_state(self, task_id, status, error=None):

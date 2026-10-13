@@ -37,7 +37,7 @@ class TaskRunnerTests(unittest.TestCase):
         self.addCleanup(settings.stop)
         self.runner = TaskRunner(self.service)
         self.addCleanup(self.runner._duration_pool.shutdown, wait=True)
-        self.addCleanup(self.runner.mp4._pool.shutdown, wait=True)
+        self.addCleanup(self.runner.mp4.shutdown, wait_for_jobs=True)
         self.addCleanup(self.runner.shutdown)
 
     def m3u8(self, name='hls', count=3, detect=False):

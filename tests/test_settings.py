@@ -38,7 +38,7 @@ class SettingsTests(unittest.TestCase):
     def test_saved_values_survive_reload(self):
         executable = self.root / 'ffmpeg.exe'
         executable.touch()
-        values = self.values(max_workers=2, request_interval=0.7, max_retries=4,
+        values = self.values(max_tasks=4, max_workers=2, request_interval=0.7, max_retries=4,
                              connect_timeout=7, read_timeout=45, ffmpeg_path=str(executable), auto_merge=True,
                              default_expand_tasks=True)
         SysSetting.Save(values)
@@ -51,7 +51,8 @@ class SettingsTests(unittest.TestCase):
     def test_invalid_settings_do_not_change_saved_file(self):
         SysSetting.Save(self.values())
         before = self.config.read_bytes()
-        for changes in ({'max_workers': 0}, {'max_workers': 1.5}, {'max_workers': True},
+        for changes in ({'max_tasks': 0}, {'max_tasks': 17}, {'max_tasks': 1.5}, {'max_tasks': True},
+                        {'max_workers': 0}, {'max_workers': 1.5}, {'max_workers': True},
                         {'request_interval': float('nan')}, {'request_interval': -1},
                         {'max_retries': 11}, {'connect_timeout': 0}, {'read_timeout': 601},
                         {'download_dir': 'relative'}, {'ffmpeg_path': str(self.root / 'missing.exe')},
@@ -59,6 +60,14 @@ class SettingsTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 SysSetting.Save(self.values(**changes))
             self.assertEqual(self.config.read_bytes(), before)
+
+    def test_old_settings_preserve_workers_and_default_task_limit(self):
+        values = self.values(max_workers=5)
+        del values['max_tasks']
+        self.config.parent.mkdir(parents=True)
+        self.config.write_text(json.dumps(values), encoding='utf-8')
+        self.assertEqual(SysSetting.GetAll()['max_workers'], 5)
+        self.assertEqual(SysSetting.GetAll()['max_tasks'], 2)
 
     def test_failed_atomic_replace_preserves_previous_settings(self):
         SysSetting.Save(self.values())

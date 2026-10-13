@@ -91,7 +91,7 @@ class MP4DownloadTests(unittest.TestCase):
 
     def tearDown(self):
         self.engine.shutdown()
-        self.engine._pool.shutdown(wait=True)
+        self.engine.shutdown(wait_for_jobs=True)
         self.server.shutdown()
         self.server.server_close()
         self.thread.join()
@@ -194,7 +194,7 @@ class MP4DownloadTests(unittest.TestCase):
         self.assertEqual(record.progress.downloaded_bytes, path.stat().st_size)
         self.assertFalse((task.save_dir / task.details.target_path).exists())
         self.engine.shutdown()
-        self.engine._pool.shutdown(wait=True)
+        self.engine.shutdown(wait_for_jobs=True)
         self.engine = MP4Downloader(TaskRepository(self.repository.path))
         TaskService(self.repository).load_tasks()
         self.run_task(task)
@@ -250,8 +250,14 @@ class MP4DownloadTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), b'existing')
 
     def test_mp4_waits_for_shared_slot_and_queued_pause(self):
-        SysSetting._values['max_workers'] = 1
-        Downloader.AcquireTransfer(lambda: None)  # 模拟一个 TS 正占用全局额度。
+        SysSetting._values['max_tasks'] = 1
+        release = threading.Event()
+        started = threading.Event()
+        def occupy():
+            started.set()
+            release.wait(5)
+        future = Downloader.Submit('ts-task', occupy)
+        self.assertTrue(started.wait(2))
         try:
             task = self.create()
             self.engine.start(task.id)
@@ -261,6 +267,7 @@ class MP4DownloadTests(unittest.TestCase):
             self.wait(lambda: not self.engine.busy(task.id))
             self.assertEqual(self.repository.get(task.id).status, TaskStatus.PAUSED)
         finally:
-            Downloader.ReleaseTransfer()
+            release.set()
+            future.result(timeout=3)
         self.run_task(task)
         self.assert_complete(task)
