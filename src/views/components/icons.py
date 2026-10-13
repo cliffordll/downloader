@@ -11,6 +11,7 @@ ICON_FILES = {
     "playlist": "files/m3u8.png",
     "segment": "files/ts.png",
     "mp4": "files/mp4.png",
+    "browser": "tools/link.png",
     "expand": "tools/expand.png",
     "collapse": "tools/collapse.png",
     "refresh": "tools/refresh.png",

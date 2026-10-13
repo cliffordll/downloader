@@ -15,6 +15,7 @@ from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 from src.views.dialogs.information_dialog import InformationDialog
 from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
 from src.core.task_runner import TaskRunner
+from src.core.browser_bridge import BrowserBridge
 from src.core.file_export import save_file_as
 
 
@@ -35,6 +36,8 @@ class MainFrame(wx.Frame):
         # super(MyFrame, self).__init__(parent, title=title)
         super().__init__(parent, title=title)
         self._closing = False
+        self.browser_bridge = None
+        self._capture_dialog_open = False
         # 窗口、下载器和添加任务弹窗共享入口创建的服务，列表模型不持有业务服务。
         self.tasks = task_service
         self.SetSize(self.FromDIP((1024, 700)))
@@ -96,6 +99,8 @@ class MainFrame(wx.Frame):
         addMP4Item = fileMenu.Append(wx.ID_ANY, '下载 MP4\tCtrl-P')
         fileMenu.AppendSeparator()
         settingItem  = fileMenu.Append(wx.ID_ANY, "设置\tCtrl-,")
+        browserItem = fileMenu.Append(wx.ID_ANY, '连接浏览器扩展…')
+        self.Bind(wx.EVT_MENU, self.OnBrowserConnect, browserItem)
         exitItem    = fileMenu.Append(wx.ID_EXIT, "&退出")
         # 绑定事件
         self.Bind(wx.EVT_MENU, self.OnOpen, openItem)
@@ -171,6 +176,8 @@ class MainFrame(wx.Frame):
         muButton = add_tool(wx.ID_ANY, "下载 M3U8", "playlist")
         tsButton = add_tool(wx.ID_ANY, "下载 TS", "segment")
         mp4Button = add_tool(wx.ID_ANY, '下载 MP4', 'mp4')
+        browserButton = add_tool(wx.ID_ANY, '连接浏览器扩展', 'browser')
+        self.toolBar.SetToolShortHelp(browserButton.GetId(), '开启浏览器连接并复制配对码')
         self.toolBar.AddSeparator()
         expandButton = add_tool(wx.ID_ANY, "全部展开", "expand")
         collapseButton = add_tool(wx.ID_ANY, "全部折叠", "collapse")
@@ -191,6 +198,7 @@ class MainFrame(wx.Frame):
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddMU, muButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddTS, tsButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddMP4, mp4Button)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnBrowserConnect, browserButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnExpandAll, expandButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnCollapseAll, collapseButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnPauseDownloads, self._pauseTool)
@@ -621,6 +629,9 @@ class MainFrame(wx.Frame):
         if self._closing:
             return
         self._closing = True
+        if self.browser_bridge is not None:
+            self.browser_bridge.close()
+            self.browser_bridge = None
         self.ClearTaskToolTip()
         # Cocoa 的销毁通知晚于部分原生控件清理，必须在开始销毁前停表。
         for name in ('_progressTimer', '_searchTimer'):
@@ -650,6 +661,7 @@ class MainFrame(wx.Frame):
         if self._closing:
             return
         self._SyncDownloads()
+        self._CheckBrowserInbox()
         display = {}
         child_display = {}
         snapshot = M3U8Downloader.Snapshot()
@@ -1020,6 +1032,58 @@ class MainFrame(wx.Frame):
             # 创建新任务成功，自动刷新页面
             self.OnRefresh(None)
         dlg.Destroy()
+
+    def OnBrowserConnect(self, event):
+        if self.browser_bridge is None:
+            try:
+                self.browser_bridge = BrowserBridge()
+            except OSError as error:
+                wx.MessageBox(f'无法开启浏览器连接（端口 17839）：{error}', '连接失败', parent=self)
+                return
+        dialog = wx.TextEntryDialog(self, '复制以下配对码，粘贴到浏览器扩展。\n程序退出后失效，重启需要重新配对。',
+                                    '连接浏览器扩展', self.browser_bridge.token)
+        try:
+            # 默认弹窗按说明文字定宽；为完整配对码及输入框边距预留空间。
+            width = max(dialog.FromDIP(600),
+                        dialog.GetTextExtent(self.browser_bridge.token).width + dialog.FromDIP(80))
+            dialog.SetSize(wx.Size(width, dialog.GetSize().height))
+            dialog.Layout()
+            dialog.CenterOnParent()
+            dialog.ShowModal()
+        finally:
+            dialog.Destroy()
+
+    def _CheckBrowserInbox(self):
+        if self.browser_bridge is None or self._capture_dialog_open:
+            return
+        if any(isinstance(window, wx.Dialog) and window.IsModal() for window in wx.GetTopLevelWindows()):
+            return
+        try:
+            capture = self.browser_bridge.inbox.get_nowait()
+        except Empty:
+            return
+        self._capture_dialog_open = True
+        wx.CallAfter(self._OpenBrowserCapture, capture)
+
+    def _OpenBrowserCapture(self, capture):
+        if self._closing or not self or self.IsBeingDeleted():
+            return
+        dialog = None
+        try:
+            self.Iconize(False)
+            self.Raise()
+            if capture['type'] == 'm3u8':
+                dialog = DownloadDialogMU(self, '从浏览器添加 M3U8', SysSetting.GetWorkPath(), self.tasks, capture=capture)
+            else:
+                dialog = DownloadDialogMP4(self, SysSetting.GetWorkPath(), self.tasks, capture=capture)
+            if dialog.ShowModal() == wx.OK:
+                self.OnRefresh(None)
+                if capture['type'] == 'mp4':
+                    self._StartMP4(dialog.task_id)
+        finally:
+            if dialog is not None:
+                dialog.Destroy()
+            self._capture_dialog_open = False
 
     def OnAddTS(self, event):
         workPath = SysSetting.GetWorkPath()

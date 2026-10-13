@@ -42,6 +42,7 @@ class DownloadEditMU(wx.Panel):
         btnM3U8 = wx.Button(self, label="获取 M3U8")
         self.fetchButton = btnM3U8
         self._fetching = False
+        self.request_headers = {}
         btnSizer.AddStretchSpacer(prop=84)
         btnSizer.Add(btnM3U8, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=self.FromDIP(5))
 
@@ -137,10 +138,11 @@ class DownloadEditMU(wx.Panel):
         self._fetching = True
         self.fetchButton.Disable()
         self.fetchButton.SetLabel('获取中…')
+        headers = dict(self.request_headers)
         # 网络请求和限流等待放在后台；工作线程不访问 wx 控件。
         def fetch():
             try:
-                flag, content = M3U8Downloader.DownloadContent(m3u8Url)
+                flag, content = M3U8Downloader.DownloadContent(m3u8Url, **({'headers': headers} if headers else {}))
                 if flag and isinstance(content, bytes):
                     content = content.decode('utf-8-sig', errors='replace')
             except Exception as error:

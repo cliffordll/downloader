@@ -81,11 +81,12 @@ class TaskService:
                 path.rmdir()
             raise
 
-    def create_mp4(self, save_dir, source_url, *, filename=None):
+    def create_mp4(self, save_dir, source_url, *, filename=None, request_headers=None):
         """直链保存在所选目录；正式名称和 .part 名称在创建时确定。"""
         def build(directory, stem, target):
             return MP4Task(name=target, save_dir=directory, source_url=source_url.strip(),
-                           details=MP4Details(target_path=target, temporary_path=target + '.part'),
+                           details=MP4Details(target_path=target, temporary_path=target + '.part',
+                                              request_headers=request_headers or {}),
                            outputs=[TaskOutput(relative_path=target, kind='download')])
         return self._create_named(save_dir, filename, source_url, build)
 
