@@ -41,6 +41,23 @@ class TaskProgressTests(unittest.TestCase):
         self.addCleanup(self.model.DecRef)
         self.key = M3U8Downloader.FileKey(PathManager.GetAbsPath('task/b.ts'))
 
+    def test_partial_task_keeps_unselected_segments_not_started_and_can_continue(self):
+        from src.schemas.task import TaskStatus
+        self.task.task_status = TaskStatus.PARTIAL
+        self.assertEqual(self.model.TaskInfo(0)['status'], '部分完成')
+        self.assertEqual(self.model.ChildStatus(0, 0), '已完成')
+        self.assertEqual(self.model.ChildStatus(0, 1), '未开始')
+        action = next(a for a in self.model.TaskActions(0) if a['id'] == 'start')
+        self.assertEqual(action['label'], '继续')
+        self.assertTrue(action['enabled'])
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            self.assertTrue(frame.statusFilter.SetStringSelection('部分完成'))
+            self.assertEqual(frame._GlobalDownloadActions(), (False, True))
+        finally:
+            frame.Destroy()
+
     def test_hover_details_and_clear_without_disk_access(self):
         from pathlib import Path
         self.task.parent.absUri = 'https://example.com/index.m3u8?token=1'

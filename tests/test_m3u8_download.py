@@ -106,6 +106,37 @@ class M3U8DownloadTests(unittest.TestCase):
         self.assertFalse(Engine.IsBusy())
         self.assertEqual(list(task.save_dir.rglob('*.part')), [])
 
+    def test_single_segment_finishes_as_partial_and_remaining_segments_stay_pending(self):
+        task = self.create(3)
+        Engine.StartTask(self.service, task.id, [1])
+        self.finish()
+        saved = self.repository.get(task.id)
+        self.assertEqual(saved.status, TaskStatus.PARTIAL)
+        self.assertEqual(saved.progress.completed_segments, 1)
+        self.assertIsNone(saved.last_error)
+        self.assertEqual([s.status for s in saved.details.segments],
+                         [FileStatus.PENDING, FileStatus.COMPLETED, FileStatus.PENDING])
+        self.assertEqual(len(self.server.received), 1)
+        # 重新读取和文件核对均保留“部分完成”，随后继续只下载剩余分片。
+        self.assertEqual(self.service.check_files(task.id).status, TaskStatus.PARTIAL)
+        Engine.StartTask(self.service, task.id, [0, 2])
+        self.finish()
+        self.assertEqual(self.repository.get(task.id).status, TaskStatus.WAITING_MERGE)
+        self.assertEqual(len(self.server.received), 3)
+
+    def test_failed_single_segment_does_not_get_hidden_by_partial_completion(self):
+        task = self.create(3)
+        Engine.StartTask(self.service, task.id, [0])
+        self.finish()
+        self.server.mode = 'fail'
+        Engine.StartTask(self.service, task.id, [1])
+        self.finish()
+        self.assertEqual(self.repository.get(task.id).status, TaskStatus.FAILED)
+        self.server.mode = 'normal'
+        Engine.StartTask(self.service, task.id, [1])
+        self.finish()
+        self.assertEqual(self.repository.get(task.id).status, TaskStatus.PARTIAL)
+
     def test_failed_requests_stop_at_retry_limit_and_keep_error(self):
         task = self.create()
         self.server.mode = 'fail'

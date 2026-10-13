@@ -163,7 +163,7 @@ class TaskRunner:
                     self.errors.put(f'暂停 {task.name} 失败：{error}')
 
     def resume_all(self):
-        """恢复现有队列；重启后的暂停/中断任务重新入队，不启动新建或失败任务。"""
+        """恢复现有队列；暂停、中断和部分完成的任务重新入队，不启动新建或失败任务。"""
         snapshot = M3U8Downloader.Snapshot()
         for task in self.tasks.repository.list_tasks():
             if isinstance(task, M3U8Task) and self._keys(task) & snapshot['pending']:
@@ -172,7 +172,7 @@ class TaskRunner:
         pending = M3U8Downloader.Snapshot()['pending']
         started = set()
         for task in self.tasks.repository.list_tasks():
-            if task.status not in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED):
+            if task.status not in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED, TaskStatus.PARTIAL):
                 continue
             if isinstance(task, M3U8Task) and self._keys(task) & pending:
                 continue  # 保留原先只下载指定分片的范围。

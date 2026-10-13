@@ -171,8 +171,13 @@ class TaskService:
                 task.status, task.last_error = TaskStatus.WAITING_MERGE, None
         elif task.status not in (TaskStatus.PAUSED, TaskStatus.PAUSING):
             failed = next((segment for segment in task.details.segments if segment.status == FileStatus.FAILED), None)
-            task.status = TaskStatus.FAILED if failed else TaskStatus.INTERRUPTED
-            task.last_error = failed.last_error if failed else task.last_error
+            if failed:
+                task.status, task.last_error = TaskStatus.FAILED, failed.last_error
+            elif task.progress.completed_segments and task.status != TaskStatus.INTERRUPTED:
+                # 本次选择的分片已下完，不代表整项任务被异常中断。
+                task.status, task.last_error = TaskStatus.PARTIAL, None
+            else:
+                task.status = TaskStatus.INTERRUPTED
 
     @staticmethod
     def _file_size(path):

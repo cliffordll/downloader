@@ -270,6 +270,13 @@ class TaskRunnerTests(unittest.TestCase):
         self.assertEqual(self.repo.get(new.id).status, TaskStatus.NEW)
         self.assertEqual(self.repo.get(failed.id).status, TaskStatus.FAILED)
 
+    def test_global_resume_includes_partial_tasks(self):
+        task = self.m3u8()
+        self.service.runtime_status(task.id, TaskStatus.PARTIAL)
+        with patch.object(self.runner, 'start', return_value=1) as start:
+            self.assertEqual(self.runner.resume_all(), {task.id})
+        start.assert_called_once_with(task.id)
+
     def test_delete_rechecks_busy_state_and_keeps_downloaded_files(self):
         task = self.m3u8()
         path = self.write(task, 0)

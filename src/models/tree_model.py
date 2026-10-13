@@ -189,6 +189,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             status = '已暂停'
         elif failed:
             status = '下载失败'
+        elif task.task_status == TaskStatus.PARTIAL:
+            status = '部分完成'
         else:
             status = '未开始' if not done else '待继续'
         if failed:
@@ -691,6 +693,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 '暂停中': '#FF6600',  # 亮橙：等待已发出的请求结束
                 '已暂停': '#F00088',  # 亮玫红：请求已结束，任务保持暂停，可恢复
                 '已中断': '#B443CF',  # 紫红：上次任务未结束，需手动继续
+                '部分完成': '#DAA000',  # 已完成选中的分片，尚未全部下载。
                 '待继续': '#DAA000',  # 亮金黄：已有部分分片，等待继续下载
                 '待合并': '#00A6B8',  # 亮青：分片齐全，可以合并
                 '已完成': '#00AD45',  # 鲜绿：已生成视频

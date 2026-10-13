@@ -34,6 +34,7 @@ class TaskStatus(str, Enum):
     PAUSING = 'pausing'
     PAUSED = 'paused'
     INTERRUPTED = 'interrupted'
+    PARTIAL = 'partial'  # 本次分片下载已结束，仍有未下载分片。
     WAITING_MERGE = 'waiting_merge'
     MERGING = 'merging'
     RECORDING = 'recording'

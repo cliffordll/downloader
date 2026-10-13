@@ -223,7 +223,7 @@ class MainFrame(wx.Frame):
         self.searchCtrl.ShowCancelButton(True)
         self.statusFilter = wx.Choice(panel, choices=[
             '全部状态', '未开始', '等待下载', '下载中', '暂停中', '已暂停', '已中断', '录制中', '停止中', '录制失败',
-            '待继续', '下载失败', '检测时长', '待合并', '合并中', '合并失败', '已完成'])
+            '部分完成', '待继续', '下载失败', '检测时长', '待合并', '合并中', '合并失败', '已完成'])
         self.statusFilter.SetSelection(0)
         self.filterCount = wx.StaticText(panel, label='')
         self.filterCount.SetMinSize(self.FromDIP(wx.Size(140, -1)))
@@ -1471,7 +1471,7 @@ class MainFrame(wx.Frame):
         can_pause = can_pause or any(task.task_type == TaskType.MP4 and task.task_status in
                                     (TaskStatus.QUEUED, TaskStatus.DOWNLOADING) for task in tasks)
         can_resume = snapshot['paused'] or bool(snapshot['pending'] & snapshot['paused_files']) or any(
-            task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED)
+            task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED, TaskStatus.PARTIAL)
             and any(child.fileSize == '-' for child in task.childs) for task in tasks)
         can_resume = can_resume or any(task.task_type == TaskType.MP4 and task.task_status in
                                       (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) for task in tasks)
