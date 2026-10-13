@@ -59,6 +59,27 @@ class TaskProgressRenderer(dv.DataViewCustomRenderer):
             dc.DrawRectangle(bar.x, bar.y, filled, bar.height)
         # 同一份文字始终在整条进度条中居中，避免随进度移动。
         # 分区裁剪绘制：已填充区域用白字，未填充区域用深色字，跨界文字也能看清。
+        if wx.Platform == '__WXMAC__':
+            # Cocoa 原生列表的 DC 连续切换 DCClipper 时，后绘制的未完成区域文字
+            # 可能丢失。GraphicsContext 的状态栈会分别保存两段裁剪区域。
+            gc = dc.GetGraphicsContext() if isinstance(dc, wx.GCDC) else wx.GraphicsContext.Create(dc)
+            gc.SetFont(font, wx.Colour('#172B4D'))
+            text_width, text_height = gc.GetTextExtent(self.label)
+            text_x = bar.x + (bar.width - text_width) / 2
+            text_y = bar.y + (bar.height - text_height) / 2
+            for region, colour in (
+                (wx.Rect(bar.x, bar.y, filled, bar.height), wx.WHITE),
+                (wx.Rect(bar.x + filled, bar.y, bar.width - filled, bar.height),
+                 wx.Colour('#172B4D')),
+            ):
+                if region.width <= 0:
+                    continue
+                gc.PushState()
+                gc.Clip(region.x, region.y, region.width, region.height)
+                gc.SetFont(font, colour)
+                gc.DrawText(self.label, text_x, text_y)
+                gc.PopState()
+            return True
         for region, colour in (
             (wx.Rect(bar.x, bar.y, filled, bar.height), '#FFFFFF'),
             (wx.Rect(bar.x + filled, bar.y, bar.width - filled, bar.height), '#172B4D'),

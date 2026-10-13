@@ -95,6 +95,32 @@ class TaskTypesUITests(unittest.TestCase):
             renderer.SetValue(label)
             self.assertEqual(renderer.percent, expected)
 
+    @unittest.skipUnless(wx.Platform == '__WXMAC__', 'Mac 进度文字分区裁剪')
+    def test_mac_progress_text_is_white_on_fill_and_dark_on_remainder(self):
+        frame = SimpleNamespace(
+            FromDIP=lambda value: value,
+            mcTree=SimpleNamespace(
+                GetFont=lambda: wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)),
+        )
+        renderer = TaskProgressRenderer(frame)
+        renderer.SetValue('58% · 7/12')
+        bitmap = wx.Bitmap(220, 34)
+        memory = wx.MemoryDC(bitmap)
+        memory.SetBackground(wx.Brush(wx.WHITE))
+        memory.Clear()
+        dc = wx.GCDC(memory)
+        self.assertTrue(renderer.Render(wx.Rect(0, 5, 220, 24), dc, 0))
+        del dc
+        memory.SelectObject(wx.NullBitmap)
+        image = bitmap.ConvertToImage()
+        # 填充区域能找到白色文字像素，未完成区域能找到深色文字像素。
+        self.assertTrue(any(image.GetRed(x, y) > 240 and image.GetGreen(x, y) > 240
+                            and image.GetBlue(x, y) > 240
+                            for x in range(70, 125) for y in range(10, 25)))
+        self.assertTrue(any(image.GetRed(x, y) < 100 and image.GetGreen(x, y) < 100
+                            and image.GetBlue(x, y) < 130
+                            for x in range(128, 165) for y in range(10, 25)))
+
     def test_mp4_action_click_dispatches_four_actions(self):
         self.mp4()
         model = self.model()
