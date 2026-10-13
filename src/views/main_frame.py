@@ -14,6 +14,7 @@ from src.views.dialogs.ts_dialog import DownloadDialogTS
 from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 from src.views.dialogs.information_dialog import InformationDialog
 from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
+from src.views.dialogs.browser_connect_dialog import BrowserConnectDialog
 from src.core.task_runner import TaskRunner
 from src.core.browser_bridge import BrowserBridge
 from src.core.file_export import save_file_as
@@ -1040,15 +1041,8 @@ class MainFrame(wx.Frame):
             except OSError as error:
                 wx.MessageBox(f'无法开启浏览器连接（端口 17839）：{error}', '连接失败', parent=self)
                 return
-        dialog = wx.TextEntryDialog(self, '复制以下配对码，粘贴到浏览器扩展。\n程序退出后失效，重启需要重新配对。',
-                                    '连接浏览器扩展', self.browser_bridge.token)
+        dialog = BrowserConnectDialog(self, self.browser_bridge.token)
         try:
-            # 默认弹窗按说明文字定宽；为完整配对码及输入框边距预留空间。
-            width = max(dialog.FromDIP(600),
-                        dialog.GetTextExtent(self.browser_bridge.token).width + dialog.FromDIP(80))
-            dialog.SetSize(wx.Size(width, dialog.GetSize().height))
-            dialog.Layout()
-            dialog.CenterOnParent()
             dialog.ShowModal()
         finally:
             dialog.Destroy()
