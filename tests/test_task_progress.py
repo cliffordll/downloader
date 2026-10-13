@@ -58,6 +58,59 @@ class TaskProgressTests(unittest.TestCase):
         finally:
             frame.Destroy()
 
+    def test_segment_download_disabled_while_queued_running_or_pausing(self):
+        import json
+        from src.views.components.renderers import TaskActionRenderer
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            item = frame.model.ObjectToItem(frame.model._BuildKey((0, 1)))
+            renderer = TaskActionRenderer(frame)
+            for state, pending, requesting, paused, enabled in (
+                    ('未开始', False, False, False, True),
+                    ('等待下载', True, False, False, False),
+                    ('下载中', True, True, False, False),
+                    ('暂停中', True, True, True, False),
+                    ('已暂停', True, False, True, True)):
+                with self.subTest(state=state):
+                    M3U8Downloader._pending = {self.key} if pending else set()
+                    M3U8Downloader._requesting = {self.key} if requesting else set()
+                    M3U8Downloader._paused_files = {self.key} if paused else set()
+                    self.assertEqual(frame.model.ChildStatus(0, 1), state)
+                    action = json.loads(frame.model.GetValue(item, 4))[0]
+                    self.assertEqual(action['enabled'], enabled)
+                    with patch.object(frame, 'OnSegmentDownload') as click:
+                        self.assertEqual(renderer.ActivateAt(wx.Rect(0, 0, 200, 24),
+                            frame.model, item, 4, None), enabled)
+                        self.assertEqual(click.called, enabled)
+                    with patch.object(frame, '_DownloadFiles') as download:
+                        frame.OnSegmentDownload(item)
+                        self.assertEqual(download.called, enabled)
+                    entries = []
+                    def inspect(menu):
+                        entries.extend(entry.IsEnabled() for entry in menu.GetMenuItems()
+                                       if entry.GetItemLabelText() == '下载')
+                    with patch.object(frame.mcTree, 'PopupMenu', side_effect=inspect):
+                        frame.OnTaskMenu(item)
+                    self.assertEqual(entries, [enabled])
+        finally:
+            frame.Destroy()
+
+    def test_segment_action_does_not_scan_task_or_copy_download_queue(self):
+        import json
+        class IndexedOnly(list):
+            def __iter__(self):
+                raise AssertionError('绘制单片按钮不能遍历任务分片')
+
+        self.task.childs = IndexedOnly([FileItem(fileName=f'task/{i}.ts') for i in range(10000)])
+        item = self.model.ObjectToItem(self.model._BuildKey((0, 5000)))
+        with patch.object(self.model, 'TaskInfo', side_effect=AssertionError('不能汇总整个任务')), \
+             patch.object(M3U8Downloader, 'Snapshot', side_effect=AssertionError('不能复制全部队列')):
+            self.assertTrue(json.loads(self.model.GetValue(item, 4))[0]['enabled'])
+            key = M3U8Downloader.FileKey(PathManager.GetAbsPath('task/5000.ts'))
+            M3U8Downloader._pending.add(key)
+            self.assertFalse(json.loads(self.model.GetValue(item, 4))[0]['enabled'])
+
     def test_hover_details_and_clear_without_disk_access(self):
         from pathlib import Path
         self.task.parent.absUri = 'https://example.com/index.m3u8?token=1'

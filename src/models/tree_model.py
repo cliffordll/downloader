@@ -235,6 +235,24 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             return '已中断'
         return '文件缺失' if child.status == FileStatus.MISSING else '未开始'
 
+    def CanDownloadSegment(self, index, key):
+        """操作列、右键菜单和点击入口共用实时判断；key 包含输出文件偏移。"""
+        task = self.fileTree.items[index]
+        segment_index = key - len(task.outputs)
+        if task.task_type != TaskType.M3U8 or not 0 <= segment_index < len(task.childs):
+            return False
+        child = task.childs[segment_index]
+        if child.fileSize != '-' or child.status == FileStatus.COMPLETED:
+            return False
+        # 这里只需判断是否在处理媒体，不能调用 TaskInfo 遍历整个任务的分片。
+        if task.task_status == TaskStatus.MERGING or (task.output_path and
+                FFmpegConverter.IsConverting(str(task.output_path))):
+            return False
+        runner = getattr(self.parent, 'runner', None)
+        if runner is not None and runner.busy_processing(task.task_id):
+            return False
+        return M3U8Downloader.CanStartFile(PathManager.GetAbsPath(child.fileName))
+
     def TaskActions(self, index):
         """自定义方法：按任务类型返回操作的 id、显示文字和可用状态。
 
@@ -463,6 +481,11 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 return True
         return super().ValueChanged(item, col)
 
+    @staticmethod
+    def _DisplayMetadata(value):
+        # 只隐藏显示占位符；fileSize 的 '-' 仍用于内部未完成判断。
+        return '' if value in ('-', '—', '----:--:-- --:--') else value
+
     # 父类函数
     def GetValue(self, item, col):
         """重写：wx 准备显示单元格时，按节点 item 和模型列 col 读取数据。
@@ -485,7 +508,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             file = self.fileTree.items[objs[0]].manifests.get(objs[1])
             if file is None:
                 return ''
-            return {1: file.displayName, 2: file.fileSize, 3: file.modifyAt}.get(col, '')
+            return {1: file.displayName, 2: self._DisplayMetadata(file.fileSize),
+                    3: self._DisplayMetadata(file.modifyAt)}.get(col, '')
         if col in (5, 6):
             if len(objs) == 2:
                 return '' if col == 5 else self.ChildStatus(objs[0], objs[1])
@@ -499,9 +523,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             if col == 1:
                 return parent.displayName or parent.fileName
             elif col == 2:
-                return parent.fileSize
+                return self._DisplayMetadata(parent.fileSize)
             elif col == 3:
-                return parent.modifyAt
+                return self._DisplayMetadata(parent.modifyAt)
             else:
                 return json.dumps(self.TaskActions(idxi), ensure_ascii=False)
         elif len(objs) == 2:
@@ -516,9 +540,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                         output = self.fileTree.items[idxi].outputs[idxj]
                         return output.displayName or output.fileName
                     elif col == 2:
-                        return self.fileTree.items[idxi].outputs[idxj].fileSize
+                        return self._DisplayMetadata(self.fileTree.items[idxi].outputs[idxj].fileSize)
                     elif col == 3:
-                        return self.fileTree.items[idxi].outputs[idxj].modifyAt
+                        return self._DisplayMetadata(self.fileTree.items[idxi].outputs[idxj].modifyAt)
                     return ''
                 else:
                     # MP4 占据前面的子节点位置，减去其数量后才是 childs 的索引。
@@ -529,14 +553,15 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 child = self.fileTree.items[idxi].childs[idxj]
                 return child.displayName or child.fileName
             elif col == 2:
-                return self.fileTree.items[idxi].childs[idxj].fileSize
+                return self._DisplayMetadata(self.fileTree.items[idxi].childs[idxj].fileSize)
             elif col == 3:
-                return self.fileTree.items[idxi].childs[idxj].modifyAt
+                return self._DisplayMetadata(self.fileTree.items[idxi].childs[idxj].modifyAt)
             else:
                 # return ''
                 if self.fileTree.items[idxi].childs[idxj].fileSize != "-":
                     return ""
-                return "下载"
+                return json.dumps([dict(id='download', label='下载',
+                    enabled=self.CanDownloadSegment(idxi, objs[1]))], ensure_ascii=False)
             # else:
             #     return self.fileTree.items[idxi].childs[idxj].absUri
         else:

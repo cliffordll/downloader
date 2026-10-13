@@ -26,7 +26,7 @@ class Downloader:
     _condition = threading.Condition()
     _queues = OrderedDict()  # 任务入队顺序；每项是自己的请求队列。
     _running = {}  # 任务 → 正在执行的请求数。
-    _admitted = set()  # 已占用下载名额的任务。
+    _admitted = set()  # 允许补充请求的任务；收回名额后仍可能有在途请求。
     _paused = set()  # 已让出名额的暂停任务，恢复后移到队尾。
     _thread = None
     _rate_lock = threading.Lock()  # 请求间隔与服务器限流独立加锁，不阻塞队列操作。
@@ -89,13 +89,20 @@ class Downloader:
                             elif task_id in cls._paused:
                                 cls._paused.remove(task_id)
                                 cls._queues.move_to_end(task_id)
+                    # 降低任务数时按入队顺序保留名额；其余任务的在途请求
+                    # 继续完成，但不补充新分片，也不改变其排队位置。
+                    admitted = [task_id for task_id in cls._queues if task_id in cls._admitted]
+                    cls._admitted.intersection_update(admitted[:settings['max_tasks']])
+                    # 新任务准入还要计入被收回名额但尚未结束的在途任务。
+                    occupied = cls._admitted | {task_id for task_id, count in cls._running.items() if count}
                     for task_id, queue in cls._queues.items():
                         if not any(r.ready() for r in queue):
                             continue
                         if task_id not in cls._admitted:
-                            if len(cls._admitted) >= settings['max_tasks']:
+                            if len(occupied) >= settings['max_tasks']:
                                 continue
                             cls._admitted.add(task_id)
+                            occupied.add(task_id)
                         # 降低额度不取消已有请求，等活动数量降到新上限再补充。
                         for _ in range(len(queue)):
                             request = queue.popleft()

@@ -830,8 +830,8 @@ class MainFrame(wx.Frame):
                 if pending:
                     # '-' 是展示模型的未完成分片标记；此处不访问磁盘检查文件。
                     info = self.model.TaskInfo(index)
-                    add('下载', lambda: self._DownloadFiles(task.parent.fileName, [(segment_index, item)]),
-                        not info['merging'] and self.model.ChildStatus(index, key) not in ('下载中', '等待下载'))
+                    add('下载', lambda: self.OnSegmentDownload(item),
+                        self.model.CanDownloadSegment(index, key))
                 else:
                     if not partial:
                         add('打开', lambda: self._OpenLocalPath(path))
@@ -1500,6 +1500,8 @@ class MainFrame(wx.Frame):
             return
         keys = self.model.ParseKey(self.model.ItemToObject(item))
         if len(keys) != 2:
+            return
+        if not self.model.CanDownloadSegment(keys[0], keys[1]):
             return
         task = self.model.fileTree.items[keys[0]]
         index = keys[1] - len(task.outputs)

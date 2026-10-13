@@ -93,7 +93,7 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
         这不是模型的 SetValue，不负责修改任务数据，也不需要业务代码手动调用。
         """
         # wx 自动传入模型 GetValue(item, 4) 的结果。
-        # 任务行是包含 id、label、enabled 的 JSON 数组；分片行是“下载”或空串。
+        # 任务行和未完成分片行均使用包含 id、label、enabled 的 JSON 数组。
         # 渲染器由整列共用，label 会随当前绘制的单元格更新，不属于某个固定任务。
         self.label = value
         return True
@@ -185,7 +185,10 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
                                if rect.Contains(point)), None)
             if action is None or not action['enabled']:
                 return False
-            self.frame.OnTaskAction(item, action['id'])
+            if action['id'] == 'download':
+                self.frame.OnSegmentDownload(item)
+            else:
+                self.frame.OnTaskAction(item, action['id'])
         else:
             if point is not None and not wx.Rect(0, 0, cell.width, cell.height).Contains(point):
                 return False

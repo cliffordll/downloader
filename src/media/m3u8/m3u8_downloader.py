@@ -182,6 +182,14 @@ class M3U8Downloader:
         with cls.threadLock:
             return bool(cls._pending)
 
+    @classmethod
+    def CanStartFile(cls, filename):
+        """单片按钮只查询自身状态，避免绘制每行时复制全部下载队列。"""
+        key = cls.FileKey(filename)
+        with cls.threadLock:
+            return (key not in cls._requesting and
+                    (key not in cls._pending or cls.IsPaused() or key in cls._paused_files))
+
     @staticmethod
     def FileKey(filename):
         """统一为绝对路径，并按系统规则处理大小写，供去重和跨线程状态匹配使用。"""
