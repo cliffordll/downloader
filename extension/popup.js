@@ -2,6 +2,7 @@ import {getPairingToken, getPairingPort, savePairing} from './pairing.js';
 const $ = id => document.getElementById(id);
 let tabId;
 let initialized = false;
+let captures = [];
 function status(message) { $("status").textContent = message; }
 
 async function load() {
@@ -15,10 +16,21 @@ async function load() {
     if (!bridgeToken) document.querySelector("details").open = true;
     initialized = true;
   }
-  const items = saved[`tab:${tabId}`] || [];
+  captures = saved[`tab:${tabId}`] || [];
+  render();
+}
+
+function render() {
+  const keyword = $("keyword").value.trim().toLowerCase();
+  const selectedType = $("media-type").value;
+  const items = captures.filter(item =>
+    (selectedType === "all" || item.type === selectedType) && item.url.toLowerCase().includes(keyword));
+  $("count").textContent = `显示 ${items.length} / ${captures.length} 个地址`;
   $("list").replaceChildren();
   if (!items.length) {
-    $("list").textContent = "尚未捕获视频地址，请刷新网页后播放视频。";
+    $("list").textContent = captures.length
+      ? "没有匹配的地址，请调整关键词或类型。"
+      : "尚未捕获视频地址，请刷新网页后播放视频。";
     return;
   }
   for (const item of [...items].reverse()) {
@@ -38,7 +50,8 @@ async function load() {
     };
     const send = document.createElement("button");
     send.className = "send";
-    send.textContent = "添加到 AVDownloader";
+    send.textContent = "添加任务";
+    send.title = "发送到 AVDownloader，确认后创建下载任务";
     send.onclick = async () => {
       send.disabled = true;
       const controller = new AbortController();
@@ -58,7 +71,20 @@ async function load() {
           ? "无法连接，请确认下载器已开启本机接收服务，并检查两端端口一致" : error.message);
       } finally { clearTimeout(timeout); send.disabled = false; }
     };
-    actions.append(copy, send);
+    const remove = document.createElement("button");
+    remove.textContent = "删除";
+    remove.title = "从当前页候选列表中移除此地址";
+    const itemTabId = tabId;
+    remove.onclick = async () => {
+      remove.disabled = true;
+      try {
+        const result = await chrome.runtime.sendMessage({action: "delete", tabId: itemTabId, url: item.url});
+        if (!result?.ok) throw new Error(result?.message || "删除失败，请重试");
+        status("地址已从候选列表删除");
+      } catch (error) { status(error.message); }
+      finally { remove.disabled = false; }
+    };
+    actions.append(copy, send, remove);
     article.append(type, url, actions);
     $("list").append(article);
   }
@@ -72,6 +98,8 @@ $("pair").onclick = async () => {
   } catch (error) { status(error.message); }
 };
 $("refresh").onclick = () => load().catch(error => status(error.message));
+$("keyword").oninput = render;
+$("media-type").onchange = render;
 $("clear").onclick = async () => {
   await chrome.runtime.sendMessage({action: "clear", tabId});
   await load();

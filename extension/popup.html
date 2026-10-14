@@ -12,7 +12,14 @@
     <button id="pair">保存配置</button>
     <p>端口需与下载器一致，默认 17839。配置重启后仍保留；重置配对码后请保存新码。</p>
   </details>
+  <div class="filters">
+    <label class="visually-hidden" for="keyword">地址关键词</label>
+    <input id="keyword" type="search" placeholder="筛选地址关键词" autocomplete="off">
+    <label class="visually-hidden" for="media-type">视频类型</label>
+    <select id="media-type"><option value="all">全部类型</option><option value="m3u8">M3U8</option><option value="mp4">MP4</option></select>
+  </div>
   <nav><button id="refresh">刷新列表</button><button id="clear">清空当前页</button></nav>
+  <p id="count" aria-live="polite"></p>
   <p id="status" role="status" aria-live="polite"></p>
   <main id="list"></main>
   <footer>请刷新网页并播放视频。每页最多保留 100 个地址；支持识别网址后缀或响应类型。不读取 Cookie。</footer>

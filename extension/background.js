@@ -42,6 +42,21 @@ chrome.tabs.onUpdated.addListener((id, change) => {
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id) return;
+  if (message.action === "delete" && Number.isInteger(message.tabId) && typeof message.url === "string") {
+    enqueue(async () => {
+      try {
+        const key = tabKey(message.tabId);
+        const stored = await chrome.storage.session.get(key);
+        const items = (stored[key] || []).filter(item => item.url !== message.url);
+        await chrome.storage.session.set({[key]: items});
+        await chrome.action.setBadgeText({tabId: message.tabId, text: items.length ? String(items.length) : ""});
+        respond({ok: true});
+      } catch {
+        respond({ok: false, message: "删除失败，请重试"});
+      }
+    });
+    return true;
+  }
   if (message.action === "clear" && Number.isInteger(message.tabId)) {
     enqueue(async () => {
       await chrome.storage.session.remove(tabKey(message.tabId));
