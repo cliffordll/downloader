@@ -26,7 +26,7 @@ function render() {
   const selectedType = $("media-type").value;
   const items = captures.filter(item =>
     (selectedType === "all" || item.type === selectedType) && item.url.toLowerCase().includes(keyword));
-  $("count").textContent = `显示 ${items.length} / ${captures.length} 个地址`;
+  $("count").textContent = `${items.length} / ${captures.length}`;
   $("list").replaceChildren();
   if (!items.length) {
     $("list").textContent = captures.length
@@ -38,6 +38,8 @@ function render() {
     const article = document.createElement("article");
     const type = document.createElement("strong");
     type.textContent = item.type.toUpperCase();
+    const heading = document.createElement("div");
+    heading.className = "capture-heading";
     const url = document.createElement("div");
     url.className = "url";
     url.textContent = item.url;
@@ -53,7 +55,7 @@ function render() {
     send.className = "send";
     const itemTabId = tabId;
     const deliveryKey = `${itemTabId}:${item.url}`;
-    const delivery = document.createElement("p");
+    const delivery = document.createElement("span");
     delivery.className = "delivery";
     delivery.setAttribute("role", "status");
     function showDelivery() {
@@ -61,8 +63,9 @@ function render() {
       send.disabled = sending.has(deliveryKey);
       send.textContent = send.disabled ? "发送中…" : item.deliveryState === "sent" ? "再次添加"
         : item.deliveryState === "failed" ? "重试" : "添加任务";
-      delivery.textContent = send.disabled ? "正在发送到下载器…" : item.deliveryState === "sent"
-        ? "已发送，待下载器确认" : item.deliveryState === "failed" ? `发送失败：${item.deliveryMessage}` : "";
+      delivery.textContent = send.disabled ? "发送中…" : item.deliveryState === "sent"
+        ? "已发送 · 待确认" : item.deliveryState === "failed" ? `发送失败：${item.deliveryMessage}` : "";
+      delivery.title = delivery.textContent;
     }
     showDelivery();
     async function recordDelivery(state, message = '') {
@@ -113,7 +116,8 @@ function render() {
       finally { remove.disabled = false; }
     };
     actions.append(copy, send, remove);
-    article.append(type, url, actions, delivery);
+    heading.append(type, delivery);
+    article.append(heading, url, actions);
     $("list").append(article);
   }
 }

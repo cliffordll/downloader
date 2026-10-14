@@ -2,17 +2,20 @@
 <html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="popup.css"><title>AVDownloader</title></head>
 <body>
-  <header><h1>AVDownloader</h1><p>当前标签页的视频地址</p></header>
+  <header><h1>AVDownloader</h1></header>
   <details><summary>连接下载器</summary>
     <p>先在下载器打开“文件 → 浏览器扩展配对”，复制配对码。</p>
-    <label for="port">下载器端口</label>
-    <input id="port" type="number" min="1" max="65535" step="1" value="17839">
-    <label for="token">配对码</label>
-    <input id="token" type="password" autocomplete="off" placeholder="粘贴配对码">
-    <button id="pair">保存配置</button>
+    <div class="pairing-form">
+      <label for="port">端口号：</label>
+      <input id="port" type="number" min="1" max="65535" step="1" value="17839">
+      <label for="token">配对码：</label>
+      <input id="token" type="password" autocomplete="off" placeholder="粘贴配对码">
+    </div>
+    <div class="pairing-actions"><button id="pair">保存配置</button></div>
     <p>端口需与下载器一致，默认 17839。配置重启后仍保留；重置配对码后请保存新码。</p>
   </details>
   <div class="filters">
+    <span id="count" aria-live="polite"></span>
     <label class="visually-hidden" for="keyword">地址关键词</label>
     <input id="keyword" type="search" placeholder="筛选地址关键词" autocomplete="off">
     <label class="visually-hidden" for="media-type">视频类型</label>
@@ -20,7 +23,6 @@
     <button id="refresh" title="重新读取已捕获的地址，不刷新网页">刷新</button>
     <button id="clear" title="清空当前标签页的全部候选地址，包括被筛选隐藏的地址">清空</button>
   </div>
-  <p id="count" aria-live="polite"></p>
   <p id="status" role="status" aria-live="polite"></p>
   <main id="list"></main>
   <footer>请刷新网页并播放视频。每页最多保留 100 个地址；支持识别网址后缀或响应类型。不读取 Cookie。</footer>
