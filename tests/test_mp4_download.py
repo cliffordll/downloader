@@ -157,6 +157,14 @@ class MP4DownloadTests(unittest.TestCase):
             self.run_task(task)
             self.assert_complete(task)
 
+    def test_browser_referer_is_sent_to_media_server(self):
+        referer = 'https://example.com/watch'
+        task = self.service.create_mp4(self.root / 'browser',
+            f'http://127.0.0.1:{self.server.server_port}/video.mp4', request_headers={'Referer': referer})
+        self.run_task(task)
+        self.assert_complete(task)
+        self.assertEqual(self.server.received[0]['Referer'], referer)
+
     def test_resume_uses_range_and_validator(self):
         task = self.create()
         self.seed_partial(task)

@@ -140,6 +140,7 @@ class M3U8Details(TaskModel):
 
 
 class MP4Details(TaskModel):
+    request_headers: dict[str, str] = Field(default_factory=dict)
     target_path: RelativeFile
     temporary_path: RelativeFile
     etag: str | None = None
@@ -149,6 +150,10 @@ class MP4Details(TaskModel):
 
     @model_validator(mode='after')
     def distinct_paths(self):
+        for name, value in self.request_headers.items():
+            if name != 'Referer' or any(c in value for c in '\r\n\x00'):
+                raise ValueError('MP4 请求头仅支持 Referer，且不能包含换行')
+            value.encode('latin-1')
         if self.target_path.casefold() == self.temporary_path.casefold():
             raise ValueError('目标文件和临时文件不能相同')
         return self

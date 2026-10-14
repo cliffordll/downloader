@@ -14,7 +14,10 @@ from src.views.dialogs.ts_dialog import DownloadDialogTS
 from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 from src.views.dialogs.information_dialog import InformationDialog
 from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
+from src.views.dialogs.browser_connect_dialog import BrowserConnectDialog
 from src.core.task_runner import TaskRunner
+from src.core.browser_bridge import BrowserBridge
+from src.core.browser_pairing import pairing_path
 from src.core.file_export import save_file_as
 
 
@@ -35,6 +38,8 @@ class MainFrame(wx.Frame):
         # super(MyFrame, self).__init__(parent, title=title)
         super().__init__(parent, title=title)
         self._closing = False
+        self.browser_bridge = None
+        self._capture_dialog_open = False
         # 窗口、下载器和添加任务弹窗共享入口创建的服务，列表模型不持有业务服务。
         self.tasks = task_service
         self.SetSize(self.FromDIP((1024, 700)))
@@ -96,6 +101,8 @@ class MainFrame(wx.Frame):
         addMP4Item = fileMenu.Append(wx.ID_ANY, '下载 MP4\tCtrl-P')
         fileMenu.AppendSeparator()
         settingItem  = fileMenu.Append(wx.ID_ANY, "设置\tCtrl-,")
+        browserItem = fileMenu.Append(wx.ID_ANY, '浏览器扩展配对…')
+        self.Bind(wx.EVT_MENU, self.OnBrowserConnect, browserItem)
         exitItem    = fileMenu.Append(wx.ID_EXIT, "&退出")
         # 绑定事件
         self.Bind(wx.EVT_MENU, self.OnOpen, openItem)
@@ -171,6 +178,8 @@ class MainFrame(wx.Frame):
         muButton = add_tool(wx.ID_ANY, "下载 M3U8", "playlist")
         tsButton = add_tool(wx.ID_ANY, "下载 TS", "segment")
         mp4Button = add_tool(wx.ID_ANY, '下载 MP4', 'mp4')
+        browserButton = add_tool(wx.ID_ANY, '浏览器扩展配对', 'browser')
+        self.toolBar.SetToolShortHelp(browserButton.GetId(), '开启本机接收服务并管理浏览器扩展配对码')
         self.toolBar.AddSeparator()
         expandButton = add_tool(wx.ID_ANY, "全部展开", "expand")
         collapseButton = add_tool(wx.ID_ANY, "全部折叠", "collapse")
@@ -191,6 +200,7 @@ class MainFrame(wx.Frame):
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddMU, muButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddTS, tsButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddMP4, mp4Button)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnBrowserConnect, browserButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnExpandAll, expandButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnCollapseAll, collapseButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnPauseDownloads, self._pauseTool)
@@ -621,6 +631,9 @@ class MainFrame(wx.Frame):
         if self._closing:
             return
         self._closing = True
+        if self.browser_bridge is not None:
+            self.browser_bridge.close()
+            self.browser_bridge = None
         self.ClearTaskToolTip()
         # Cocoa 的销毁通知晚于部分原生控件清理，必须在开始销毁前停表。
         for name in ('_progressTimer', '_searchTimer'):
@@ -650,6 +663,7 @@ class MainFrame(wx.Frame):
         if self._closing:
             return
         self._SyncDownloads()
+        self._CheckBrowserInbox()
         display = {}
         child_display = {}
         snapshot = M3U8Downloader.Snapshot()
@@ -1014,16 +1028,83 @@ class MainFrame(wx.Frame):
     
     def OnAddMU(self, event):
         workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogMU(self, "M3U8 URI", workPath, task_service=self.tasks)
+        dlg = DownloadDialogMU(self, workPath, task_service=self.tasks)
         result = dlg.ShowModal()
         if result == wx.OK:
             # 创建新任务成功，自动刷新页面
             self.OnRefresh(None)
         dlg.Destroy()
 
+    def OnBrowserConnect(self, event):
+        if self.browser_bridge is None:
+            try:
+                self.browser_bridge = BrowserBridge(start=False)
+            except (OSError, ValueError) as error:
+                wx.MessageBox(f'无法读取浏览器配对配置：{error}', '连接失败', parent=self)
+                return
+        if self.browser_bridge.server is None:
+            try:
+                self.browser_bridge.start()
+            except (OSError, RuntimeError) as error:
+                self.statusBar.SetStatusText(f'本机接收服务未开启：{error}，请在配对窗口修改端口', 0)
+        dialog = BrowserConnectDialog(self, self.browser_bridge.token, reset_token=self.browser_bridge.reset_token,
+                                      port=self.browser_bridge.port, apply_port=self.browser_bridge.set_port,
+                                      listening=self.browser_bridge.server is not None)
+        try:
+            dialog.ShowModal()
+        finally:
+            dialog.Destroy()
+
+    def RestoreBrowserConnection(self):
+        """首次启用过连接后，重启恢复服务，不弹出配对窗口。"""
+        if self.browser_bridge is not None or not pairing_path().is_file():
+            return
+        try:
+            self.browser_bridge = BrowserBridge()
+        except (OSError, ValueError) as error:
+            self.statusBar.SetStatusText(f'浏览器连接未恢复：{error}', 0)
+
+    def _CheckBrowserInbox(self):
+        if self.browser_bridge is None or self._capture_dialog_open:
+            return
+        if any(isinstance(window, wx.Dialog) and window.IsModal() for window in wx.GetTopLevelWindows()):
+            return
+        try:
+            capture = self.browser_bridge.inbox.get_nowait()
+        except Empty:
+            return
+        self._capture_dialog_open = True
+        # 程序通知界面线程打开创建任务弹窗
+        # 相当于告诉 wxPython：“下一次处理界面事件时，执行 self._OpenBrowserCapture(capture)。”
+        wx.CallAfter(self._OpenBrowserCapture, capture)
+
+    def _OpenBrowserCapture(self, capture):
+        if self._closing or not self or self.IsBeingDeleted():
+            return
+        dialog = None
+        try:
+            # 表示取消主窗口的最小化状态。如果它原本没有最小化，通常不会改变当前状态。
+            self.Iconize(False)
+            # 将窗口提升到其他窗口前面
+            self.Raise()
+            if capture['type'] == 'm3u8':
+                dialog = DownloadDialogMU(self, SysSetting.GetWorkPath(), self.tasks,
+                                           title='从浏览器添加 M3U8', capture=capture)
+            else:
+                dialog = DownloadDialogMP4(self, SysSetting.GetWorkPath(), self.tasks,
+                                            title='从浏览器添加 MP4', capture=capture)
+            if dialog.ShowModal() == wx.OK:
+                self.OnRefresh(None)
+                if capture['type'] == 'mp4':
+                    self._StartMP4(dialog.task_id)
+        finally:
+            if dialog is not None:
+                dialog.Destroy()
+            self._capture_dialog_open = False
+
     def OnAddTS(self, event):
         workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogTS(self, "M3U8 TS", workPath, task_service=self.tasks)
+        dlg = DownloadDialogTS(self, workPath, task_service=self.tasks)
         result = dlg.ShowModal()
         if result == wx.OK:
             # 创建新任务成功，自动刷新页面

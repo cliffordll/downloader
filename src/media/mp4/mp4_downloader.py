@@ -178,7 +178,7 @@ class MP4Downloader:
                 if delay <= 0:
                     break
                 pause.wait(min(delay, 0.2))
-            headers = {'Accept-Encoding': 'identity'}
+            headers = {**task.details.request_headers, 'Accept-Encoding': 'identity'}
             if offset:
                 headers.update({'Range': f'bytes={offset}-', 'If-Range': validator})
             with requests.get(task.source_url, headers=headers, stream=True,

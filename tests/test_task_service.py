@@ -67,8 +67,8 @@ class TaskServiceTests(unittest.TestCase):
 
     def test_all_dialogs_share_directory_and_preserve_edited_filename(self):
         dialogs = [DownloadDialogMP4(None, str(self.root), self.service),
-                   DownloadDialogMU(None, 'test', str(self.root), self.service),
-                   DownloadDialogTS(None, 'test', str(self.root), self.service)]
+                   DownloadDialogMU(None, str(self.root), self.service),
+                   DownloadDialogTS(None, str(self.root), self.service)]
         try:
             for dialog in dialogs:
                 dialog.Layout()
@@ -268,7 +268,7 @@ class TaskServiceTests(unittest.TestCase):
     def test_both_dialogs_write_through_service(self):
         for dialog_class in (DownloadDialogMU, DownloadDialogTS):
             service = Mock()
-            dialog = dialog_class(None, 'test', str(self.root), task_service=service)
+            dialog = dialog_class(None, str(self.root), task_service=service)
             try:
                 dialog.downPath.tcDown.SetValue('new-task')
                 dialog.downEdit.tsList.SetValue(CONTENT)
@@ -305,7 +305,7 @@ class TaskServiceTests(unittest.TestCase):
 
     def test_ts_duration_checkbox_preserves_input_and_requires_ffprobe(self):
         service = Mock()
-        dialog = DownloadDialogTS(None, 'test', str(self.root), task_service=service)
+        dialog = DownloadDialogTS(None, str(self.root), task_service=service)
         try:
             original = dialog.downEdit.tcPlay.GetValue()
             self.assertFalse(dialog.downEdit.detectDuration.GetValue())

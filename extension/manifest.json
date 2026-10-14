@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "AVDownloader 视频地址助手",
+  "version": "0.1.2",
+  "minimum_chrome_version": "102",
+  "description": "捕获当前标签页的 M3U8 / MP4 地址，发送到本机 AVDownloader 确认创建任务。",
+  "permissions": ["webRequest", "storage"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    },
+    "default_popup": "popup.html",
+    "default_title": "AVDownloader 视频地址"
+  }
+}

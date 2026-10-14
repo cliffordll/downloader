@@ -7,18 +7,23 @@ from src.core.task_service import TaskService
 from src.storage.task_repository import TaskDataError
 
 class DownloadDialogMU(wx.Dialog):
-    def __init__(self, parent, title, workPath, task_service: TaskService):
+    def __init__(self, parent, work_path, task_service: TaskService, *, title='下载 M3U8', capture=None):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
+        self.request_headers = {'Referer': capture['referer']} if capture and capture.get('referer') else {}
         self.SetTitle(title)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         self.downEdit = DownloadEditMU(self)
-        self.downPath = DownloadPath(self, workPath)
+        self.downEdit.request_headers = self.request_headers
+        self.downPath = DownloadPath(self, work_path)
         self.downEdit.Bind(wx.EVT_BUTTON, self.OnEditBtnClicked)
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
         self.downEdit.tcURI.Bind(wx.EVT_TEXT, self.downPath.OnSourceChanged)
+        if capture:
+            self.downEdit.tcURI.SetValue(capture['url'])
+            self.downPath.SetDownPath(capture['url'])
 
         # sizer.Add(uriSizer, flag=wx.ALIGN_CENTER|wx.TOP|wx.BOTTOM, border=5)
         panel_flag = wx.EXPAND
@@ -54,7 +59,7 @@ class DownloadDialogMU(wx.Dialog):
         try:
             downPath = self.downPath.GetDownPath()
             self.tasks.create_m3u8(downPath, baseUri, content, basePath,
-                                   filename=self.downPath.GetFileName())
+                                   filename=self.downPath.GetFileName(), request_headers=self.request_headers)
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f"下载任务创建失败：{error}", "提示", wx.ICON_WARNING, parent=self)
             return

@@ -1,0 +1,21 @@
+* {box-sizing: border-box}
+body {width: 440px; margin: 0; padding: 20px; font: 14px/1.5 system-ui, sans-serif; color: #172637; background: #f5f7fa}
+h1 {font-size: 22px; margin: 0}
+p {margin: 8px 0}
+header {margin-bottom: 16px}
+header p, footer, details p {color: #526374}
+details {background: white; border: 1px solid #dce3ec; border-radius: 8px; padding: 10px; margin-bottom: 12px}
+summary {cursor: pointer}
+label {display: block}
+input {width: 100%; padding: 8px; border: 1px solid #bcc9d9; border-radius: 5px; margin: 6px 0}
+button {cursor: pointer; padding: 7px 12px; border: 1px solid #becbdc; border-radius: 5px; background: white; color: #17345a}
+button:disabled {opacity: .5; cursor: default}
+button:focus-visible, input:focus-visible {outline: 2px solid #2064d7; outline-offset: 2px}
+nav, .actions {display: flex; gap: 8px}
+article {margin: 10px 0; background: white; border: 1px solid #dce3ec; padding: 12px; border-radius: 8px}
+article strong {color: #145ac7}
+.url {overflow-wrap: anywhere; max-height: 100px; overflow-y: auto; margin: 8px 0; user-select: text}
+.send {background: #205dbe; color: white; border-color: #205dbe}
+#list {max-height: 410px; overflow-y: auto}
+#status {color: #215499; overflow-wrap: anywhere}
+footer {font-size: 12px; margin-top: 16px}

@@ -52,6 +52,7 @@ if __name__ == "__main__":
         wx.MessageBox(f"无法启动应用：{error}", "启动失败", wx.OK | wx.ICON_ERROR)
         raise SystemExit(1)
     sample.Show()
+    sample.RestoreBrowserConnection()
     try:
         app.MainLoop()
     finally:
