@@ -4,6 +4,9 @@ import requests
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from unittest.mock import patch
+import socket
+import json
+from src.core.browser_pairing import load_or_create_pairing
 
 from src.core.browser_bridge import BrowserBridge, validate_capture
 
@@ -93,3 +96,54 @@ class BrowserBridgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             BrowserBridge(port=0, token_path=self.token_path)
         self.assertEqual(self.token_path.read_text(encoding='utf-8'), '{bad')
+
+    def free_port(self):
+        with socket.socket() as candidate:
+            candidate.bind(('127.0.0.1', 0))
+            return candidate.getsockname()[1]
+
+    def test_port_switch_preserves_token_and_queue_and_survives_restart(self):
+        self.assertEqual(self.post().status_code, 202)
+        token = self.bridge.token
+        old_url = self.url
+        port = self.free_port()
+        self.assertEqual(self.bridge.set_port(port), port)
+        self.assertEqual(self.bridge.token, token)
+        self.assertEqual(self.bridge.inbox.qsize(), 1)
+        self.url = f'http://127.0.0.1:{port}/capture'
+        self.assertEqual(self.post().status_code, 202)
+        with self.assertRaises(requests.ConnectionError):
+            requests.post(old_url, json=self.capture, headers=self.headers, timeout=1)
+        self.bridge.close()
+        restarted = BrowserBridge(token_path=self.token_path)
+        try:
+            self.assertEqual(restarted.port, port)
+            self.assertEqual(restarted.token, token)
+            self.assertEqual(self.post().status_code, 202)
+        finally:
+            restarted.close()
+
+    def test_occupied_port_keeps_original_service_and_config(self):
+        original = self.token_path.read_bytes()
+        with socket.socket() as occupied:
+            occupied.bind(('127.0.0.1', 0))
+            occupied.listen()
+            with self.assertRaises(OSError):
+                self.bridge.set_port(occupied.getsockname()[1])
+        self.assertEqual(self.token_path.read_bytes(), original)
+        self.assertEqual(self.post().status_code, 202)
+
+    def test_failed_port_save_rolls_back_to_original_service(self):
+        original = self.token_path.read_bytes()
+        with patch('src.core.browser_pairing.os.replace', side_effect=OSError('write failed')):
+            with self.assertRaises(OSError):
+                self.bridge.set_port(self.free_port())
+        self.assertEqual(self.token_path.read_bytes(), original)
+        self.assertEqual(self.post().status_code, 202)
+
+    def test_invalid_ports_and_legacy_config(self):
+        for port in (0, -1, 65536, True, '17840', 1.5):
+            with self.assertRaises(ValueError):
+                self.bridge.set_port(port)
+        self.token_path.write_text(json.dumps({'token': self.bridge.token}))
+        self.assertEqual(load_or_create_pairing(self.token_path), (self.bridge.token, 17839))

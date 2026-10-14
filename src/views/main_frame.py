@@ -179,7 +179,7 @@ class MainFrame(wx.Frame):
         tsButton = add_tool(wx.ID_ANY, "下载 TS", "segment")
         mp4Button = add_tool(wx.ID_ANY, '下载 MP4', 'mp4')
         browserButton = add_tool(wx.ID_ANY, '浏览器扩展配对', 'browser')
-        self.toolBar.SetToolShortHelp(browserButton.GetId(), '开启浏览器连接并复制配对码')
+        self.toolBar.SetToolShortHelp(browserButton.GetId(), '开启本机接收服务并管理浏览器扩展配对码')
         self.toolBar.AddSeparator()
         expandButton = add_tool(wx.ID_ANY, "全部展开", "expand")
         collapseButton = add_tool(wx.ID_ANY, "全部折叠", "collapse")
@@ -1038,11 +1038,18 @@ class MainFrame(wx.Frame):
     def OnBrowserConnect(self, event):
         if self.browser_bridge is None:
             try:
-                self.browser_bridge = BrowserBridge()
+                self.browser_bridge = BrowserBridge(start=False)
             except (OSError, ValueError) as error:
-                wx.MessageBox(f'无法开启浏览器连接（端口 17839）：{error}', '连接失败', parent=self)
+                wx.MessageBox(f'无法读取浏览器配对配置：{error}', '连接失败', parent=self)
                 return
-        dialog = BrowserConnectDialog(self, self.browser_bridge.token, reset_token=self.browser_bridge.reset_token)
+        if self.browser_bridge.server is None:
+            try:
+                self.browser_bridge.start()
+            except (OSError, RuntimeError) as error:
+                self.statusBar.SetStatusText(f'本机接收服务未开启：{error}，请在配对窗口修改端口', 0)
+        dialog = BrowserConnectDialog(self, self.browser_bridge.token, reset_token=self.browser_bridge.reset_token,
+                                      port=self.browser_bridge.port, apply_port=self.browser_bridge.set_port,
+                                      listening=self.browser_bridge.server is not None)
         try:
             dialog.ShowModal()
         finally:

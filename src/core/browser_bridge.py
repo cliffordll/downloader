@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from queue import Queue, Full, Empty
 from threading import Thread, RLock
 from urllib.parse import urlsplit
-from src.core.browser_pairing import pairing_path, load_or_create_token, save_token
+from src.core.browser_pairing import pairing_path, load_or_create_pairing, save_token, validate_port
 
 
 def validate_capture(data):
@@ -28,10 +28,14 @@ def validate_capture(data):
 
 
 class BrowserBridge:
-    def __init__(self, port=17839, *, token_path=None):
+    def __init__(self, port=None, *, token_path=None, start=True):
         self.token_path = token_path if token_path is not None else pairing_path()
         self._pairing_lock = RLock()
         self.inbox = Queue(maxsize=10)
+        self.token, saved_port = load_or_create_pairing(self.token_path)
+        self.port = saved_port if port is None else port
+        self.server = None
+        self.thread = None
         bridge = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -51,7 +55,7 @@ class BrowserBridge:
                 self.wfile.write(body)
 
             def do_POST(self):
-                if self.headers.get('Host') != f'127.0.0.1:{bridge.port}':
+                if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
                     return self.reply(403, '无效本地地址')
                 origin = self.headers.get('Origin', '')
                 if origin and not re.fullmatch(r'chrome-extension://[a-p]{32}', origin):
@@ -80,21 +84,56 @@ class BrowserBridge:
                     return self.reply(429, '待确认地址过多，请先处理下载器中的弹窗')
                 self.reply(202, '已发送，请在 AVDownloader 确认创建任务')
 
-        self.server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+        self._handler = Handler
+        if start:
+            self.start()
+
+    def start(self):
+        if self.server is not None:
+            return
+        server = ThreadingHTTPServer(('127.0.0.1', self.port), self._handler)
+        server.daemon_threads = True
+        thread = Thread(target=server.serve_forever, name='browser-bridge', daemon=True)
         try:
-            self.token = load_or_create_token(self.token_path)
-        except (OSError, ValueError):
-            self.server.server_close()
+            thread.start()
+        except RuntimeError:
+            server.server_close()
             raise
-        self.server.daemon_threads = True
-        self.port = self.server.server_port
-        self.thread = Thread(target=self.server.serve_forever, name='browser-bridge', daemon=True)
-        self.thread.start()
+        self.server, self.thread = server, thread
+        self.port = server.server_port
+
+    def set_port(self, port):
+        """先绑定并保存新端口，成功后切换；失败时保持原监听与配置。"""
+        port = validate_port(port)
+        if port == self.port and self.server is not None:
+            return self.port
+        server = ThreadingHTTPServer(('127.0.0.1', port), self._handler)
+        server.daemon_threads = True
+        thread = Thread(target=server.serve_forever, name='browser-bridge', daemon=True)
+        with self._pairing_lock:
+            try:
+                # 成功启动新监听后再保存，保存失败会停止新监听。
+                thread.start()
+                save_token(self.token_path, self.token, port=port)
+            except (OSError, ValueError, RuntimeError):
+                if thread.is_alive():
+                    server.shutdown()
+                server.server_close()
+                if thread.ident is not None:
+                    thread.join(timeout=2)
+                raise
+            old_server, old_thread = self.server, self.thread
+            self.server, self.thread, self.port = server, thread, port
+        if old_server is not None:
+            old_server.shutdown()
+            old_server.server_close()
+            old_thread.join(timeout=2)
+        return self.port
 
     def reset_token(self):
         with self._pairing_lock:
             token = secrets.token_urlsafe(32)
-            save_token(self.token_path, token)
+            save_token(self.token_path, token, port=self.port)
             self.token = token
             while True:
                 try:
@@ -104,6 +143,10 @@ class BrowserBridge:
             return token
 
     def close(self):
+        if self.server is None:
+            return
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)
+        self.server = None
+        self.thread = None

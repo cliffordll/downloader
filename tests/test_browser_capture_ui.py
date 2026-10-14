@@ -12,6 +12,7 @@ from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 from src.core.task_service import TaskService
 from src.storage.task_repository import TaskRepository
 from src.views.main_frame import MainFrame
+from src.views.dialogs.browser_connect_dialog import BrowserConnectDialog
 
 
 class BrowserCaptureUITests(unittest.TestCase):
@@ -92,3 +93,31 @@ class BrowserCaptureUITests(unittest.TestCase):
             MainFrame.RestoreBrowserConnection(frame)
         self.assertIsNone(frame.browser_bridge)
         frame.statusBar.SetStatusText.assert_called_once()
+
+    def test_port_form_validates_input_and_updates_status_only_after_success(self):
+        apply = Mock(return_value=17840)
+        dialog = BrowserConnectDialog(None, 'A' * 43, reset_token=Mock(), port=17839,
+                                      apply_port=apply, listening=False)
+        try:
+            initial = dialog.description.GetLabel()
+            dialog.port.ChangeValue('0')
+            with patch('wx.MessageBox') as message:
+                dialog.OnApplyPort(None)
+                apply.assert_not_called()
+                message.assert_called_once()
+            dialog.port.ChangeValue('17840')
+            apply.side_effect = OSError('port occupied')
+            with patch('wx.MessageBox'):
+                dialog.OnApplyPort(None)
+            self.assertEqual(dialog.description.GetLabel(), initial)
+            apply.side_effect = None
+            dialog.OnApplyPort(None)
+            apply.assert_called_with(17840)
+            self.assertIn('17840', dialog.note.GetLabel())
+            self.assertIn('已开启', dialog.description.GetLabel())
+            self.assertEqual(dialog.code.GetValue(), 'A' * 43)
+            self.assertGreaterEqual(dialog.code.GetClientSize().width,
+                                    dialog.code.GetTextExtent(dialog.code.GetValue()).width + 16)
+        finally:
+            dialog.Destroy()
+            self.app.ProcessPendingEvents()
