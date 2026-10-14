@@ -32,7 +32,7 @@ class BrowserCaptureUITests(unittest.TestCase):
                 capture = {'type': kind, 'url': f'https://cdn.example/video.{kind}?sign=a%2Fb',
                            'referer': 'https://example.com/watch'}
                 if kind == 'm3u8':
-                    dialog = DownloadDialogMU(None, 'test', str(self.root), self.service, capture=capture)
+                    dialog = DownloadDialogMU(None, str(self.root), self.service, capture=capture)
                     dialog.downEdit.tsList.SetValue('#EXTM3U\n#EXTINF:4,\na.ts\n')
                 else:
                     dialog = DownloadDialogMP4(None, str(self.root), self.service, capture=capture)

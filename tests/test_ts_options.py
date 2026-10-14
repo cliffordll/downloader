@@ -69,7 +69,7 @@ class TSOptionsTests(unittest.TestCase):
     def test_form_generation_and_collapsed_options(self):
         app = wx.GetApp() or wx.App(False)
         service = Mock()
-        dialog = DownloadDialogTS(None, 'test', str(Path.cwd()), task_service=service)
+        dialog = DownloadDialogTS(None, str(Path.cwd()), task_service=service)
         try:
             form = dialog.downEdit
             self.assertFalse(form.advanced.GetValue())

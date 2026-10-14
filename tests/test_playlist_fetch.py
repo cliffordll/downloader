@@ -18,7 +18,7 @@ class PlaylistFetchTests(unittest.TestCase):
     def setUp(self):
         temporary = TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.dialog = DownloadDialogMU(None, 'test', temporary.name, task_service=Mock())
+        self.dialog = DownloadDialogMU(None, temporary.name, task_service=Mock())
         self.addCleanup(self.app.ProcessPendingEvents)
         self.addCleanup(lambda: self.dialog.Destroy() if self.dialog else None)
         self.panel = self.dialog.downEdit

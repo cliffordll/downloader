@@ -138,7 +138,7 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertFalse((new_default / 'segments').exists())
 
         # 从实际添加入口取得新默认目录，并通过表单创建新任务。
-        dialog = DownloadDialogMU(frame, 'test', SysSetting.GetWorkPath(), task_service=self.service)
+        dialog = DownloadDialogMU(frame, SysSetting.GetWorkPath(), task_service=self.service)
         try:
             dialog.downPath.tcDown.SetValue('new-task')
             dialog.downEdit.tcURI.SetValue('https://example.com/new.m3u8')

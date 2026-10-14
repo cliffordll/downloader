@@ -9,7 +9,7 @@ from src.schemas.task import SourceType
 from src.core.sys_setting import SysSetting
 
 class DownloadDialogTS(wx.Dialog):
-    def __init__(self, parent, title, workPath, task_service: TaskService):
+    def __init__(self, parent, work_path, task_service: TaskService, *, title='下载 TS'):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
@@ -17,7 +17,7 @@ class DownloadDialogTS(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         self.downEdit = DownloadEditTS(self)
-        self.downPath = DownloadPath(self, workPath)
+        self.downPath = DownloadPath(self, work_path)
         self.downEdit.Bind(wx.EVT_BUTTON, self.OnEditBtnClicked)
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
         self.downEdit.tcURI.Bind(wx.EVT_TEXT, self.downPath.OnSourceChanged)

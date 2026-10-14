@@ -1028,7 +1028,7 @@ class MainFrame(wx.Frame):
     
     def OnAddMU(self, event):
         workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogMU(self, "M3U8 URI", workPath, task_service=self.tasks)
+        dlg = DownloadDialogMU(self, workPath, task_service=self.tasks)
         result = dlg.ShowModal()
         if result == wx.OK:
             # 创建新任务成功，自动刷新页面
@@ -1074,6 +1074,8 @@ class MainFrame(wx.Frame):
         except Empty:
             return
         self._capture_dialog_open = True
+        # 程序通知界面线程打开创建任务弹窗
+        # 相当于告诉 wxPython：“下一次处理界面事件时，执行 self._OpenBrowserCapture(capture)。”
         wx.CallAfter(self._OpenBrowserCapture, capture)
 
     def _OpenBrowserCapture(self, capture):
@@ -1081,12 +1083,16 @@ class MainFrame(wx.Frame):
             return
         dialog = None
         try:
+            # 表示取消主窗口的最小化状态。如果它原本没有最小化，通常不会改变当前状态。
             self.Iconize(False)
+            # 将窗口提升到其他窗口前面
             self.Raise()
             if capture['type'] == 'm3u8':
-                dialog = DownloadDialogMU(self, '从浏览器添加 M3U8', SysSetting.GetWorkPath(), self.tasks, capture=capture)
+                dialog = DownloadDialogMU(self, SysSetting.GetWorkPath(), self.tasks,
+                                           title='从浏览器添加 M3U8', capture=capture)
             else:
-                dialog = DownloadDialogMP4(self, SysSetting.GetWorkPath(), self.tasks, capture=capture)
+                dialog = DownloadDialogMP4(self, SysSetting.GetWorkPath(), self.tasks,
+                                            title='从浏览器添加 MP4', capture=capture)
             if dialog.ShowModal() == wx.OK:
                 self.OnRefresh(None)
                 if capture['type'] == 'mp4':
@@ -1098,7 +1104,7 @@ class MainFrame(wx.Frame):
 
     def OnAddTS(self, event):
         workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogTS(self, "M3U8 TS", workPath, task_service=self.tasks)
+        dlg = DownloadDialogTS(self, workPath, task_service=self.tasks)
         result = dlg.ShowModal()
         if result == wx.OK:
             # 创建新任务成功，自动刷新页面

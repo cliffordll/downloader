@@ -7,7 +7,7 @@ from src.core.task_service import TaskService
 from src.storage.task_repository import TaskDataError
 
 class DownloadDialogMU(wx.Dialog):
-    def __init__(self, parent, title, workPath, task_service: TaskService, *, capture=None):
+    def __init__(self, parent, work_path, task_service: TaskService, *, title='下载 M3U8', capture=None):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
@@ -17,7 +17,7 @@ class DownloadDialogMU(wx.Dialog):
 
         self.downEdit = DownloadEditMU(self)
         self.downEdit.request_headers = self.request_headers
-        self.downPath = DownloadPath(self, workPath)
+        self.downPath = DownloadPath(self, work_path)
         self.downEdit.Bind(wx.EVT_BUTTON, self.OnEditBtnClicked)
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
         self.downEdit.tcURI.Bind(wx.EVT_TEXT, self.downPath.OnSourceChanged)

@@ -131,6 +131,12 @@ class BrowserBridge:
         return self.port
 
     def reset_token(self):
+        """重置浏览器扩展配对码，返回已保存的新码。
+
+        保存成功后旧码失效，并清空尚未处理的视频地址队列；
+        端口和监听服务保持不变，扩展需重新保存新码才能发送地址。
+        保存失败则保留原配对码和队列。
+        """
         with self._pairing_lock:
             token = secrets.token_urlsafe(32)
             save_token(self.token_path, token, port=self.port)
