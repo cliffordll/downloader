@@ -58,13 +58,14 @@ function render() {
     const delivery = document.createElement("span");
     delivery.className = "delivery";
     delivery.setAttribute("role", "status");
+    let removeError = "";
     function showDelivery() {
-      article.className = item.deliveryState || '';
+      article.className = removeError ? "failed" : item.deliveryState || '';
       send.disabled = sending.has(deliveryKey);
       send.textContent = send.disabled ? "发送中…" : item.deliveryState === "sent" ? "再次添加"
         : item.deliveryState === "failed" ? "重试" : "添加任务";
-      delivery.textContent = send.disabled ? "发送中…" : item.deliveryState === "sent"
-        ? "已发送 · 待确认" : item.deliveryState === "failed" ? `发送失败：${item.deliveryMessage}` : "";
+      delivery.textContent = removeError || (send.disabled ? "发送中…" : item.deliveryState === "sent"
+        ? "已发送 · 待确认" : item.deliveryState === "failed" ? `发送失败：${item.deliveryMessage}` : "");
       delivery.title = delivery.textContent;
     }
     showDelivery();
@@ -108,12 +109,15 @@ function render() {
     remove.title = "从当前页候选列表中移除此地址";
     remove.onclick = async () => {
       remove.disabled = true;
+      removeError = "";
+      showDelivery();
       try {
         const result = await chrome.runtime.sendMessage({action: "delete", tabId: itemTabId, url: item.url});
         if (!result?.ok) throw new Error(result?.message || "删除失败，请重试");
-        status("地址已从候选列表删除");
-      } catch (error) { status(error.message); }
-      finally { remove.disabled = false; }
+      } catch (error) {
+        removeError = `删除失败：${error.message || "请重试"}`;
+        showDelivery();
+      } finally { remove.disabled = false; }
     };
     actions.append(copy, send, remove);
     heading.append(type, delivery);
