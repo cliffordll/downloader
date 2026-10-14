@@ -2600,6 +2600,14 @@
     },
     {
       "category": "tools",
+      "name": "extension",
+      "label": "浏览器扩展",
+      "origin": "additional-tools",
+      "added": true,
+      "source": "source/tools/extension.png"
+    },
+    {
+      "category": "tools",
       "name": "link",
       "label": "链接",
       "origin": "additional-tools",

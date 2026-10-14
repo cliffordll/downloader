@@ -17,6 +17,7 @@ from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
 from src.views.dialogs.browser_connect_dialog import BrowserConnectDialog
 from src.core.task_runner import TaskRunner
 from src.core.browser_bridge import BrowserBridge
+from src.core.browser_pairing import pairing_path
 from src.core.file_export import save_file_as
 
 
@@ -100,7 +101,7 @@ class MainFrame(wx.Frame):
         addMP4Item = fileMenu.Append(wx.ID_ANY, '下载 MP4\tCtrl-P')
         fileMenu.AppendSeparator()
         settingItem  = fileMenu.Append(wx.ID_ANY, "设置\tCtrl-,")
-        browserItem = fileMenu.Append(wx.ID_ANY, '连接浏览器扩展…')
+        browserItem = fileMenu.Append(wx.ID_ANY, '浏览器扩展配对…')
         self.Bind(wx.EVT_MENU, self.OnBrowserConnect, browserItem)
         exitItem    = fileMenu.Append(wx.ID_EXIT, "&退出")
         # 绑定事件
@@ -177,7 +178,7 @@ class MainFrame(wx.Frame):
         muButton = add_tool(wx.ID_ANY, "下载 M3U8", "playlist")
         tsButton = add_tool(wx.ID_ANY, "下载 TS", "segment")
         mp4Button = add_tool(wx.ID_ANY, '下载 MP4', 'mp4')
-        browserButton = add_tool(wx.ID_ANY, '连接浏览器扩展', 'browser')
+        browserButton = add_tool(wx.ID_ANY, '浏览器扩展配对', 'browser')
         self.toolBar.SetToolShortHelp(browserButton.GetId(), '开启浏览器连接并复制配对码')
         self.toolBar.AddSeparator()
         expandButton = add_tool(wx.ID_ANY, "全部展开", "expand")
@@ -1038,14 +1039,23 @@ class MainFrame(wx.Frame):
         if self.browser_bridge is None:
             try:
                 self.browser_bridge = BrowserBridge()
-            except OSError as error:
+            except (OSError, ValueError) as error:
                 wx.MessageBox(f'无法开启浏览器连接（端口 17839）：{error}', '连接失败', parent=self)
                 return
-        dialog = BrowserConnectDialog(self, self.browser_bridge.token)
+        dialog = BrowserConnectDialog(self, self.browser_bridge.token, reset_token=self.browser_bridge.reset_token)
         try:
             dialog.ShowModal()
         finally:
             dialog.Destroy()
+
+    def RestoreBrowserConnection(self):
+        """首次启用过连接后，重启恢复服务，不弹出配对窗口。"""
+        if self.browser_bridge is not None or not pairing_path().is_file():
+            return
+        try:
+            self.browser_bridge = BrowserBridge()
+        except (OSError, ValueError) as error:
+            self.statusBar.SetStatusText(f'浏览器连接未恢复：{error}', 0)
 
     def _CheckBrowserInbox(self):
         if self.browser_bridge is None or self._capture_dialog_open:

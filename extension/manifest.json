@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AVDownloader 视频地址助手",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minimum_chrome_version": "102",
   "description": "捕获当前标签页的 M3U8 / MP4 地址，发送到本机 AVDownloader 确认创建任务。",
   "permissions": ["webRequest", "storage"],

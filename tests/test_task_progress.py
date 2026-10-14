@@ -603,7 +603,7 @@ class TaskProgressTests(unittest.TestCase):
                 view_labels.append('显示工具栏')
             view_labels.append('显示状态栏')
             for index, expected in enumerate((
-                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '连接浏览器扩展…', '退出'],
+                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '浏览器扩展配对…', '退出'],
                 ['全部暂停', '全部继续'],
                 view_labels,
                 ['使用说明', '关于'],
@@ -625,7 +625,7 @@ class TaskProgressTests(unittest.TestCase):
                 return
             tools = [frame.toolBar.GetToolByPos(i).GetLabel()
                      for i in range(frame.toolBar.GetToolsCount())]
-            for label in ('连接浏览器扩展', '全部展开', '全部折叠', '全部暂停', '刷新', '设置'):
+            for label in ('浏览器扩展配对', '全部展开', '全部折叠', '全部暂停', '刷新', '设置'):
                 self.assertIn(label, tools)
             self.assertFalse(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
             M3U8Downloader._pending.add(self.key)

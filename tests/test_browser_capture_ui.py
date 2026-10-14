@@ -68,3 +68,27 @@ class BrowserCaptureUITests(unittest.TestCase):
             MainFrame._CheckBrowserInbox(frame)
             dispatch.assert_called_once_with(frame._OpenBrowserCapture, capture)
             self.assertEqual(inbox.qsize(), 1)
+
+    def test_startup_restores_connection_only_after_first_enable(self):
+        config = self.root / 'browser-pairing.json'
+        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock())
+        with patch('src.views.main_frame.pairing_path', return_value=config), \
+             patch('src.views.main_frame.BrowserBridge') as bridge:
+            MainFrame.RestoreBrowserConnection(frame)
+            bridge.assert_not_called()
+            config.write_text('{}')
+            MainFrame.RestoreBrowserConnection(frame)
+            bridge.assert_called_once_with()
+            self.assertIs(frame.browser_bridge, bridge.return_value)
+            MainFrame.RestoreBrowserConnection(frame)
+            bridge.assert_called_once_with()
+
+    def test_connection_restore_failure_keeps_app_usable(self):
+        config = self.root / 'browser-pairing.json'
+        config.write_text('{}')
+        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock())
+        with patch('src.views.main_frame.pairing_path', return_value=config), \
+             patch('src.views.main_frame.BrowserBridge', side_effect=OSError('port occupied')):
+            MainFrame.RestoreBrowserConnection(frame)
+        self.assertIsNone(frame.browser_bridge)
+        frame.statusBar.SetStatusText.assert_called_once()

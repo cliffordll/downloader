@@ -1,3 +1,4 @@
+import {getPairingToken, savePairingToken} from './pairing.js';
 const $ = id => document.getElementById(id);
 let tabId;
 let initialized = false;
@@ -6,10 +7,11 @@ function status(message) { $("status").textContent = message; }
 async function load() {
   const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
   tabId = tab?.id;
-  const saved = await chrome.storage.session.get([`tab:${tabId}`, "bridgeToken"]);
+  const saved = await chrome.storage.session.get(`tab:${tabId}`);
   if (!initialized) {
-    $("token").value = saved.bridgeToken || "";
-    if (!saved.bridgeToken) document.querySelector("details").open = true;
+    const bridgeToken = await getPairingToken();
+    $("token").value = bridgeToken;
+    if (!bridgeToken) document.querySelector("details").open = true;
     initialized = true;
   }
   const items = saved[`tab:${tabId}`] || [];
@@ -41,7 +43,7 @@ async function load() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
       try {
-        const {bridgeToken} = await chrome.storage.session.get("bridgeToken");
+        const bridgeToken = await getPairingToken();
         if (!bridgeToken) throw new Error("请先展开“连接下载器”并保存配对码");
         const response = await fetch("http://127.0.0.1:17839/capture", {
           method: "POST", headers: {"Content-Type": "application/json", "X-AVDownloader-Token": bridgeToken},
@@ -51,7 +53,7 @@ async function load() {
         status(result.message);
       } catch (error) {
         status(error instanceof TypeError || error.name === "AbortError"
-          ? "无法连接，请启动 AVDownloader 并打开“文件 → 连接浏览器扩展”" : error.message);
+          ? "无法连接，请启动 AVDownloader 并打开“文件 → 浏览器扩展配对”" : error.message);
       } finally { clearTimeout(timeout); send.disabled = false; }
     };
     actions.append(copy, send);
@@ -62,7 +64,7 @@ async function load() {
 $("pair").onclick = async () => {
   const token = $("token").value.trim();
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return status("请粘贴下载器显示的完整配对码");
-  await chrome.storage.session.set({bridgeToken: token});
+  await savePairingToken(token);
   status("配对码已保存，可选择视频地址发送");
 };
 $("refresh").onclick = () => load().catch(error => status(error.message));

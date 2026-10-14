@@ -3,9 +3,10 @@ import json
 import re
 import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from queue import Queue, Full
-from threading import Thread
+from queue import Queue, Full, Empty
+from threading import Thread, RLock
 from urllib.parse import urlsplit
+from src.core.browser_pairing import pairing_path, load_or_create_token, save_token
 
 
 def validate_capture(data):
@@ -27,8 +28,9 @@ def validate_capture(data):
 
 
 class BrowserBridge:
-    def __init__(self, port=17839):
-        self.token = secrets.token_urlsafe(32)
+    def __init__(self, port=17839, *, token_path=None):
+        self.token_path = token_path if token_path is not None else pairing_path()
+        self._pairing_lock = RLock()
         self.inbox = Queue(maxsize=10)
         bridge = self
 
@@ -69,16 +71,37 @@ class BrowserBridge:
                 except (ValueError, OSError):
                     return self.reply(400, '无效视频地址')
                 try:
-                    bridge.inbox.put_nowait(capture)
+                    with bridge._pairing_lock:
+                        # 读取请求体期间可能发生重置，入队前再次校验。
+                        if not secrets.compare_digest(token, bridge.token.encode('ascii')):
+                            return self.reply(403, '配对码不正确，请重新配对')
+                        bridge.inbox.put_nowait(capture)
                 except Full:
                     return self.reply(429, '待确认地址过多，请先处理下载器中的弹窗')
                 self.reply(202, '已发送，请在 AVDownloader 确认创建任务')
 
         self.server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+        try:
+            self.token = load_or_create_token(self.token_path)
+        except (OSError, ValueError):
+            self.server.server_close()
+            raise
         self.server.daemon_threads = True
         self.port = self.server.server_port
         self.thread = Thread(target=self.server.serve_forever, name='browser-bridge', daemon=True)
         self.thread.start()
+
+    def reset_token(self):
+        with self._pairing_lock:
+            token = secrets.token_urlsafe(32)
+            save_token(self.token_path, token)
+            self.token = token
+            while True:
+                try:
+                    self.inbox.get_nowait()
+                except Empty:
+                    break
+            return token
 
     def close(self):
         self.server.shutdown()
