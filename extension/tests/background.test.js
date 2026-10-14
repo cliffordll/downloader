@@ -5,7 +5,6 @@ test("captures per tab, survives worker restart, clears navigation and never sto
   const events = {};
   const state = {};
   const badges = {};
-  let failEmptyBadge = false;
   function event(name) {
     return {addListener(callback) { events[name] = callback; }};
   }
@@ -17,13 +16,7 @@ test("captures per tab, survives worker restart, clears navigation and never sto
       async set(values) { Object.assign(state, values); },
       async remove(key) { delete state[key]; }
     }},
-    action: {async setBadgeText({tabId, text}) {
-      badges[tabId] = text;
-      if (text === "" && failEmptyBadge) {
-        failEmptyBadge = false;
-        throw new Error("badge unavailable");
-      }
-    }},
+    action: {async setBadgeText({tabId, text}) { badges[tabId] = text; }},
     runtime: {id: "test", onMessage: event("message")}
   };
   const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -56,18 +49,9 @@ test("captures per tab, survives worker restart, clears navigation and never sto
   events.onHeadersReceived(response);
   await flush();
   assert.equal(state['tab:1'].find(item => item.url === response.url).deliveryState, 'sent');
-  const remove = url => new Promise(resolve => {
-    assert.equal(events.message({action: 'delete', tabId: 1, url}, {id: 'test'}, resolve), true);
-  });
-  assert.deepEqual(await remove(response.url), {ok: true});
-  assert.equal(state['tab:1'].length, 1);
-  assert.equal(state['tab:1'][0].url, 'https://cdn.test/stream?token=2');
+  assert.equal(state['tab:1'].length, 2);
   assert.equal(state['tab:2'].length, 1);
-  assert.equal(badges[1], '1');
-  failEmptyBadge = true;
-  assert.deepEqual(await remove('https://cdn.test/stream?token=2'), {ok: true});
-  assert.equal(state['tab:1'], undefined);
-  assert.equal(badges[1], '');
+  assert.equal(badges[1], '2');
   events.updated(1, {status: "loading"});
   await flush();
   assert.equal(state["tab:1"], undefined);

@@ -56,26 +56,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     });
     return true;
   }
-  if (message.action === "delete" && Number.isInteger(message.tabId) && typeof message.url === "string") {
-    enqueue(async () => {
-      try {
-        const key = tabKey(message.tabId);
-        const stored = await chrome.storage.session.get(key);
-        const items = (stored[key] || []).filter(item => item.url !== message.url);
-        if (items.length) await chrome.storage.session.set({[key]: items});
-        else await chrome.storage.session.remove(key);
-        respond({ok: true});
-        try {
-          await chrome.action.setBadgeText({tabId: message.tabId, text: items.length ? String(items.length) : ""});
-        } catch (error) {
-          console.warn("AVDownloader 角标更新失败", error.message);
-        }
-      } catch {
-        respond({ok: false, message: "删除失败，请重试"});
-      }
-    });
-    return true;
-  }
   if (message.action === "clear" && Number.isInteger(message.tabId)) {
     enqueue(async () => {
       await chrome.storage.session.remove(tabKey(message.tabId));

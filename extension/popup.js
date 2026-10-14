@@ -58,14 +58,13 @@ function render() {
     const delivery = document.createElement("span");
     delivery.className = "delivery";
     delivery.setAttribute("role", "status");
-    let removeError = "";
     function showDelivery() {
-      article.className = removeError ? "failed" : item.deliveryState || '';
+      article.className = item.deliveryState || '';
       send.disabled = sending.has(deliveryKey);
       send.textContent = send.disabled ? "发送中…" : item.deliveryState === "sent" ? "再次添加"
         : item.deliveryState === "failed" ? "重试" : "添加任务";
-      delivery.textContent = removeError || (send.disabled ? "发送中…" : item.deliveryState === "sent"
-        ? "已发送 · 待确认" : item.deliveryState === "failed" ? `发送失败：${item.deliveryMessage}` : "");
+      delivery.textContent = send.disabled ? "发送中…" : item.deliveryState === "sent"
+        ? "已发送 · 待确认" : item.deliveryState === "failed" ? `发送失败：${item.deliveryMessage}` : "";
       delivery.title = delivery.textContent;
     }
     showDelivery();
@@ -104,22 +103,7 @@ function render() {
           ? "无法连接，请确认下载器已开启本机接收服务，并检查两端端口一致" : error.message);
       } finally { clearTimeout(timeout); sending.delete(deliveryKey); showDelivery(); }
     };
-    const remove = document.createElement("button");
-    remove.textContent = "删除";
-    remove.title = "从当前页候选列表中移除此地址";
-    remove.onclick = async () => {
-      remove.disabled = true;
-      removeError = "";
-      showDelivery();
-      try {
-        const result = await chrome.runtime.sendMessage({action: "delete", tabId: itemTabId, url: item.url});
-        if (!result?.ok) throw new Error(result?.message || "删除失败，请重试");
-      } catch (error) {
-        removeError = `删除失败：${error.message || "请重试"}`;
-        showDelivery();
-      } finally { remove.disabled = false; }
-    };
-    actions.append(copy, send, remove);
+    actions.append(copy, send);
     heading.append(type, delivery);
     article.append(heading, url, actions);
     $("list").append(article);
