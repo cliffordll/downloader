@@ -40,6 +40,15 @@ test("captures per tab, survives worker restart, clears navigation and never sto
   events.onHeadersReceived({...response, tabId: 2});
   events.onHeadersReceived({...response, url: 'https://cdn.test/stream?token=2'});
   await flush();
+  const delivered = await new Promise(resolve => {
+    events.message({action: 'delivery', tabId: 1, url: response.url, state: 'sent'}, {id: 'test'}, resolve);
+  });
+  assert.deepEqual(delivered, {ok: true});
+  assert.equal(state['tab:1'].find(item => item.url === response.url).deliveryState, 'sent');
+  assert.equal(state['tab:2'][0].deliveryState, undefined);
+  events.onHeadersReceived(response);
+  await flush();
+  assert.equal(state['tab:1'].find(item => item.url === response.url).deliveryState, 'sent');
   const remove = url => new Promise(resolve => {
     assert.equal(events.message({action: 'delete', tabId: 1, url}, {id: 'test'}, resolve), true);
   });

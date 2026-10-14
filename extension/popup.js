@@ -3,6 +3,7 @@ const $ = id => document.getElementById(id);
 let tabId;
 let initialized = false;
 let captures = [];
+const sending = new Set();
 function status(message) { $("status").textContent = message; }
 
 async function load() {
@@ -50,10 +51,36 @@ function render() {
     };
     const send = document.createElement("button");
     send.className = "send";
-    send.textContent = "添加任务";
+    const itemTabId = tabId;
+    const deliveryKey = `${itemTabId}:${item.url}`;
+    const delivery = document.createElement("p");
+    delivery.className = "delivery";
+    delivery.setAttribute("role", "status");
+    function showDelivery() {
+      article.className = item.deliveryState || '';
+      send.disabled = sending.has(deliveryKey);
+      send.textContent = send.disabled ? "发送中…" : item.deliveryState === "sent" ? "再次添加"
+        : item.deliveryState === "failed" ? "重试" : "添加任务";
+      delivery.textContent = send.disabled ? "正在发送到下载器…" : item.deliveryState === "sent"
+        ? "已发送，待下载器确认" : item.deliveryState === "failed" ? `发送失败：${item.deliveryMessage}` : "";
+    }
+    showDelivery();
+    async function recordDelivery(state, message = '') {
+      sending.delete(deliveryKey);
+      item.deliveryState = state;
+      item.deliveryMessage = message;
+      showDelivery();
+      try {
+        const result = await chrome.runtime.sendMessage({action: "delivery", tabId: itemTabId,
+          url: item.url, state, message});
+        if (!result?.ok) delivery.textContent += "（状态未保存）";
+      } catch { delivery.textContent += "（状态未保存）"; }
+    }
     send.title = "发送到 AVDownloader，确认后创建下载任务";
     send.onclick = async () => {
-      send.disabled = true;
+      if (sending.has(deliveryKey)) return;
+      sending.add(deliveryKey);
+      showDelivery();
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
       try {
@@ -62,19 +89,20 @@ function render() {
         const port = await getPairingPort();
         const response = await fetch(`http://127.0.0.1:${port}/capture`, {
           method: "POST", headers: {"Content-Type": "application/json", "X-AVDownloader-Token": bridgeToken},
-          body: JSON.stringify(item), signal: controller.signal, credentials: "omit"
+          body: JSON.stringify({url: item.url, type: item.type, referer: item.referer}),
+          signal: controller.signal, credentials: "omit"
         });
         const result = await response.json();
-        status(result.message);
+        if (response.status !== 202) throw new Error(result.message || `HTTP ${response.status}`);
+        await recordDelivery("sent");
       } catch (error) {
-        status(error instanceof TypeError || error.name === "AbortError"
+        await recordDelivery("failed", error instanceof TypeError || error.name === "AbortError"
           ? "无法连接，请确认下载器已开启本机接收服务，并检查两端端口一致" : error.message);
-      } finally { clearTimeout(timeout); send.disabled = false; }
+      } finally { clearTimeout(timeout); sending.delete(deliveryKey); showDelivery(); }
     };
     const remove = document.createElement("button");
     remove.textContent = "删除";
     remove.title = "从当前页候选列表中移除此地址";
-    const itemTabId = tabId;
     remove.onclick = async () => {
       remove.disabled = true;
       try {
@@ -85,7 +113,7 @@ function render() {
       finally { remove.disabled = false; }
     };
     actions.append(copy, send, remove);
-    article.append(type, url, actions);
+    article.append(type, url, actions, delivery);
     $("list").append(article);
   }
 }

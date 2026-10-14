@@ -16,9 +16,10 @@
     <label class="visually-hidden" for="keyword">地址关键词</label>
     <input id="keyword" type="search" placeholder="筛选地址关键词" autocomplete="off">
     <label class="visually-hidden" for="media-type">视频类型</label>
-    <select id="media-type"><option value="all">全部类型</option><option value="m3u8">M3U8</option><option value="mp4">MP4</option></select>
+    <select id="media-type"><option value="all">全部</option><option value="m3u8">M3U8</option><option value="mp4">MP4</option></select>
+    <button id="refresh" title="重新读取已捕获的地址，不刷新网页">刷新</button>
+    <button id="clear" title="清空当前标签页的全部候选地址，包括被筛选隐藏的地址">清空</button>
   </div>
-  <nav><button id="refresh">刷新列表</button><button id="clear">清空当前页</button></nav>
   <p id="count" aria-live="polite"></p>
   <p id="status" role="status" aria-live="polite"></p>
   <main id="list"></main>

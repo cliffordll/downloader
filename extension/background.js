@@ -42,6 +42,20 @@ chrome.tabs.onUpdated.addListener((id, change) => {
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id) return;
+  if (message.action === "delivery" && Number.isInteger(message.tabId) && typeof message.url === "string"
+      && ["sent", "failed"].includes(message.state)) {
+    enqueue(async () => {
+      try {
+        const key = tabKey(message.tabId);
+        const stored = await chrome.storage.session.get(key);
+        const items = (stored[key] || []).map(item => item.url === message.url
+          ? {...item, deliveryState: message.state, deliveryMessage: String(message.message || '').slice(0, 500)} : item);
+        await chrome.storage.session.set({[key]: items});
+        respond({ok: true});
+      } catch { respond({ok: false}); }
+    });
+    return true;
+  }
   if (message.action === "delete" && Number.isInteger(message.tabId) && typeof message.url === "string") {
     enqueue(async () => {
       try {

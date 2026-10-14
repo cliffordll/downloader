@@ -11,6 +11,7 @@ export function mediaType(url, contentType = "") {
 }
 
 export function mergeCapture(items, capture) {
+  const previous = items.find(item => item.url === capture.url);
   const remaining = items.filter(item => item.url !== capture.url);
-  return [...remaining, capture].slice(-100);
+  return [...remaining, {...previous, ...capture}].slice(-100);
 }
