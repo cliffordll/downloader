@@ -666,6 +666,7 @@ class MainFrame(wx.Frame):
         self._CheckBrowserInbox()
         display = {}
         child_display = {}
+        file_actions = {}
         snapshot = M3U8Downloader.Snapshot()
         for index, task in enumerate(self.model.fileTree.items):
             info = self.model.TaskInfo(index)
@@ -679,7 +680,16 @@ class MainFrame(wx.Frame):
                         self.model.ValueChanged(item, column)
             root = self.model.ObjectToItem(self.model._BuildKey((index,)))
             if self.mcTree.IsExpanded(root):
-                for child_index in range(len(task.outputs) + len(task.childs)):
+                for file_index in [-4, *range(len(task.outputs))]:
+                    actions = self.model.FileActions(index, file_index)
+                    if not actions:
+                        continue
+                    key = (task.task_id or task.parent.fileName, file_index)
+                    file_actions[key] = json.dumps(actions, ensure_ascii=False)
+                    if notify and getattr(self, '_file_actions_display', {}).get(key) != file_actions[key]:
+                        node = self.model.ObjectToItem(self.model._BuildKey((index, file_index)))
+                        self.model.ValueChanged(node, 4)
+                for child_index in range(len(task.outputs) + (0 if task.work_dir_missing else len(task.childs))):
                     folder = self.model.ObjectToItem(self.model._BuildKey((index, -1)))
                     if child_index >= len(task.outputs) and not self.mcTree.IsExpanded(folder):
                         continue
@@ -693,6 +703,7 @@ class MainFrame(wx.Frame):
                              for key, state in display.items())
         self._task_display = display
         self._child_status_display = child_display
+        self._file_actions_display = file_actions
         if status_changed and self.statusFilter.GetSelection() > 0:
             self._ApplyTaskFilter()
 
@@ -1136,6 +1147,8 @@ class MainFrame(wx.Frame):
                 break
             self._DurationChecked(task_id, None, error)
         structure_changed = False
+        restored_tasks = set()
+        deferred_m3u8 = []
         for task_id in self.runner.changes():
             try:
                 record = self.tasks.repository.get(task_id)
@@ -1146,19 +1159,34 @@ class MainFrame(wx.Frame):
                 if index is None:
                     continue
                 current = self.model.fileTree.items[index]
-                structure_changed = structure_changed or (previous is not None and (
+                task_structure_changed = previous is not None and (
                     len(previous.outputs) != len(current.outputs)
-                    or previous.manifests.keys() != current.manifests.keys()))
+                    or previous.work_dir_missing != current.work_dir_missing
+                    or previous.manifests.keys() != current.manifests.keys())
+                structure_changed = structure_changed or task_structure_changed
+                if previous is not None and previous.work_dir_missing and not current.work_dir_missing:
+                    restored_tasks.add(task_id)
+                if task_structure_changed:
+                    # 新节点尚未进入原生控件，必须先重建，不能提前发送 ItemChanged。
+                    if record.type == TaskType.M3U8:
+                        deferred_m3u8.append(task_id)
+                    continue
                 if record.type == TaskType.M3U8:
                     # 只刷新变化的分片，不因每次状态变化重绘整棵树。
-                    for offset, child in enumerate(current.childs):
+                    visible = self.model.visible_tasks is None or index in self.model.visible_tasks
+                    expanded = visible and not current.work_dir_missing and all(
+                        self.mcTree.IsExpanded(self.model.ObjectToItem(self.model._BuildKey(key)))
+                        for key in ((index,), (index, -4), (index, -1)))
+                    for offset, child in enumerate(current.childs if expanded else ()):
                         old = previous.childs[offset] if previous and offset < len(previous.childs) else None
                         if old is None or (old.fileSize, old.status) != (child.fileSize, child.status):
                             item = self.model.ObjectToItem(self.model._BuildKey((index, len(current.outputs) + offset)))
                             self.model.ItemChanged(item)
                     self._M3U8Changed(task_id)
                 elif record.type == TaskType.MP4:
-                    self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index, 0))))
+                    root = self.model.ObjectToItem(self.model._BuildKey((index,)))
+                    if current.outputs and self.mcTree.IsExpanded(root):
+                        self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index, 0))))
                     self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
                 elif record.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.PAUSED):
                     self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
@@ -1167,6 +1195,12 @@ class MainFrame(wx.Frame):
         if structure_changed:
             # 合并完成会新增 MP4 子节点，保留展开状态后重建树，不能只重绘单元格。
             self._RefreshWithState()
+            for index, task in enumerate(self.model.fileTree.items):
+                if task.task_id in restored_tasks and (
+                        self.model.visible_tasks is None or index in self.model.visible_tasks):
+                    self._SetTaskExpanded(self.model.ObjectToItem(self.model._BuildKey((index,))), True)
+            for task_id in deferred_m3u8:
+                self._M3U8Changed(task_id)
         while True:
             try:
                 error = self.runner.errors.get_nowait()
@@ -1455,7 +1489,16 @@ class MainFrame(wx.Frame):
         if not item.IsOk():
             return
         keys = self.model.ParseKey(self.model.ItemToObject(item))
-        # 只有任务父节点使用这组操作；分片子节点由另一个处理函数负责。
+        if len(keys) == 2:
+            action = next((entry for entry in self.model.FileActions(*keys) if entry['id'] == action_id), None)
+            if action is not None and action['enabled']:
+                task = self.model.fileTree.items[keys[0]]
+                if self._manualActionClicks:
+                    self._QueueTaskPopup(task, action_id)
+                else:
+                    self.OnDeleteTask(task, scope='work' if action_id == 'delete_work' else 'output')
+            return
+        # 分片下载由另一个处理函数负责。
         if len(keys) != 1:
             return
         index = keys[0]
@@ -1510,7 +1553,9 @@ class MainFrame(wx.Frame):
         for index, task in enumerate(self.model.fileTree.items):
             if (task.task_id or task.parent.fileName) != identity:
                 continue
-            action = next((entry for entry in self.model.TaskActions(index)
+            actions = (self.model.FileActions(index, -4 if action_id == 'delete_work' else 0)
+                       if action_id in ('delete_work', 'delete_output') else self.model.TaskActions(index))
+            action = next((entry for entry in actions
                            if entry['id'] == action_id), None)
             if action is None or not action['enabled']:
                 return
@@ -1518,29 +1563,42 @@ class MainFrame(wx.Frame):
                 self.OnTaskMenu(self.model.ObjectToItem(self.model._BuildKey((index,))))
             elif action_id == 'delete':
                 self.OnDeleteTask(task)
+            elif action_id in ('delete_work', 'delete_output'):
+                self.OnDeleteTask(task, scope='work' if action_id == 'delete_work' else 'output')
             return
 
-    def OnDeleteTask(self, task):
+    def OnDeleteTask(self, task, *, scope='task'):
         """确认是否同时回收任务文件；仅清理明确归属于该任务的路径。"""
         try:
-            if self.runner.busy(task.task_id):
+            if scope == 'task' and self.runner.busy(task.task_id):
                 raise ValueError('任务仍在下载、检测或合并中，暂时不能删除。')
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(str(error), '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
             return
-        dialog = wx.RichMessageDialog(self, '确定删除此任务？', '删除任务',
+        title = {'task': '删除任务', 'work': '删除工作文件夹', 'output': '删除 MP4 文件'}[scope]
+        dialog = wx.RichMessageDialog(self, f'确定{title}？', title,
                                       wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
-        dialog.SetExtendedMessage('将从列表和数据库中删除此任务。勾选下方选项会将分片、清单、视频和对应临时文件移入回收站；另存为副本保留。文件回收失败时保留任务记录。')
-        dialog.ShowCheckBox('同时删除此任务的本地文件（移入回收站）', checked=True)
-        dialog.SetYesNoLabels('删除任务', '取消')
+        if scope == 'task':
+            dialog.SetExtendedMessage('将从列表和数据库中删除此任务。勾选下方选项会将任务专属工作文件夹（含全部内容）、视频和对应临时文件移入回收站；工作文件夹以外的另存为副本保留。文件回收失败时保留任务记录。')
+            dialog.ShowCheckBox('同时删除此任务的本地文件（移入回收站）', checked=True)
+        elif scope == 'work':
+            dialog.SetExtendedMessage('将此任务的专属工作文件夹及全部内容移入回收站，包括隐藏文件和临时文件。保留任务记录和文件夹外的 MP4。已暂停的等待队列会移除。')
+        else:
+            dialog.SetExtendedMessage('将此任务的 MP4 和对应临时文件移入回收站。保留任务记录和分片，分片完整时可以重新转 MP4；另存为副本保留。')
+        dialog.SetYesNoLabels('删除任务' if scope == 'task' else '移入回收站', '取消')
         try:
             if dialog.ShowModal() != wx.ID_YES:
                 return
-            delete_files = dialog.IsCheckBoxChecked()
+            delete_files = dialog.IsCheckBoxChecked() if scope == 'task' else True
         finally:
             dialog.Destroy()
         try:
-            self.runner.delete(task.task_id, delete_files=delete_files)
+            if scope == 'task':
+                self.runner.delete(task.task_id, delete_files=delete_files)
+            else:
+                # 主动删除产物后不自动合并重建，由用户选择转 MP4 或继续下载。
+                self._completion_notified.add(task.task_id)
+                self.runner.delete(task.task_id, scope=scope)
             self.model.merge_failed.discard(task.parent.fileName)
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'删除未完成：{error}', '无法删除', wx.OK | wx.ICON_WARNING, parent=self)

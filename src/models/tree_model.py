@@ -29,14 +29,17 @@ def to_tree_item(task, previous=None):
         if task.status == TaskStatus.COMPLETED:
             outputs = [_file(target, target.name, size=task.progress.downloaded_bytes,
                              status=FileStatus.COMPLETED)]
-        elif task.type == TaskType.MP4:
+        elif task.type == TaskType.MP4 and not task.details.file_missing:
             partial = task.save_dir / task.details.temporary_path
             outputs = [_file(partial, partial.name, size=task.progress.downloaded_bytes)]
         return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
                         progress=task.progress, task_status=task.status,
                         last_error=task.last_error, parent=parent, outputs=outputs)
     playlist = task.save_dir / (task.details.playlist_path or 'download.m3u8')
-    parent = _file(playlist, name, task.source_url, size=task.progress.downloaded_bytes)
+    size = task.progress.downloaded_bytes
+    if task.details.work_dir_missing:
+        size = next((o.size_bytes for o in task.outputs if o.status == FileStatus.COMPLETED), size)
+    parent = _file(playlist, name, task.source_url, size=size)
     parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
     children = []
     previous_children = {child.sequence: child for child in previous.childs} if previous else {}
@@ -55,6 +58,7 @@ def to_tree_item(task, previous=None):
     return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
                     manifests={-2: _file(playlist, playlist.name)},
                     work_dir=playlist.parent,
+                    work_dir_missing=task.details.work_dir_missing,
                     output_path=task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged'),
                     duration_pending=task.details.detect_duration and any(
                         s.status == FileStatus.COMPLETED and s.duration_status == 'pending'
@@ -195,16 +199,17 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             status = '未开始' if not done else '待继续'
         if failed:
             status += f' · {len(failed)} 个失败'
+        output_only = task.work_dir_missing and bool(task.outputs)
         return {
             'total': total,
             'done': done,
-            'percent': int(done * 100 / total) if total else 0,
+            'percent': 100 if output_only else (int(done * 100 / total) if total else 0),
             'status': status,
             'failed': failed,
             'pending': pending,
             'merging': merging,
             'paused': paused,
-            'progress': f'{int(done * 100 / total) if total else 0}% · {done}/{total}',
+            'progress': '100%' if output_only else f'{int(done * 100 / total) if total else 0}% · {done}/{total}',
         }
 
 
@@ -239,7 +244,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         """操作列、右键菜单和点击入口共用实时判断；key 包含输出文件偏移。"""
         task = self.fileTree.items[index]
         segment_index = key - len(task.outputs)
-        if task.task_type != TaskType.M3U8 or not 0 <= segment_index < len(task.childs):
+        if task.task_type != TaskType.M3U8 or task.work_dir_missing or not 0 <= segment_index < len(task.childs):
             return False
         child = task.childs[segment_index]
         if child.fileSize != '-' or child.status == FileStatus.COMPLETED:
@@ -252,6 +257,27 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         if runner is not None and runner.busy_processing(task.task_id):
             return False
         return M3U8Downloader.CanStartFile(PathManager.GetAbsPath(child.fileName))
+
+    def FileActions(self, index, key):
+        """工作目录和 MP4 文件的行内删除；不在绘制阶段访问磁盘。"""
+        task = self.fileTree.items[index]
+        if task.task_type == TaskType.M3U8 and key == -4:
+            if task.work_dir_missing:
+                return []
+            info = self.TaskInfo(index)
+            snapshot = M3U8Downloader.Snapshot()
+            requesting = any(M3U8Downloader.FileKey(PathManager.GetAbsPath(child.fileName)) in snapshot['requesting']
+                             for child in task.childs)
+            enabled = not info['merging'] and (not info['pending'] or (info['paused'] and not requesting))
+            return [dict(id='delete_work', label='删除', enabled=bool(enabled))]
+        if 0 <= key < len(task.outputs) and task.task_type in (TaskType.M3U8, TaskType.MP4):
+            if task.task_type == TaskType.M3U8:
+                active = task.task_status == TaskStatus.MERGING or bool(
+                    task.output_path and FFmpegConverter.IsConverting(str(task.output_path)))
+            else:
+                active = task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING)
+            return [dict(id='delete_output', label='删除', enabled=not active)]
+        return []
 
     def TaskActions(self, index):
         """自定义方法：按任务类型返回操作的 id、显示文字和可用状态。
@@ -402,10 +428,12 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         # print("IsContainer", keys)
         if len(objs) == 1:
             task = self.fileTree.items[objs[0]]
-            return task.task_type in (TaskType.M3U8, TaskType.MP4) and bool(task.childs or task.outputs or task.manifests)
+            return task.task_type in (TaskType.M3U8, TaskType.MP4) and bool(
+                task.outputs or (not task.work_dir_missing and (task.childs or task.manifests)))
         elif len(objs) == 2:
             task = self.fileTree.items[objs[0]]
-            return (objs[1] == -1 and bool(task.childs)) or (objs[1] == -4 and bool(task.manifests or task.childs))
+            return not task.work_dir_missing and (
+                (objs[1] == -1 and bool(task.childs)) or (objs[1] == -4 and bool(task.manifests or task.childs)))
         else:
             pass
         return False
@@ -445,12 +473,14 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 idxj += 1
 
             task = self.fileTree.items[idxi]
-            if task.task_type == TaskType.M3U8 and (task.manifests or task.childs):
+            if task.task_type == TaskType.M3U8 and not task.work_dir_missing and (task.manifests or task.childs):
                 children.append(self.ObjectToItem(self._BuildKey((idxi, -4))))
             return len(children)
         elif len(objs) == 2 and objs[1] == -4:
             idxi = objs[0]
             task = self.fileTree.items[idxi]
+            if task.work_dir_missing:
+                return 0
             for key in task.manifests:
                 children.append(self.ObjectToItem(self._BuildKey((idxi, key))))
             if task.childs:
@@ -459,6 +489,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         elif len(objs) == 2 and objs[1] == -1:
             idxi = objs[0]
             task = self.fileTree.items[idxi]
+            if task.work_dir_missing:
+                return 0
             for offset in range(len(task.childs)):
                 _key = self._BuildKey((idxi, len(task.outputs) + offset))
                 children.append(self.ObjectToItem(_key))
@@ -499,6 +531,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         if col == 0:
             return self.row_numbers.get(keys, '')
         if len(objs) == 2 and objs[1] < 0:
+            if col == 4:
+                actions = self.FileActions(objs[0], objs[1])
+                return json.dumps(actions, ensure_ascii=False) if actions else ''
             if objs[1] == -4:
                 task = self.fileTree.items[objs[0]]
                 directory = task.work_dir or Path(task.parent.fileName).parent
@@ -531,6 +566,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         elif len(objs) == 2:
             idxi = objs[0]
             idxj = objs[1]
+            if col == 4:
+                actions = self.FileActions(idxi, idxj)
+                if actions:
+                    return json.dumps(actions, ensure_ascii=False)
             # 处理 Mp4 
             coutputs = len(self.fileTree.items[idxi].outputs)
             if coutputs > 0:

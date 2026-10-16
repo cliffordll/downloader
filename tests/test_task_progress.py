@@ -1,4 +1,5 @@
 import os
+import json
 import threading
 import unittest
 from types import SimpleNamespace
@@ -289,7 +290,8 @@ class TaskProgressTests(unittest.TestCase):
             event.assert_called_once()
         self.assertEqual(self.model.TaskInfo(0)['progress'], '100% · 2/2')
         output = self.model.ObjectToItem(self.model._BuildKey((0, 0)))
-        self.assertEqual(self.model.GetValue(output, 4), '')
+        self.assertEqual(json.loads(self.model.GetValue(output, 4)),
+                         [dict(id='delete_output', label='删除', enabled=True)])
 
     def test_merge_states(self):
         self.task.childs[1].fileSize = '10 B'
@@ -444,6 +446,68 @@ class TaskProgressTests(unittest.TestCase):
                     frame.OnDeleteTask(self.task)
                     delete.assert_called_once_with(self.task.task_id, delete_files=checked)
                     dialog.return_value.Destroy.assert_called_once()
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_file_rows_expose_delete_with_independent_busy_rules(self):
+        from src.schemas.task import TaskStatus
+        self.task.outputs.append(FileItem(fileName='task/output.mp4', fileSize=20))
+        folder = self.model.ObjectToItem(self.model._BuildKey((0, -4)))
+        self.assertEqual(json.loads(self.model.GetValue(folder, 4))[0]['id'], 'delete_work')
+        M3U8Downloader._pending.add(self.key)
+        self.assertFalse(self.model.FileActions(0, -4)[0]['enabled'])
+        self.assertTrue(self.model.FileActions(0, 0)[0]['enabled'])
+        M3U8Downloader.Pause()
+        self.assertTrue(self.model.FileActions(0, -4)[0]['enabled'])
+        M3U8Downloader._requesting.add(self.key)
+        self.assertFalse(self.model.FileActions(0, -4)[0]['enabled'])
+        self.task.task_status = TaskStatus.MERGING
+        self.assertFalse(self.model.FileActions(0, 0)[0]['enabled'])
+        self.assertEqual(self.model.FileActions(0, -1), [])
+        self.assertEqual(self.model.FileActions(0, 1), [])
+
+    def test_file_delete_buttons_dispatch_scope_and_never_delete_by_keyboard(self):
+        self.task.outputs.append(FileItem(fileName='task/output.mp4', fileSize=20))
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            frame._manualActionClicks = False
+            for key, action_id, scope in ((-4, 'delete_work', 'work'), (0, 'delete_output', 'output')):
+                item = frame.model.ObjectToItem(frame.model._BuildKey((0, key)))
+                cell = wx.Rect(0, 0, 200, 24)
+                with patch.object(frame, 'OnDeleteTask') as delete:
+                    self.assertFalse(frame._actionRenderer.ActivateAt(cell, frame.model, item, 4, None))
+                    delete.assert_not_called()
+                    self.assertTrue(frame._actionRenderer.ActivateAt(cell, frame.model, item, 4, wx.Point(100, 12)))
+                    delete.assert_called_once_with(self.task, scope=scope)
+                frame._manualActionClicks = True
+                with patch('wx.CallAfter') as defer, patch.object(frame, 'OnDeleteTask') as delete:
+                    frame.OnTaskAction(item, action_id)
+                    delete.assert_not_called()
+                    callback, *args = defer.call_args.args
+                    callback(*args)
+                    delete.assert_called_once_with(self.task, scope=scope)
+                frame._manualActionClicks = False
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_file_delete_confirmation_keeps_task_and_suppresses_auto_merge(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            for scope in ('work', 'output'):
+                with patch.object(frame.runner, 'delete') as delete, patch.object(frame, 'OnRefresh'), \
+                     patch('src.views.main_frame.wx.RichMessageDialog') as dialog:
+                    dialog.return_value.ShowModal.return_value = wx.ID_NO
+                    frame.OnDeleteTask(self.task, scope=scope)
+                    delete.assert_not_called()
+                    dialog.return_value.ShowModal.return_value = wx.ID_YES
+                    frame.OnDeleteTask(self.task, scope=scope)
+                    delete.assert_called_once_with(self.task.task_id, scope=scope)
+                    dialog.return_value.ShowCheckBox.assert_not_called()
+                    self.assertIn(self.task.task_id, frame._completion_notified)
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()

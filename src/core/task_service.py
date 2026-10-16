@@ -135,15 +135,25 @@ class TaskService:
 
 
     def load_tasks(self):
-        """启动和刷新只读取数据库；首次启动仅将活动任务标记为中断。"""
+        """从数据库恢复；旧记录首次加载时补充目录/文件存在状态，不扫描分片。"""
         records = self.repository.list_tasks()
         if not self._recovered:
             active = {TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING,
                       TaskStatus.MERGING, TaskStatus.RECORDING, TaskStatus.STOPPING}
+            def needs_file_state(task):
+                return ((isinstance(task, M3U8Task) and 'work_dir_missing' not in task.details.model_fields_set)
+                        or (isinstance(task, MP4Task) and 'file_missing' not in task.details.model_fields_set))
             def interrupt(task):
                 if task.status in active:
                     task.status, task.last_error = TaskStatus.INTERRUPTED, '上次任务未正常结束，请手动继续。'
-            records = [self.repository.mutate(task.id, interrupt) if task.status in active else task
+                if isinstance(task, M3U8Task) and 'work_dir_missing' not in task.details.model_fields_set:
+                    task.details.work_dir_missing = bool(task.details.playlist_path and not (
+                        task.save_dir / task.details.playlist_path).parent.is_dir())
+                elif isinstance(task, MP4Task) and 'file_missing' not in task.details.model_fields_set:
+                    task.details.file_missing = not any((task.save_dir / path).is_file() for path in (
+                        task.details.target_path, task.details.temporary_path))
+            records = [self.repository.mutate(task.id, interrupt)
+                       if task.status in active or needs_file_state(task) else task
                        for task in records]
             self._recovered = True
         return [task for task in records if task is not None]
@@ -196,6 +206,7 @@ class TaskService:
             if isinstance(task, MP4Task):
                 verified = task.details.verified_bytes
                 if verified is not None and target_size == verified:
+                    task.details.file_missing = False
                     task.status, task.last_error = TaskStatus.COMPLETED, None
                     task.progress = TaskProgress(downloaded_bytes=verified, total_bytes=verified)
                     for output in task.outputs:
@@ -212,13 +223,21 @@ class TaskService:
                     task.details.verified_bytes = None
                     task.progress = TaskProgress()
             if isinstance(task, MP4Task) and task.status != TaskStatus.COMPLETED:
-                done = cls._file_size(task.save_dir / task.details.temporary_path) or 0
+                temporary_size = cls._file_size(task.save_dir / task.details.temporary_path)
+                task.details.file_missing = target_size is None and temporary_size is None
+                done = temporary_size or 0
                 total = task.progress.total_bytes
                 task.progress = TaskProgress(downloaded_bytes=done,
                     total_bytes=total if total is None or done <= total else None)
             return
         previous = task.status
         active = previous in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING, TaskStatus.MERGING)
+        if task.details.playlist_path:
+            directory = (task.save_dir / task.details.playlist_path).parent
+            if directory.is_dir():
+                task.details.work_dir_missing = False
+            elif not active:
+                task.details.work_dir_missing = True
         missing = False
         for segment in task.details.segments:
             path = task.save_dir / segment.relative_path
@@ -255,6 +274,7 @@ class TaskService:
             selected = set(sequences)
             if not selected or not selected <= {segment.sequence for segment in task.details.segments}:
                 raise ValueError('分片序号无效，请刷新后重试。')
+            task.details.work_dir_missing = False  # 用户主动重新下载，重新展示待创建的工作目录。
             for segment in task.details.segments:
                 if segment.sequence in selected and segment.status != FileStatus.COMPLETED:
                     segment.status, segment.last_error, segment.size_bytes = FileStatus.PENDING, None, None

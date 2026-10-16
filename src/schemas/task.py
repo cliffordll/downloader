@@ -120,6 +120,7 @@ class M3U8Details(TaskModel):
     request_headers: dict[str, str] = Field(default_factory=dict)
     detect_duration: bool = False
     playlist_path: RelativeFile | None = None
+    work_dir_missing: bool = False  # 文件核对后持久化；保留分片来源，但隐藏已删除的工作目录。
     ts_pattern: str | None = None
     segments: list[TaskSegment] = Field(default_factory=list)
 
@@ -143,6 +144,7 @@ class MP4Details(TaskModel):
     request_headers: dict[str, str] = Field(default_factory=dict)
     target_path: RelativeFile
     temporary_path: RelativeFile
+    file_missing: bool = False  # 正式文件与临时文件均已清理，文件树只显示任务。
     etag: str | None = None
     last_modified: str | None = None
     supports_ranges: bool | None = None

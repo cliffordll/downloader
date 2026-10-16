@@ -96,6 +96,40 @@ class TaskServiceTests(unittest.TestCase):
         self.addCleanup(frame.Destroy)
         return frame
 
+    def test_redownload_restores_native_tree_container_after_all_files_deleted(self):
+        task = self.create()
+        for segment in task.details.segments:
+            path = task.save_dir / segment.relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'media')
+            self.service.finish_segment(task.id, segment.sequence, path, True)
+        work = (task.save_dir / task.details.playlist_path).parent
+        work.replace(self.root / 'removed-work')
+        self.service.check_files(task.id)
+        frame = self.frame()
+        frame.Show()
+        self.app.Yield()
+        root = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+        self.assertFalse(frame.model.IsContainer(root))
+        frame.mcTree.Expand(root)
+        self.assertFalse(frame.mcTree.IsExpanded(root))
+
+        def start(*args, **kwargs):
+            self.service.begin_download(task.id, [0, 1])
+            return True
+
+        with patch.object(frame.runner, 'activate', side_effect=start), \
+             patch.object(frame.runner, 'changes', return_value={task.id}):
+            frame.OnTaskAction(root, 'start')
+        root = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
+        self.assertTrue(frame.model.IsContainer(root))
+        children = []
+        self.assertEqual(frame.model.GetChildren(root, children), 1)
+        self.assertEqual(frame.model.GetValue(children[0], 1), 'video/')
+        self.app.ProcessPendingEvents()
+        self.assertTrue(frame.mcTree.IsExpanded(root))
+        self.assertGreater(frame.mcTree.GetItemRect(children[0]).height, 0)
+
     def test_creation_persists_resolved_urls_and_local_playlist(self):
         task = self.create()
         self.assertEqual(task.source_type, SourceType.M3U8)

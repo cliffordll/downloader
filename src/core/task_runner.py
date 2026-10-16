@@ -200,16 +200,38 @@ class TaskRunner:
         return task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING,
                                TaskStatus.RECORDING, TaskStatus.STOPPING)
 
-    def delete(self, task_id, *, delete_files=False):
-        """确认后可先回收本地文件；回收失败保留记录，允许重试。"""
+    def delete(self, task_id, *, delete_files=False, scope='task'):
+        """统一处理任务、工作文件和 MP4 删除；单删文件保留记录并核对状态。"""
+        if scope not in ('task', 'work', 'output'):
+            raise ValueError('无效的删除范围。')
         with self._lock:
-            if self.busy(task_id):
-                raise ValueError('任务仍在下载、检测或合并中，暂时不能删除。')
-            if delete_files:
-                task = self._task(task_id)
+            task = self._task(task_id)
+            output = (task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged')
+                      if isinstance(task, M3U8Task) else None)
+            merging = task_id in self._merging or task.status == TaskStatus.MERGING or bool(
+                output and FFmpegConverter.IsConverting(str(output)))
+            if merging or (scope != 'output' and self.busy_processing(task_id)):
+                raise ValueError('任务正在检测或合并中，暂时不能删除。')
+            if isinstance(task, M3U8Task) and scope != 'output':
+                snapshot = M3U8Downloader.Snapshot()
+                keys = self._keys(task)
+                pending = keys & snapshot['pending']
+                if keys & snapshot['requesting'] or (pending and not snapshot['paused']
+                                                    and not pending <= snapshot['paused_files']):
+                    raise ValueError('任务仍在下载，暂时不能删除。请先暂停并等待在途请求结束。')
+                M3U8Downloader.RemovePausedTask(task_id, keys)
+                self.tasks.interrupt(task_id)
+            elif not isinstance(task, M3U8Task) and self.busy(task_id):
+                raise ValueError('任务仍在下载，暂时不能删除。')
+            if delete_files or scope != 'task':
                 others = [other for other in self.tasks.repository.list_tasks() if other.id != task_id]
-                trash_task_files(task, others)
-            self.tasks.repository.delete(task_id)
+                try:
+                    trash_task_files(task, others, scope='all' if scope == 'task' else scope)
+                finally:
+                    if scope != 'task':
+                        self.check_files(task_id)
+            if scope == 'task':
+                self.tasks.repository.delete(task_id)
 
     def changes(self):
         """合并两种下载器和媒体处理的通知；统一交给界面读取最新记录。"""

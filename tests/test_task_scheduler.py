@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from src.core.sys_setting import SysSetting
-from src.media.downloader import Downloader
+from src.media.downloader import Downloader, DownloadRemoved
 
 
 class TaskSchedulerTests(unittest.TestCase):
@@ -130,6 +130,28 @@ class TaskSchedulerTests(unittest.TestCase):
         gate.set()
         self.assertFalse(wait(self.futures, timeout=3).not_done)
         self.assertEqual(calls.count('ts'), 4)
+
+    def test_remove_queued_task_preserves_other_tasks(self):
+        ready = self.gate()
+        calls = []
+        removed = self.submit('paused', lambda: calls.append('paused'), ready=ready.is_set)
+        other = self.submit('other', lambda: calls.append('other'))
+        Downloader.RemoveQueued('paused', 1)
+        with self.assertRaises(DownloadRemoved):
+            removed.result(3)
+        ready.set()
+        other.result(3)
+        self.assertEqual(calls, ['other'])
+
+    def test_remove_queued_refuses_running_or_uncollected_requests(self):
+        release = self.gate()
+        first = self.submit('a', lambda: release.wait(5))
+        self.until(first.running)
+        with self.assertRaises(ValueError):
+            Downloader.RemoveQueued('a', 0)
+        with self.assertRaises(ValueError):
+            Downloader.RemoveQueued('missing', 1)
+        release.set()
 
     def test_lower_task_limit_keeps_inflight_and_stops_excess_task_refills(self):
         gates = {(task, index): self.gate() for task in ('a', 'b') for index in range(3)}

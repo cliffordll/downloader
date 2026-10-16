@@ -84,6 +84,87 @@ class TaskTypesUITests(unittest.TestCase):
         row = to_tree_item(task, previous=row)
         self.assertNotIn(-3, row.manifests)
 
+    def test_deleted_work_directory_stays_hidden_after_reopen_and_can_be_recreated(self):
+        from src.core.task_files import trash_task_files
+        task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
+                                       '#EXTM3U\n#EXTINF:4,\na.ts\n#EXTINF:4,\nb.ts\n')
+        for segment in task.details.segments:
+            path = task.save_dir / segment.relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'media')
+            self.service.finish_segment(task.id, segment.sequence, path, True)
+        output = task.save_dir / task.outputs[0].relative_path
+        output.write_bytes(b'video')
+        self.service.finish_merge(task.id, output, True)
+        def recycle(paths):
+            trash = self.root / 'trash'
+            trash.mkdir(exist_ok=True)
+            for path in paths:
+                Path(path).replace(trash / str(len(list(trash.iterdir()))))
+        with patch('src.core.task_files.send2trash', side_effect=recycle):
+            trash_task_files(self.repo.get(task.id), [], scope='work')
+            self.service.check_files(task.id)
+            model = MultiColumnTreeModel(load_tree(TaskService(TaskRepository(self.repo.path))))
+            self.addCleanup(model.DecRef)
+            root = model.ObjectToItem(model._BuildKey((0,)))
+            children = []
+            self.assertEqual(model.GetChildren(root, children), 1)
+            self.assertEqual(model.GetValue(children[0], 1), output.name)
+            self.assertEqual(model.TaskInfo(0)['progress'], '100%')
+            self.assertEqual(model.TaskInfo(0)['status'], '已完成')
+            self.assertEqual(model.GetValue(root, 2), '5.00 B')
+            self.assertFalse(model.CanDownloadSegment(0, 1))
+            work = model.ObjectToItem(model._BuildKey((0, -4)))
+            self.assertEqual(model.GetChildren(work, []), 0)
+            self.assertEqual(model.FileActions(0, -4), [])
+            # MP4 也清理后，只保留任务；来源和分片信息仍可供主动重新下载。
+            trash_task_files(self.repo.get(task.id), [], scope='output')
+            saved = self.service.check_files(task.id)
+            model.ApplyTaskRecord(saved)
+            self.assertFalse(model.IsContainer(root))
+            self.assertEqual(model.GetChildren(root, []), 0)
+            self.assertTrue(model.TaskActions(0)[0]['enabled'])
+            self.assertEqual(len(saved.details.segments), 2)
+            self.assertTrue(all(s.source_url for s in saved.details.segments))
+            queued = self.service.begin_download(task.id, [0, 1])
+            model.ApplyTaskRecord(queued)
+            self.assertFalse(queued.details.work_dir_missing)
+            self.assertEqual(model.GetChildren(root, []), 1)
+            self.assertTrue(model.IsContainer(work))
+
+    def test_legacy_removed_work_directory_is_detected_without_scanning_segments(self):
+        from contextlib import closing
+        import json
+        import sqlite3
+        task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
+                                       '#EXTM3U\n#EXTINF:4,\na.ts\n')
+        (task.save_dir / task.details.playlist_path).parent.replace(self.root / 'old-work')
+        # 模拟此前版本的数据库详情，尚无目录清理状态字段。
+        with closing(sqlite3.connect(self.repo.path)) as connection, connection:
+            data = json.loads(connection.execute('SELECT data FROM task_m3u8 WHERE task_id=?',
+                                                 (str(task.id),)).fetchone()[0])
+            data.pop('work_dir_missing')
+            connection.execute('UPDATE task_m3u8 SET data=? WHERE task_id=?', (json.dumps(data), str(task.id)))
+        service = TaskService(TaskRepository(self.repo.path))
+        with patch.object(TaskService, '_file_size', side_effect=AssertionError('不能扫描分片')):
+            restored = service.load_tasks()[0]
+        self.assertTrue(restored.details.work_dir_missing)
+        reopened = TaskService(TaskRepository(self.repo.path))
+        with patch.object(Path, 'is_dir', side_effect=AssertionError('新记录不重复核对目录')):
+            self.assertTrue(reopened.load_tasks()[0].details.work_dir_missing)
+
+    def test_deleted_direct_mp4_has_no_phantom_partial_file_row(self):
+        task = self.service.create_mp4(self.root / 'direct', 'https://example.com/video.mp4')
+        (task.save_dir / task.details.temporary_path).unlink()
+        saved = self.service.check_files(task.id)
+        self.assertTrue(saved.details.file_missing)
+        model = self.model()
+        self.addCleanup(model.DecRef)
+        root = model.ObjectToItem(model._BuildKey((0,)))
+        self.assertEqual(model.GetChildren(root, []), 0)
+        self.assertFalse(model.IsContainer(root))
+        self.assertTrue(model.TaskActions(0)[0]['enabled'])
+
     def test_unknown_size_and_renderer_do_not_invent_percent(self):
         self.mp4(progress=TaskProgress(downloaded_bytes=1234))
         info = self.model().TaskInfo(0)
@@ -382,7 +463,9 @@ class TaskTypesUITests(unittest.TestCase):
         self.assertEqual(model.GetValue(child, 1), 'video.mp4')
         self.assertEqual(model.GetValue(child, 6), '已完成')
         self.assertEqual(model.GetValue(child, 5), '')
-        self.assertEqual(model.GetValue(child, 4), '')
+        import json
+        self.assertEqual(json.loads(model.GetValue(child, 4)),
+                         [dict(id='delete_output', label='删除', enabled=True)])
 
     def test_segment_and_merge_operations_reject_single_file_tasks(self):
         for task in (self.mp4(), self.live()):

@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 import requests
 
 from src.core.sys_setting import SysSetting
-from src.media.downloader import Downloader
+from src.media.downloader import Downloader, DownloadRemoved
 from src.schemas.task import FileStatus, TaskStatus
 
 
@@ -231,6 +231,33 @@ class M3U8Downloader:
         """暂停指定文件键中仍待完成的部分，不影响其他任务。"""
         with cls.threadLock:
             cls._paused_files.update(set(keys) & cls._pending)
+
+    @classmethod
+    def RemovePausedTask(cls, task_id, keys):
+        """清理文件前移除已暂停队列，防止继续操作重新下载刚删除的文件。"""
+        with cls._state_lock, cls.threadLock:
+            keys = set(keys)
+            pending = keys & cls._pending
+            if keys & cls._requesting or (pending and not cls.IsPaused()
+                                         and not pending <= cls._paused_files):
+                raise ValueError('任务仍在下载，请先暂停并等待在途请求结束。')
+            Downloader.RemoveQueued(task_id, len(pending))
+            cls._jobs.pop(task_id, None)
+            remaining = []
+            while not cls.threadQueue.empty():
+                task = cls.threadQueue.get_nowait()
+                if task[4] in keys:
+                    cls._scheduled.pop(task[4], None)
+                else:
+                    remaining.append(task)
+            for task in remaining:
+                cls.threadQueue.put(task)
+            cls._pending.difference_update(keys)
+            cls._paused_files.difference_update(keys)
+            cls._failed.difference_update(keys)
+            for key in keys:
+                cls._errors.pop(key, None)
+            cls._changes.put(task_id)
 
     @classmethod
     def ResumeFiles(cls, keys):
@@ -465,6 +492,8 @@ class M3U8Downloader:
                     task = active.pop(future)
                     try:
                         success, _ = future.result()
+                    except DownloadRemoved:
+                        continue
                     except (_TaskPaused, CancelledError):
                         # 已分配线程、尚未发请求时遇到暂停：重新入队，不记为失败。
                         with cls.threadLock:

@@ -21,6 +21,10 @@ class _Request:
     limit: int | None
 
 
+class DownloadRemoved(Exception):
+    """任务文件被用户清理，丢弃尚未执行的请求，不重新入队。"""
+
+
 class Downloader:
     """统一管理任务排队、每任务并发和请求限流，供 M3U8/TS 与 MP4 共用。"""
     _condition = threading.Condition()
@@ -59,6 +63,24 @@ class Downloader:
             request.future.set_exception(error)
         else:
             request.future.set_result(value)
+
+    @classmethod
+    def RemoveQueued(cls, task_id, expected_count):
+        """仅清理完全处于等待中的一批请求；在途或结果待收集时拒绝。"""
+        with cls._condition:
+            queue = cls._queues.get(task_id, ())
+            if cls._running.get(task_id, 0) or len(queue) != expected_count:
+                raise ValueError('任务仍有在途请求或结果待保存，请稍后重试。')
+            cls._queues.pop(task_id, None)
+            cls._running.pop(task_id, None)
+            cls._admitted.discard(task_id)
+            cls._paused.discard(task_id)
+            cls._condition.notify_all()
+        for request in queue:
+            if request.future.cancelled():
+                request.future.set_running_or_notify_cancel()
+            elif not request.future.done():
+                request.future.set_exception(DownloadRemoved())
 
     @classmethod
     def _Run(cls):

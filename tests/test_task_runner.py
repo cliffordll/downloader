@@ -14,6 +14,7 @@ from src.core.task_runner import TaskRunner
 from src.core.task_service import TaskService
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.media.m3u8.m3u8_downloader import M3U8Downloader as Engine
+from src.media.downloader import Downloader
 from src.schemas.task import FileStatus, TaskStatus
 from src.storage.task_repository import TaskRepository
 
@@ -318,22 +319,28 @@ class TaskRunnerTests(unittest.TestCase):
         with patch('src.core.task_files.send2trash', side_effect=recycle) as trash:
             self.runner.delete(task.id, delete_files=True)
         self.assertEqual(set(trash.call_args.args[0]),
-                         {str(path) for path in (segment, playlist, concat, partial, output, merge_partial)})
+                         {str(path) for path in (playlist.parent, output, merge_partial)})
         self.assertIsNone(self.repo.get(task.id))
         self.assertFalse(playlist.parent.exists())
         self.assertTrue(other_file.exists())
         self.assertTrue(exported.exists())
         self.assertTrue(task.save_dir.exists())
 
-    def test_delete_keeps_unknown_files_inside_task_directory(self):
+    def test_delete_recycles_entire_work_directory_including_hidden_files(self):
         task = self.m3u8()
         self.write(task, 0)
         directory = (task.save_dir / task.details.playlist_path).parent
         unknown = directory / 'notes.txt'
         unknown.write_text('keep', encoding='utf-8')
+        hidden = directory / '.DS_Store'
+        hidden.write_bytes(b'finder metadata')
         with patch('src.core.task_files.send2trash', side_effect=self.recycle):
             self.runner.delete(task.id, delete_files=True)
-        self.assertEqual(unknown.read_text(encoding='utf-8'), 'keep')
+        self.assertFalse(directory.exists())
+        self.assertEqual(sorted(path.name for path in (self.root / 'trash').iterdir()), ['0-0'])
+        recycled = next((self.root / 'trash').iterdir())
+        self.assertTrue((recycled / '.DS_Store').exists())
+        self.assertEqual((recycled / 'notes.txt').read_text(encoding='utf-8'), 'keep')
         self.assertIsNone(self.repo.get(task.id))
 
     def test_delete_mp4_recycles_output_and_partial_and_allows_missing_files(self):
@@ -410,6 +417,150 @@ class TaskRunnerTests(unittest.TestCase):
         trash.assert_not_called()
         self.assertEqual(original.read_bytes(), b'keep')
         self.assertIsNotNone(self.repo.get(task.id))
+
+    def test_delete_work_files_keeps_mp4_and_task_record(self):
+        task = self.m3u8(count=2)
+        self.complete_segments(task)
+        output = task.save_dir / task.outputs[0].relative_path
+        output.write_bytes(b'video')
+        self.service.finish_merge(task.id, output, True)
+        ((task.save_dir / task.details.playlist_path).parent / '.DS_Store').write_bytes(b'metadata')
+        with patch('src.core.task_files.send2trash', side_effect=self.recycle):
+            self.runner.delete(task.id, scope='work')
+        saved = self.repo.get(task.id)
+        self.assertEqual(saved.status, TaskStatus.COMPLETED)
+        self.assertTrue(saved.details.work_dir_missing)
+        self.assertTrue(TaskRepository(self.repo.path).get(task.id).details.work_dir_missing)
+        self.assertEqual(saved.progress.completed_segments, 0)
+        self.assertTrue(all(s.status == FileStatus.MISSING for s in saved.details.segments))
+        self.assertEqual(output.read_bytes(), b'video')
+        self.assertFalse((task.save_dir / task.details.playlist_path).parent.exists())
+
+    def test_delete_work_directory_rejects_another_tasks_nested_files(self):
+        task, other = self.m3u8(), self.mp4('other')
+        directory = (task.save_dir / task.details.playlist_path).parent
+        def relocate(record):
+            record.save_dir = directory / 'nested'
+        self.repo.mutate(other.id, relocate)
+        with patch('src.core.task_files.send2trash') as trash:
+            with self.assertRaisesRegex(ValueError, '其他任务'):
+                self.runner.delete(task.id, delete_files=True)
+        trash.assert_not_called()
+        self.assertTrue(directory.exists())
+        self.assertIsNotNone(self.repo.get(task.id))
+
+    def test_legacy_playlist_in_save_directory_never_recycles_public_directory(self):
+        task = self.m3u8(count=1)
+        self.write(task, 0)
+        self.repo.mutate(task.id, lambda record: setattr(record.details, 'playlist_path', 'download.m3u8'))
+        self.service.write_playlist(task.id)
+        unknown = task.save_dir / 'keep.txt'
+        unknown.write_bytes(b'keep')
+        with patch('src.core.task_files.send2trash', side_effect=self.recycle) as trash:
+            self.runner.delete(task.id, delete_files=True)
+        self.assertNotIn(str(task.save_dir), trash.call_args.args[0])
+        self.assertEqual(unknown.read_bytes(), b'keep')
+        self.assertTrue(task.save_dir.exists())
+
+    def test_delete_mp4_keeps_segments_and_allows_merge_again(self):
+        task = self.m3u8(count=2)
+        self.complete_segments(task)
+        output = task.save_dir / task.outputs[0].relative_path
+        output.write_bytes(b'video')
+        self.service.finish_merge(task.id, output, True)
+        with patch('src.core.task_files.send2trash', side_effect=self.recycle):
+            self.runner.delete(task.id, scope='output')
+        saved = self.repo.get(task.id)
+        self.assertEqual(saved.status, TaskStatus.WAITING_MERGE)
+        self.assertFalse(saved.details.work_dir_missing)
+        self.assertEqual(saved.outputs[0].status, FileStatus.MISSING)
+        self.assertEqual(saved.progress.completed_segments, 2)
+        self.assertTrue(all((task.save_dir / s.relative_path).exists() for s in saved.details.segments))
+        self.assertFalse(output.exists())
+        with patch.object(FFmpegConverter, 'ConvertTSFile') as convert:
+            self.runner.merge(task.id)
+        convert.assert_called_once()
+
+    def test_delete_direct_mp4_resets_saved_progress_for_redownload(self):
+        task = self.mp4()
+        output = task.save_dir / task.details.target_path
+        output.write_bytes(b'video')
+        def complete(record):
+            record.status = TaskStatus.COMPLETED
+            record.details.verified_bytes = 5
+            record.progress.downloaded_bytes = 5
+            record.outputs[0].status = FileStatus.COMPLETED
+            record.outputs[0].size_bytes = 5
+        self.repo.mutate(task.id, complete)
+        with patch('src.core.task_files.send2trash', side_effect=self.recycle):
+            self.runner.delete(task.id, scope='output')
+        saved = self.repo.get(task.id)
+        self.assertEqual(saved.status, TaskStatus.INTERRUPTED)
+        self.assertEqual(saved.progress.downloaded_bytes, 0)
+        self.assertIsNone(saved.details.verified_bytes)
+        self.assertTrue(saved.details.file_missing)
+        from concurrent.futures import Future
+        future = Future()
+        with patch.object(Downloader, 'Submit', return_value=future):
+            self.assertTrue(self.runner.start(task.id))
+        self.assertFalse(self.repo.get(task.id).details.file_missing)
+        future.cancel()
+
+    def test_file_delete_failure_reconciles_partial_changes_and_keeps_record(self):
+        task = self.m3u8(count=1)
+        self.complete_segments(task)
+        output = task.save_dir / task.outputs[0].relative_path
+        output.write_bytes(b'video')
+        self.service.finish_merge(task.id, output, True)
+        def fail(paths):
+            self.recycle(paths)
+            raise PermissionError('trash failed')
+        with patch('src.core.task_files.send2trash', side_effect=fail):
+            with self.assertRaises(OSError):
+                self.runner.delete(task.id, scope='output')
+        self.assertEqual(self.repo.get(task.id).status, TaskStatus.WAITING_MERGE)
+
+    def test_file_delete_rechecks_merge_and_duration_activity(self):
+        task = self.m3u8()
+        for scope in ('work', 'output'):
+            self.runner._merging.add(task.id)
+            with patch('src.core.task_files.send2trash') as trash:
+                with self.assertRaises(ValueError):
+                    self.runner.delete(task.id, scope=scope)
+            trash.assert_not_called()
+            self.runner._merging.clear()
+        self.runner._duration_jobs.add(task.id)
+        with self.assertRaises(ValueError):
+            self.runner.delete(task.id, scope='work')
+        self.runner._duration_jobs.clear()
+
+    def test_delete_work_discards_only_paused_queue_and_does_not_redownload(self):
+        task = self.m3u8(count=2)
+        with patch.object(Engine, 'isStop', True), patch.object(Engine, '_master', None), \
+             patch.object(Engine, '_scheduled', {}), patch.object(Engine, '_DownLoadFile') as download:
+            try:
+                Engine.Pause()
+                Engine.StartTask(self.service, task.id, [0, 1])
+                self.wait(lambda: self.repo.get(task.id).status == TaskStatus.PAUSED)
+                with patch('src.core.task_files.send2trash', side_effect=self.recycle):
+                    self.runner.delete(task.id, scope='work')
+                Engine.Resume()
+                self.wait(lambda: Engine.isStop)
+                Engine._master.join(2)
+                download.assert_not_called()
+                self.assertFalse(Engine.Snapshot()['pending'])
+                self.assertIsNotNone(self.repo.get(task.id))
+                with patch.object(Engine, 'DownloadTSFile', side_effect=self.enqueue) as enqueue:
+                    self.assertEqual(self.runner.start(task.id), 2)
+                self.assertEqual(enqueue.call_count, 2)
+            finally:
+                Engine.Shutdown()
+                if Engine._master:
+                    Engine._master.join(3)
+                scheduler = Downloader._thread
+                if scheduler:
+                    scheduler.join(3)
+                    self.assertFalse(scheduler.is_alive())
 
     def test_duration_detection_notifies_without_gui_and_blocks_merge_until_done(self):
         task = self.m3u8(count=1, detect=True)

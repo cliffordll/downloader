@@ -58,6 +58,7 @@ class MP4Downloader:
                 if task.status == TaskStatus.COMPLETED:
                     raise ValueError('任务已完成。')
                 task.status, task.last_error = TaskStatus.QUEUED, None
+                task.details.file_missing = False
             self._write(task_id, enqueue)
             pause = threading.Event()
             self._jobs[task_id] = pause

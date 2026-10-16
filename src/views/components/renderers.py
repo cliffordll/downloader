@@ -199,7 +199,8 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
             actions = json.loads(value)
             if point is None:
                 # 键盘优先开始/继续，否则打开更多，绝不默认删除。
-                action = actions[0] if actions[0]['enabled'] else actions[-1]
+                action = next((entry for entry in actions
+                               if entry['enabled'] and entry['id'] in ('start', 'more', 'download')), None)
             else:
                 rects = self._ActionRects(wx.Rect(0, 0, cell.width, cell.height), len(actions))
                 action = next((entry for entry, rect in zip(actions, rects)
