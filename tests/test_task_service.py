@@ -222,8 +222,9 @@ class TaskServiceTests(unittest.TestCase):
     def test_delete_ui_removes_record_and_keeps_files(self):
         task = self.create()
         frame = self.frame()
-        with patch('wx.MessageDialog') as dialog:
+        with patch('wx.RichMessageDialog') as dialog:
             dialog.return_value.ShowModal.return_value = wx.ID_YES
+            dialog.return_value.IsCheckBoxChecked.return_value = False
             frame.OnDeleteTask(frame.model.fileTree.items[0])
         self.assertIsNone(self.repository.get(task.id))
         self.assertEqual(frame.model.fileTree.items, [])

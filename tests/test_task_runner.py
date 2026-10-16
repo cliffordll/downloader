@@ -281,12 +281,135 @@ class TaskRunnerTests(unittest.TestCase):
         task = self.m3u8()
         path = self.write(task, 0)
         Engine._pending.add(Engine.FileKey(task.save_dir / task.details.segments[1].relative_path))
-        with self.assertRaisesRegex(ValueError, '不能删除'):
-            self.runner.delete(task.id)
+        with patch('src.core.task_files.send2trash') as trash:
+            for delete_files in (False, True):
+                with self.assertRaisesRegex(ValueError, '不能删除'):
+                    self.runner.delete(task.id, delete_files=delete_files)
+            trash.assert_not_called()
         Engine._pending.clear()
         self.runner.delete(task.id)
         self.assertIsNone(self.repo.get(task.id))
         self.assertTrue(path.is_file())
+
+    def recycle(self, paths):
+        # 测试只移动临时目录中的文件，不访问用户回收站。
+        trash = self.root / 'trash'
+        trash.mkdir(exist_ok=True)
+        for index, name in enumerate(paths):
+            Path(name).replace(trash / f'{len(list(trash.iterdir()))}-{index}')
+
+    def test_delete_m3u8_recycles_known_files_before_removing_record(self):
+        task, other = self.m3u8(), self.m3u8('other')
+        segment = self.write(task, 0)
+        other_file = self.write(other, 0)
+        playlist = task.save_dir / task.details.playlist_path
+        concat = playlist.parent / 'playlist.txt'
+        partial = Path(str(segment) + '.part')
+        output = task.save_dir / task.outputs[0].relative_path
+        merge_partial = Path(str(output) + '.part.mp4')
+        exported = self.root / 'exported.mp4'
+        for path in (concat, partial, output, merge_partial, exported):
+            path.write_bytes(b'media')
+
+        def recycle(paths):
+            self.assertIsNotNone(self.repo.get(task.id))
+            self.recycle(paths)
+
+        with patch('src.core.task_files.send2trash', side_effect=recycle) as trash:
+            self.runner.delete(task.id, delete_files=True)
+        self.assertEqual(set(trash.call_args.args[0]),
+                         {str(path) for path in (segment, playlist, concat, partial, output, merge_partial)})
+        self.assertIsNone(self.repo.get(task.id))
+        self.assertFalse(playlist.parent.exists())
+        self.assertTrue(other_file.exists())
+        self.assertTrue(exported.exists())
+        self.assertTrue(task.save_dir.exists())
+
+    def test_delete_keeps_unknown_files_inside_task_directory(self):
+        task = self.m3u8()
+        self.write(task, 0)
+        directory = (task.save_dir / task.details.playlist_path).parent
+        unknown = directory / 'notes.txt'
+        unknown.write_text('keep', encoding='utf-8')
+        with patch('src.core.task_files.send2trash', side_effect=self.recycle):
+            self.runner.delete(task.id, delete_files=True)
+        self.assertEqual(unknown.read_text(encoding='utf-8'), 'keep')
+        self.assertIsNone(self.repo.get(task.id))
+
+    def test_delete_mp4_recycles_output_and_partial_and_allows_missing_files(self):
+        for name, create_files in (('direct', True), ('missing', False)):
+            task = self.mp4(name)
+            target = task.save_dir / task.details.target_path
+            partial = task.save_dir / task.details.temporary_path
+            if create_files:
+                target.write_bytes(b'media')
+                partial.write_bytes(b'partial')
+            else:
+                partial.unlink()
+            with patch('src.core.task_files.send2trash', side_effect=self.recycle) as trash:
+                self.runner.delete(task.id, delete_files=True)
+            self.assertEqual(trash.call_count, int(create_files))
+            self.assertIsNone(self.repo.get(task.id))
+            self.assertFalse(target.exists())
+            self.assertFalse(partial.exists())
+
+    def test_delete_partial_recycle_failure_keeps_record_and_can_retry(self):
+        task = self.mp4()
+        target = task.save_dir / task.details.target_path
+        target.write_bytes(b'media')
+
+        def fail(paths):
+            self.recycle(paths[:1])
+            raise PermissionError('locked file')
+
+        with patch('src.core.task_files.send2trash', side_effect=fail):
+            with self.assertRaisesRegex(OSError, '任务记录已保留'):
+                self.runner.delete(task.id, delete_files=True)
+        self.assertIsNotNone(self.repo.get(task.id))
+        with patch('src.core.task_files.send2trash', side_effect=self.recycle):
+            self.runner.delete(task.id, delete_files=True)
+        self.assertIsNone(self.repo.get(task.id))
+
+    def test_delete_rejects_directory_replacing_expected_file_before_recycling(self):
+        task = self.m3u8()
+        segment = task.save_dir / task.details.segments[0].relative_path
+        segment.mkdir(parents=True)
+        (segment / 'keep.txt').write_bytes(b'keep')
+        with patch('src.core.task_files.send2trash') as trash:
+            with self.assertRaisesRegex(ValueError, '变成目录'):
+                self.runner.delete(task.id, delete_files=True)
+        trash.assert_not_called()
+        self.assertIsNotNone(self.repo.get(task.id))
+
+    def test_delete_rejects_paths_shared_with_another_task(self):
+        task, other = self.mp4(), self.mp4('other')
+        def share(record):
+            record.save_dir = task.save_dir
+            record.details.target_path = task.details.target_path
+        self.repo.mutate(other.id, share)
+        with patch('src.core.task_files.send2trash') as trash:
+            with self.assertRaisesRegex(ValueError, '其他任务'):
+                self.runner.delete(task.id, delete_files=True)
+        trash.assert_not_called()
+        self.assertIsNotNone(self.repo.get(task.id))
+
+    def test_delete_refuses_linked_segment_directory(self):
+        task = self.m3u8()
+        outside = self.root / 'outside'
+        outside.mkdir()
+        original = outside / '000000.ts'
+        original.write_bytes(b'keep')
+        directory = (task.save_dir / task.details.segments[0].relative_path).parent
+        try:
+            directory.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest('当前环境不允许创建符号链接')
+        with patch('src.core.task_files.send2trash') as trash:
+            with self.assertRaises(ValueError):
+                self.runner.delete(task.id, delete_files=True)
+        trash.assert_not_called()
+        self.assertEqual(original.read_bytes(), b'keep')
+        self.assertIsNotNone(self.repo.get(task.id))
 
     def test_duration_detection_notifies_without_gui_and_blocks_merge_until_done(self):
         task = self.m3u8(count=1, detect=True)

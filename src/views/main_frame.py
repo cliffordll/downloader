@@ -1274,7 +1274,7 @@ class MainFrame(wx.Frame):
             '2. 下载与合并\n'
             '任务行固定显示“开始/暂停/继续、重试、删除、更多”，不可用的操作会置灰。'
             '“更多”或右键菜单提供转 MP4、播放视频、打开文件夹和另存为。'
-            '已完成的视频可另存到其他目录，原文件和任务记录保持不变。删除只移除任务记录，保留本地文件。'
+            '已完成的视频可另存到其他目录，原文件和任务记录保持不变。删除默认同时将任务文件移入回收站，可取消勾选以保留文件。'
             '行内“暂停/继续”只控制当前任务，已发出的请求允许完成。进度按已完成分片数计算。\n'
             '双击任务行展开或折叠分片列表；下载请点击操作列中的开始、继续或下载。'
             '全部下载完成后，可从“更多”中选择“转 MP4”。\n\n'
@@ -1482,7 +1482,7 @@ class MainFrame(wx.Frame):
                     self.OnTaskMenu(item)
                 return
             if action_id == 'delete':
-                # 删除处理函数会再次检查运行状态，并确认只删除任务记录。
+                # 删除处理函数会再次检查运行状态，并确认是否回收本地文件。
                 if self._manualActionClicks:
                     self._QueueTaskPopup(task, action_id)
                 else:
@@ -1521,23 +1521,26 @@ class MainFrame(wx.Frame):
             return
 
     def OnDeleteTask(self, task):
-        """本阶段只删除数据库记录；下载文件保留，不再递归删除任务目录。"""
+        """确认是否同时回收任务文件；仅清理明确归属于该任务的路径。"""
         try:
             if self.runner.busy(task.task_id):
                 raise ValueError('任务仍在下载、检测或合并中，暂时不能删除。')
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(str(error), '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
             return
-        dialog = wx.MessageDialog(self, '', '删除任务', wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
-        dialog.SetExtendedMessage('将从列表和数据库中删除此任务，已下载的文件会保留。')
+        dialog = wx.RichMessageDialog(self, '确定删除此任务？', '删除任务',
+                                      wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
+        dialog.SetExtendedMessage('将从列表和数据库中删除此任务。勾选下方选项会将分片、清单、视频和对应临时文件移入回收站；另存为副本保留。文件回收失败时保留任务记录。')
+        dialog.ShowCheckBox('同时删除此任务的本地文件（移入回收站）', checked=True)
         dialog.SetYesNoLabels('删除任务', '取消')
         try:
             if dialog.ShowModal() != wx.ID_YES:
                 return
+            delete_files = dialog.IsCheckBoxChecked()
         finally:
             dialog.Destroy()
         try:
-            self.runner.delete(task.task_id)
+            self.runner.delete(task.task_id, delete_files=delete_files)
             self.model.merge_failed.discard(task.parent.fileName)
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'删除未完成：{error}', '无法删除', wx.OK | wx.ICON_WARNING, parent=self)

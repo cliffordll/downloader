@@ -6,6 +6,7 @@ from threading import Event, RLock
 
 from src.core.sys_setting import SysSetting
 from src.core.task_service import TaskService
+from src.core.task_files import trash_task_files
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.media.mp4.mp4_downloader import MP4Downloader
@@ -199,11 +200,16 @@ class TaskRunner:
         return task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING,
                                TaskStatus.RECORDING, TaskStatus.STOPPING)
 
-    def delete(self, task_id):
-        """确认弹窗由界面负责；执行删除前再次核对忙碌状态，只删除记录。"""
-        if self.busy(task_id):
-            raise ValueError('任务仍在下载、检测或合并中，暂时不能删除。')
-        self.tasks.repository.delete(task_id)
+    def delete(self, task_id, *, delete_files=False):
+        """确认后可先回收本地文件；回收失败保留记录，允许重试。"""
+        with self._lock:
+            if self.busy(task_id):
+                raise ValueError('任务仍在下载、检测或合并中，暂时不能删除。')
+            if delete_files:
+                task = self._task(task_id)
+                others = [other for other in self.tasks.repository.list_tasks() if other.id != task_id]
+                trash_task_files(task, others)
+            self.tasks.repository.delete(task_id)
 
     def changes(self):
         """合并两种下载器和媒体处理的通知；统一交给界面读取最新记录。"""

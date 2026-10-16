@@ -417,12 +417,33 @@ class TaskProgressTests(unittest.TestCase):
             M3U8Downloader._pending.clear()
             with patch.object(frame.runner, 'busy', return_value=False), \
                  patch.object(frame.tasks.repository, 'delete') as delete, \
-                 patch('src.views.main_frame.wx.MessageDialog') as dialog:
+                 patch('src.views.main_frame.wx.RichMessageDialog') as dialog:
                 dialog.return_value.ShowModal.return_value = wx.ID_NO
                 frame.OnDeleteTask(self.task)
                 delete.assert_not_called()
                 dialog.return_value.Destroy.assert_called_once()
                 self.assertTrue(dialog.call_args.args[3] & wx.NO_DEFAULT)
+                dialog.return_value.ShowCheckBox.assert_called_once_with(
+                    '同时删除此任务的本地文件（移入回收站）', checked=True)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_delete_confirmation_passes_file_cleanup_choice(self):
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            for checked in (True, False):
+                with self.subTest(delete_files=checked), \
+                     patch.object(frame.runner, 'busy', return_value=False), \
+                     patch.object(frame.runner, 'delete') as delete, \
+                     patch.object(frame, 'OnRefresh'), \
+                     patch('src.views.main_frame.wx.RichMessageDialog') as dialog:
+                    dialog.return_value.ShowModal.return_value = wx.ID_YES
+                    dialog.return_value.IsCheckBoxChecked.return_value = checked
+                    frame.OnDeleteTask(self.task)
+                    delete.assert_called_once_with(self.task.task_id, delete_files=checked)
+                    dialog.return_value.Destroy.assert_called_once()
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
