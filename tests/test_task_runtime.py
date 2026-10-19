@@ -1,6 +1,7 @@
 from src.models import tree_model
 from src.models.tree_model import load_tree
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from queue import Queue, SimpleQueue
 import sqlite3
@@ -264,7 +265,7 @@ class TaskRuntimeTests(unittest.TestCase):
 
     def test_mutation_failure_rolls_back_parent_and_child(self):
         task = self.create()
-        with sqlite3.connect(self.repository.path) as connection:
+        with closing(sqlite3.connect(self.repository.path)) as connection, connection:
             connection.execute("""CREATE TRIGGER fail_segment BEFORE UPDATE ON task_segments
                                   BEGIN SELECT RAISE(ABORT, 'write failed'); END""")
         with self.assertRaises(sqlite3.IntegrityError):

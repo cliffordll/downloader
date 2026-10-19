@@ -19,7 +19,7 @@ MP4 暂停会保留已写入内容；等待网络响应期间可能要等到响�
 ```text
 src/
 ├─ schemas/      # task.py、segment_base.py：业务数据结构及校验
-├─ storage/      # task_repository.py：SQLite 读写
+├─ storage/      # SQLAlchemy 读写、表映射及 Alembic 自动升级
 ├─ core/         # 应用配置、路径与任务管理
 │  ├─ app_paths.py           # 应用数据目录和数据库路径
 │  ├─ sys_setting.py         # 设置读取、校验和保存
@@ -127,16 +127,43 @@ macOS 从源码启动时也会在 Dock 显示项目 Logo，无需打包为应用
 
 ## 新版任务存储（开发中）
 
-`src/managers/task_repository.py` 提供 `TaskRepository`。默认数据库位于应用数据目录的 `downloads.db`，主窗口首次加载列表时初始化。测试可传入独立数据库路径，不接触用户数据。
+`src/storage/task_repository.py` 提供 `TaskRepository`，使用 SQLAlchemy Core 访问 SQLite，`src/storage/schema.py` 定义表映射。默认数据库位于应用数据目录的 `downloads.db`，程序在创建窗口和启动下载前自动完成初始化与升级。测试可传入独立数据库路径，不接触用户数据。
 
 - `create(task)` 新增，`get(id)` 读取，`list_tasks()` 恢复全部任务，`update(task)` 更新，`delete(id)` 删除记录。
 - `tasks` 保存公共字段，`task_m3u8`、`task_mp4`、`task_rtmp` 保存各类型详情，`task_segments` 保存分片，`task_outputs` 保存输出文件。详情与进度字段使用 JSON，并通过统一任务模型校验。
 - 保存目录属于每个任务。存储操作不扫描下载目录，不创建下载文件，也不启动下载；删除记录不会删除磁盘文件。
 - 一次任务写入在同一事务内完成，失败全部回滚。`update` 使用 `updated_at` 检查旧快照，成功后返回带新时间的任务；调用方必须保留返回值，遇到 `TaskConflictError` 时重新读取并处理冲突。
 - 下载回调通过 `mutate` 在事务内读取最新记录，只写变化的分片/输出行，避免并发结果覆盖。回调使用任务 UUID 和分片序号，记录删除后迟到的回调不会重新创建任务。
-- 数据库使用版本号保护，遇到未知版本或损坏的任务数据会报错，不自动清空重建。不提供旧任务导入或旧数据迁移。
+- 数据库使用 Alembic 管理版本：现有 `user_version=1` 数据库在核验结构后自动升级为版本 `2`（revision `0002`），保留原有业务表、JSON 内容和任务 ID，仅增加迁移版本记录。新数据库直接创建到最新版本，无需手动执行 Alembic 命令。不导入旧目录或其他数据库格式。
+- 升级已有数据库前，通过 SQLite 备份接口将已提交数据（包含 WAL）保存到数据库同级 `backups/<数据库名>-v<旧版本>-<时间>-<唯一标记>.db`。已是最新版本时不重复备份；备份失败则停止升级。备份不会自动删除。
+- 一次启动中所有待执行迁移、DDL、数据修改与版本号均在同一事务中提交，出错全部回滚并阻止启动，修复原因后可重新运行。未知版本、比程序更新的数据库、版本记录不一致或未标记版本但已有表的数据库会明确报错，不清空、不降级。
 
 - 启动、刷新和展开只使用数据库记录，不核对下载文件；开始或继续下载、合并前才检查当前任务并修正差异。写库失败会暂停后续请求并提示。播放列表可从数据库重建。
+
+### 后续数据库变更
+
+修改 `src/storage/schema.py` 时，必须同时在 `src/storage/alembic/versions/` 追加一个迁移文件；已发布的迁移文件保持不变。版本号使用四位递增数字，并将 `down_revision` 指向前一版，保持单条迁移链。例如下一版文件 `0003_example.py`：
+
+```python
+from alembic import op
+import sqlalchemy as sa
+
+revision = '0003'
+down_revision = '0002'
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    # 示例，实际字段以业务需要为准；本次未增加此字段。
+    op.add_column('tasks', sa.Column('description', sa.Text, nullable=True))
+
+def downgrade():
+    raise RuntimeError('不支持数据库降级')
+```
+
+程序自动发现最新版本，按顺序执行迁移并同步 `user_version`，无需修改启动入口。JSON 字段改名、类型变化等也要在迁移中转换原始 JSON，不能依赖新版 Pydantic 模型先解析旧数据。迁移使用 `op` 的现有连接，不自行创建连接、提交事务或调用 `executescript`，也不操作下载文件。涉及 SQLite 不支持的表修改时可使用 `op.batch_alter_table`，同时验证外键引用和回滚。
+
+增加迁移时应覆盖旧版到新版、新库直接创建、跨多版本、重复启动、失败回滚及升级后任务读写的测试；`tests/fixtures/database_v1.sql` 保留原始数据库结构，供兼容性回归使用。
 
 ## 测试
 

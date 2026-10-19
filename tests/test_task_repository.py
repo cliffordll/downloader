@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
@@ -74,7 +75,7 @@ class TaskRepositoryTests(unittest.TestCase):
         changed = original.model_copy(deep=True)
         changed.name = '不应保留'
         changed.details.segments.pop()
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("""CREATE TRIGGER fail_output BEFORE INSERT ON task_outputs
                                   BEGIN SELECT RAISE(ABORT, 'simulated failure'); END""")
         with self.assertRaises(sqlite3.IntegrityError):
@@ -93,7 +94,7 @@ class TaskRepositoryTests(unittest.TestCase):
         self.assertTrue(self.repo.delete(task.id))
         self.assertFalse(self.repo.delete(task.id))
         self.assertEqual(output.read_bytes(), b'keep')
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             for table in ('task_m3u8', 'task_segments', 'task_outputs'):
                 self.assertEqual(connection.execute(f'SELECT COUNT(*) FROM {table} WHERE task_id=?',
                                                     (str(task.id),)).fetchone()[0], 0)
@@ -136,18 +137,18 @@ class TaskRepositoryTests(unittest.TestCase):
 
     def test_unsupported_database_version_is_not_reset(self):
         task = self.repo.create(self.task())
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute('PRAGMA user_version=99')
         before = self.path.read_bytes()
         with self.assertRaises(TaskDataError):
             TaskRepository(self.path)
         self.assertEqual(self.path.read_bytes(), before)
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             self.assertEqual(connection.execute('SELECT id FROM tasks').fetchone()[0], str(task.id))
 
     def test_invalid_stored_data_is_reported_without_overwrite(self):
         task = self.repo.create(self.task())
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("UPDATE tasks SET progress='{broken' WHERE id=?", (str(task.id),))
         before = self.path.read_bytes()
         with self.assertRaisesRegex(TaskDataError, str(task.id)):

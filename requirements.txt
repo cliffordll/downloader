@@ -4,3 +4,5 @@ requests==2.33.1
 wxPython==4.2.3
 pydantic==2.13.3
 Send2Trash==2.1.0
+SQLAlchemy==2.0.43
+alembic==1.18.4
