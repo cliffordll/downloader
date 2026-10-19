@@ -9,9 +9,10 @@ import stat
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 
 from src.media.m3u8.m3u8_parser import M3U8Parser
+from src.media.m3u8.aes128 import parse_iv, sequence_iv
 from src.core.path_manager import PathManager
 from src.storage.task_repository import TaskRepository
-from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus
+from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus, SegmentStatus
 
 
 class TaskService:
@@ -98,16 +99,51 @@ class TaskService:
         parser = M3U8Parser(content=content, base_path=base_path, m3u8_uri=source_url)
         if not parser.segments:
             raise ValueError('列表没有可下载的分片；主播放列表请先选择具体清晰度的播放列表。')
-        if any((segment.key and segment.key.method != 'NONE') or segment.byterange
-               or segment.init_section for segment in parser.segments):
-            raise ValueError('当前暂不支持加密、字节范围或带初始化片段的播放列表。')
+        if any(segment.byterange or segment.init_section for segment in parser.segments):
+            raise ValueError('当前暂不支持字节范围或带初始化片段的播放列表。')
         urls = parser.parse_media()
         segments = []
+        sequence = 0
+        key_sequence = None
+        active_key = None
+        key_number = 0
+        media_sequence = int(getattr(parser, 'media_sequence', 0) or 0)
         for index, (parsed, resolved) in enumerate(zip(parser.segments, urls)):
             if not resolved.absUri:
                 raise ValueError('分片地址不完整，请填写参考列表网址或使用完整的分片网址。')
-            segments.append(TaskSegment(sequence=index, relative_path=f'segments/{index:06d}.ts',
-                                        source_url=resolved.absUri, duration=parsed.duration))
+            key = parsed.key
+            method = (key.method or 'NONE').upper() if key else 'NONE'
+            encryption = None
+            if method != 'NONE':
+                key_format = getattr(key, 'keyformat', None) or 'identity'
+                key_uri = getattr(key, 'absolute_uri', None)
+                if method != 'AES-128' or key_format != 'identity' or not key_uri:
+                    raise ValueError(f'暂不支持此加密方式：{method}（KEYFORMAT={key_format}）。目前仅支持 AES-128。')
+                # IV belongs to each encrypted media entry; the key row represents
+                # the reusable key resource and should not duplicate when only IV changes.
+                signature = (method, key_uri, key_format, getattr(key, 'keyformatversions', None))
+                if signature != active_key:
+                    key_sequence = sequence
+                    key_number += 1
+                    segments.append(TaskSegment(
+                        sequence=sequence, entry_type='key', relative_path=f'keys/key-{key_number:04d}.key',
+                        source_url=key_uri, encryption={'method': method, 'key_format': key_format,
+                                                       'key_format_versions': getattr(key, 'keyformatversions', None)}))
+                    sequence += 1
+                    active_key = signature
+                iv = getattr(key, 'iv', None) or sequence_iv(media_sequence + index)
+                iv = '0x' + parse_iv(iv).hex()
+                encryption = {'method': method, 'key_sequence': key_sequence, 'iv': iv,
+                              'key_format': key_format}
+            else:
+                active_key = None
+                key_sequence = None
+                if parsed.key and parsed.key.method == 'NONE':
+                    encryption = {'method': 'NONE'}
+            segments.append(TaskSegment(sequence=sequence, relative_path=f'segments/{index:06d}.ts',
+                                        source_url=resolved.absUri, encryption=encryption,
+                                        duration=parsed.duration))
+            sequence += 1
         def build(directory, stem, target):
             children = [segment.model_copy(update={'relative_path': f'{stem}/{segment.relative_path}'})
                         for segment in segments]
@@ -116,16 +152,17 @@ class TaskService:
                            details=M3U8Details(playlist_path=f'{stem}/download.m3u8', ts_pattern=ts_pattern,
                                                detect_duration=detect_duration,
                                                request_headers=request_headers or {}, segments=children),
-                           progress=TaskProgress(total_segments=len(children)),
+                           progress=TaskProgress(total_segments=sum(item.entry_type == 'segment' for item in children)),
                            outputs=[TaskOutput(relative_path=target, kind='merged')])
         return self._create_named(save_dir, filename, source_url, build)
 
     @staticmethod
     def local_playlist(task):
-        maximum = max((segment.duration or 0 for segment in task.details.segments), default=0)
+        segments = task.details.media_segments
+        maximum = max((segment.duration or 0 for segment in segments), default=0)
         lines = ['#EXTM3U', '#EXT-X-VERSION:3', f'#EXT-X-TARGETDURATION:{max(1, math.ceil(maximum))}',
                  '#EXT-X-MEDIA-SEQUENCE:0', '#EXT-X-PLAYLIST-TYPE:VOD']
-        for segment in sorted(task.details.segments, key=lambda segment: segment.sequence):
+        for segment in sorted(segments, key=lambda segment: segment.sequence):
             relative = os.path.relpath(task.save_dir / segment.relative_path,
                                        (task.save_dir / task.details.playlist_path).parent)
             lines.extend([f'#EXTINF:{segment.duration or 0},', Path(relative).as_posix()])
@@ -143,9 +180,19 @@ class TaskService:
             def needs_file_state(task):
                 return ((isinstance(task, M3U8Task) and 'work_dir_missing' not in task.details.model_fields_set)
                         or (isinstance(task, MP4Task) and 'file_missing' not in task.details.model_fields_set))
+            def needs_pipeline_recovery(task):
+                return isinstance(task, M3U8Task) and any(
+                    entry.status in (SegmentStatus.WAITING_KEY, SegmentStatus.DOWNLOADING,
+                                     SegmentStatus.DECRYPTING)
+                    for entry in task.details.segments)
             def interrupt(task):
                 if task.status in active:
                     task.status, task.last_error = TaskStatus.INTERRUPTED, '上次任务未正常结束，请手动继续。'
+                if isinstance(task, M3U8Task):
+                    for entry in task.details.segments:
+                        if entry.status in (SegmentStatus.WAITING_KEY, SegmentStatus.DOWNLOADING,
+                                            SegmentStatus.DECRYPTING):
+                            entry.status, entry.last_error = SegmentStatus.PENDING, None
                 if isinstance(task, M3U8Task) and 'work_dir_missing' not in task.details.model_fields_set:
                     task.details.work_dir_missing = bool(task.details.playlist_path and not (
                         task.save_dir / task.details.playlist_path).parent.is_dir())
@@ -153,7 +200,7 @@ class TaskService:
                     task.details.file_missing = not any((task.save_dir / path).is_file() for path in (
                         task.details.target_path, task.details.temporary_path))
             records = [self.repository.mutate(task.id, interrupt)
-                       if task.status in active or needs_file_state(task) else task
+                       if task.status in active or needs_file_state(task) or needs_pipeline_recovery(task) else task
                        for task in records]
             self._recovered = True
         return [task for task in records if task is not None]
@@ -164,8 +211,9 @@ class TaskService:
 
     @staticmethod
     def _progress(task):
-        completed = [segment for segment in task.details.segments if segment.status == FileStatus.COMPLETED]
-        task.progress = TaskProgress(total_segments=len(task.details.segments), completed_segments=len(completed),
+        segments = task.details.media_segments
+        completed = [segment for segment in segments if segment.status == SegmentStatus.COMPLETED]
+        task.progress = TaskProgress(total_segments=len(segments), completed_segments=len(completed),
                                      downloaded_bytes=sum(segment.size_bytes or 0 for segment in completed))
 
     @staticmethod
@@ -175,13 +223,13 @@ class TaskService:
             task.status, task.last_error = TaskStatus.COMPLETED, None
         elif task.status == TaskStatus.MERGING:
             return  # 文件完成通知可能晚于用户启动合并，只有合并回调能结束该状态。
-        elif task.details.segments and task.progress.completed_segments == task.progress.total_segments:
+        elif task.details.media_segments and task.progress.completed_segments == task.progress.total_segments:
             if any(output.status == FileStatus.FAILED for output in task.outputs):
                 task.status = TaskStatus.FAILED
             else:
                 task.status, task.last_error = TaskStatus.WAITING_MERGE, None
         elif task.status not in (TaskStatus.PAUSED, TaskStatus.PAUSING):
-            failed = next((segment for segment in task.details.segments if segment.status == FileStatus.FAILED), None)
+            failed = next((segment for segment in task.details.media_segments if segment.status == SegmentStatus.FAILED), None)
             if failed:
                 task.status, task.last_error = TaskStatus.FAILED, failed.last_error
             elif task.progress.completed_segments and task.status != TaskStatus.INTERRUPTED:
@@ -239,14 +287,21 @@ class TaskService:
             elif not active:
                 task.details.work_dir_missing = True
         missing = False
-        for segment in task.details.segments:
-            path = task.save_dir / segment.relative_path
+        for entry in task.details.segments:
+            path = task.save_dir / entry.relative_path
             size = cls._file_size(path)
-            if size and (segment.size_bytes is None or segment.size_bytes == size):
-                segment.status, segment.size_bytes, segment.last_error = FileStatus.COMPLETED, size, None
-            elif segment.status == FileStatus.COMPLETED or size is not None:
-                segment.status, segment.last_error = FileStatus.MISSING, '分片不存在或大小与记录不符'
-                segment.duration_status, segment.duration_error = 'pending', None
+            if entry.entry_type == 'key':
+                if size == 16:
+                    entry.status, entry.size_bytes, entry.last_error = SegmentStatus.COMPLETED, size, None
+                elif entry.status == SegmentStatus.COMPLETED or size is not None:
+                    entry.status, entry.size_bytes = SegmentStatus.MISSING, None
+                    entry.last_error = '密钥文件不存在或长度不是 16 字节'
+                continue
+            if size and (entry.size_bytes is None or entry.size_bytes == size):
+                entry.status, entry.size_bytes, entry.last_error = SegmentStatus.COMPLETED, size, None
+            elif entry.status == SegmentStatus.COMPLETED or size is not None:
+                entry.status, entry.last_error = SegmentStatus.MISSING, '分片不存在或大小与记录不符'
+                entry.duration_status, entry.duration_error = 'pending', None
                 missing = True
         for output in task.outputs:
             path = task.save_dir / output.relative_path
@@ -272,12 +327,19 @@ class TaskService:
             self._require_m3u8(task)
             self._reconcile(task)
             selected = set(sequences)
-            if not selected or not selected <= {segment.sequence for segment in task.details.segments}:
+            media_segments = task.details.media_segments
+            if not selected or not selected <= {segment.sequence for segment in media_segments}:
                 raise ValueError('分片序号无效，请刷新后重试。')
             task.details.work_dir_missing = False  # 用户主动重新下载，重新展示待创建的工作目录。
-            for segment in task.details.segments:
-                if segment.sequence in selected and segment.status != FileStatus.COMPLETED:
-                    segment.status, segment.last_error, segment.size_bytes = FileStatus.PENDING, None, None
+            selected_segments = [segment for segment in media_segments if segment.sequence in selected]
+            key_sequences = {segment.encryption.get('key_sequence') for segment in selected_segments
+                             if segment.encryption and segment.encryption.get('key_sequence') is not None}
+            for entry in task.details.key_entries:
+                if entry.sequence in key_sequences and entry.status != SegmentStatus.COMPLETED:
+                    entry.status, entry.last_error, entry.size_bytes = SegmentStatus.PENDING, None, None
+            for segment in selected_segments:
+                if segment.status != SegmentStatus.COMPLETED:
+                    segment.status, segment.last_error, segment.size_bytes = SegmentStatus.PENDING, None, None
                     segment.duration_status, segment.duration_error = 'pending', None
             task.status, task.last_error = TaskStatus.QUEUED, None
             self._progress(task)
@@ -297,12 +359,12 @@ class TaskService:
                 raise ValueError('播放时长必须是大于 0 的秒数，支持小数。')
         def change(task):
             self._require_m3u8(task)
-            segment = next((s for s in task.details.segments if s.sequence == sequence), None)
+            segment = next((s for s in task.details.media_segments if s.sequence == sequence), None)
             if segment is None:
                 raise ValueError('分片不存在，请刷新后重试。')
             if task.status == TaskStatus.MERGING:
                 raise ValueError('正在合并的任务不能修改分片信息。')
-            if segment.status == FileStatus.COMPLETED and source_url != segment.source_url:
+            if segment.status == SegmentStatus.COMPLETED and source_url != segment.source_url:
                 raise ValueError('已完成的分片不能修改下载地址。')
             segment.source_url = source_url  # 数据模型校验完整 HTTP/HTTPS 地址。
             if duration is not None:
@@ -325,14 +387,14 @@ class TaskService:
         """回调身份是任务 UUID + 分片序号，并校验文件路径，绝不按旧行号定位。"""
         def change(task):
             self._require_m3u8(task)
-            segment = next((segment for segment in task.details.segments if segment.sequence == sequence), None)
+            segment = next((segment for segment in task.details.media_segments if segment.sequence == sequence), None)
             if segment is None or (task.save_dir / segment.relative_path).resolve() != Path(filename).resolve():
                 raise ValueError('分片回调身份或保存路径不匹配。')
             path = task.save_dir / segment.relative_path
             if success and path.is_file():
-                segment.status, segment.size_bytes, segment.last_error = FileStatus.COMPLETED, path.stat().st_size, None
+                segment.status, segment.size_bytes, segment.last_error = SegmentStatus.COMPLETED, path.stat().st_size, None
             else:
-                segment.status, segment.size_bytes = FileStatus.FAILED, None
+                segment.status, segment.size_bytes = SegmentStatus.FAILED, None
                 segment.last_error = error or '分片下载失败或文件未保存。'
                 task.last_error = segment.last_error
             self._progress(task)
@@ -343,6 +405,26 @@ class TaskService:
                 task.status = runtime_status
         return self.repository.mutate(task_id, change)
 
+    def segment_status(self, task_id, sequence, status, error=None):
+        """Persist transient per-segment pipeline state for the UI."""
+        def change(task):
+            self._require_m3u8(task)
+            segment = next((item for item in task.details.media_segments if item.sequence == sequence), None)
+            if segment is None:
+                raise ValueError('分片不存在，请刷新后重试。')
+            segment.status, segment.last_error = status, error
+        return self.repository.mutate(task_id, change)
+
+    def key_status(self, task_id, sequence, status, error=None, size_bytes=None):
+        """Persist key-file row status without affecting media progress."""
+        def change(task):
+            self._require_m3u8(task)
+            entry = next((item for item in task.details.key_entries if item.sequence == sequence), None)
+            if entry is None:
+                raise ValueError('密钥条目不存在，请刷新后重试。')
+            entry.status, entry.last_error, entry.size_bytes = status, error, size_bytes
+        return self.repository.mutate(task_id, change)
+
     def begin_merge(self, task_id):
         record = self.repository.get(task_id)
         if record is None:
@@ -351,9 +433,9 @@ class TaskService:
         self.check_files(task_id)
         def change(task):
             self._require_m3u8(task)
-            if not task.details.segments or task.progress.completed_segments != task.progress.total_segments:
+            if not task.details.media_segments or task.progress.completed_segments != task.progress.total_segments:
                 raise ValueError('分片尚未全部下载，不能合并。')
-            if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.segments):
+            if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.media_segments):
                 raise ValueError('分片时长尚未检测完成，请稍后合并。')
             if any(output.status == FileStatus.COMPLETED for output in task.outputs):
                 raise ValueError('视频文件已经存在。')
@@ -383,10 +465,10 @@ class TaskService:
         task = self.repository.get(task_id)
         if not isinstance(task, M3U8Task) or (not force and not task.details.detect_duration):
             return task
-        for segment in task.details.segments:
+        for segment in task.details.media_segments:
             if stop is not None and stop.is_set():
                 return None
-            if segment.status != FileStatus.COMPLETED or (not force and segment.duration_status != 'pending'):
+            if segment.status != SegmentStatus.COMPLETED or (not force and segment.duration_status != 'pending'):
                 continue
             path = task.save_dir / segment.relative_path
             duration, error = None, None
@@ -399,8 +481,8 @@ class TaskService:
                 return None  # 退出后保留 pending，下次启动继续检测。
             def change(current):
                 self._require_m3u8(current)
-                target = next((s for s in current.details.segments if s.sequence == segment.sequence), None)
-                if (target is None or target.status != FileStatus.COMPLETED
+                target = next((s for s in current.details.media_segments if s.sequence == segment.sequence), None)
+                if (target is None or target.status != SegmentStatus.COMPLETED
                         or target.duration_status != segment.duration_status or target.relative_path != segment.relative_path):
                     return
                 # 检测期间文件可能被删除或重新下载，不把旧结果写到新文件上。

@@ -10,7 +10,7 @@ from src.core.task_files import trash_task_files
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.media.mp4.mp4_downloader import MP4Downloader
-from src.schemas.task import FileStatus, M3U8Task, MP4Task, TaskStatus
+from src.schemas.task import FileStatus, SegmentStatus, M3U8Task, MP4Task, TaskStatus
 from src.storage.task_repository import TaskDataError, TaskConflictError
 
 
@@ -42,7 +42,7 @@ class TaskRunner:
     @staticmethod
     def _keys(task):
         return {M3U8Downloader.FileKey(task.save_dir / segment.relative_path)
-                for segment in task.details.segments} if isinstance(task, M3U8Task) else set()
+                for segment in task.details.media_segments} if isinstance(task, M3U8Task) else set()
 
     def start(self, task_id, *, sequences=None, retry=False):
         """按任务类型选择引擎；重试仅选择失败且缺失的分片，单片下载按稳定序号选择。"""
@@ -65,14 +65,14 @@ class TaskRunner:
             raise ValueError('任务正在合并，请稍后操作。')
         # 已完成分片的时长检测可与剩余分片下载并行；服务会校验文件身份再保存时长。
         selected = None if sequences is None else set(sequences)
-        if selected is not None and not selected <= {s.sequence for s in task.details.segments}:
+        if selected is not None and not selected <= {s.sequence for s in task.details.media_segments}:
             raise ValueError('分片序号无效，请刷新后重试。')
         task = self.check_files(task_id)
         failed = M3U8Downloader.Snapshot()['failed']
-        wanted = [s.sequence for s in task.details.segments
+        wanted = [s.sequence for s in task.details.media_segments
                   if (selected is None or s.sequence in selected)
-                  and s.status != FileStatus.COMPLETED
-                  and (not retry or s.status == FileStatus.FAILED
+                  and s.status != SegmentStatus.COMPLETED
+                  and (not retry or s.status == SegmentStatus.FAILED
                        or M3U8Downloader.FileKey(task.save_dir / s.relative_path) in failed)]
         if not wanted:
             if task.status == TaskStatus.WAITING_MERGE:
@@ -83,7 +83,7 @@ class TaskRunner:
             if count:
                 # 用户主动开始/重试只恢复本次选择，其他全局暂停的任务保持暂停。
                 M3U8Downloader.ResumeFiles({M3U8Downloader.FileKey(task.save_dir / s.relative_path)
-                                           for s in task.details.segments if s.sequence in wanted})
+                                           for s in task.details.media_segments if s.sequence in wanted})
             return count
         except Exception:
             M3U8Downloader.Pause()
@@ -95,7 +95,7 @@ class TaskRunner:
             task = self._task(task_id)
             if not isinstance(task, M3U8Task):
                 raise ValueError('只有 TS 分片可以修改分片信息。')
-            segment = next((s for s in task.details.segments if s.sequence == sequence), None)
+            segment = next((s for s in task.details.media_segments if s.sequence == sequence), None)
             if segment is None:
                 raise ValueError('分片不存在，请刷新后重试。')
             if self.busy(task_id) or self._keys(task) & M3U8Downloader.Snapshot()['requesting']:
@@ -122,11 +122,11 @@ class TaskRunner:
             self._changes.put(task_id)
 
     def _check_before_resume(self, task):
-        completed = {segment.sequence for segment in task.details.segments
-                     if segment.status == FileStatus.COMPLETED}
+        completed = {segment.sequence for segment in task.details.media_segments
+                     if segment.status == SegmentStatus.COMPLETED}
         checked = self.check_files(task.id)
-        missing = [segment.sequence for segment in checked.details.segments
-                   if segment.sequence in completed and segment.status == FileStatus.MISSING]
+        missing = [segment.sequence for segment in checked.details.media_segments
+                   if segment.sequence in completed and segment.status == SegmentStatus.MISSING]
         if missing:
             # 暂停期间丢失的已完成分片也要补下载，其余未选中的分片不加入队列。
             self.start(task.id, sequences=missing)
@@ -257,7 +257,7 @@ class TaskRunner:
                 raise ValueError('只有 M3U8 和 TS 任务可以检测分片时长。')
             if self.busy(task_id):
                 raise ValueError('任务仍在下载、检测或合并中，请结束后再检测。')
-            if not any(s.status == FileStatus.COMPLETED for s in task.details.segments):
+            if not any(s.status == SegmentStatus.COMPLETED for s in task.details.media_segments):
                 raise ValueError('没有已下载的分片可供检测。')
             if not SysSetting.GetFFprobe():
                 raise ValueError('找不到 ffprobe，请先配置 FFmpeg 所在目录。')
@@ -357,7 +357,7 @@ class TaskRunner:
         task = self._task(task_id)
         if not isinstance(task, M3U8Task) or task.status != TaskStatus.WAITING_MERGE:
             return  # 忽略已进入合并或合并失败后的迟到完成事件，不能自动重试合并。
-        if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.segments):
+        if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.media_segments):
             self.queue_duration(task_id)
             return
         self.write_playlist(task_id)

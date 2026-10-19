@@ -3,13 +3,16 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Union, List, Optional
 from uuid import UUID
 from pathlib import Path
-from src.schemas.task import FileStatus, TaskStatus, TaskType, TaskProgress
+from src.schemas.task import FileStatus, SegmentStatus, TaskStatus, TaskType, TaskProgress
 
 class FileItem(BaseModel):
     fileName: str
     displayName: str = ''  # 界面名称与内部绝对路径分离，切换默认目录不影响已有任务。
     sequence: Optional[int] = None  # 分片稳定序号，不包含输出文件造成的界面行偏移。
-    status: FileStatus = FileStatus.PENDING
+    status: Union[FileStatus, SegmentStatus] = FileStatus.PENDING
+    entry_type: str = 'segment'
+    encryption: dict | None = None
+    last_error: str | None = None
     fileSize: Union[str, int]           = Field(default='-')
     modifyAt: Union[str, int, float]    = Field(default="----:--:-- --:--")
     absUri: str                         = Field(default="")

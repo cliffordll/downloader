@@ -155,7 +155,7 @@ class TaskProgressTests(unittest.TestCase):
         from src.schemas.task import TaskStatus
         self.task.task_status = TaskStatus.WAITING_MERGE
         self.task.download = len(self.task.childs)
-        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(segments=[]))
+        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(segments=[], media_segments=[]))
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
@@ -514,7 +514,8 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_edit_segment_url_saves_only_on_confirmation(self):
         segment = SimpleNamespace(sequence=7, source_url='https://example.com/old.ts', duration=4, status='pending')
-        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(segments=[segment]))
+        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(
+            segments=[segment], media_segments=[segment]))
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
