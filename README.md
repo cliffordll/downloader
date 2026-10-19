@@ -51,7 +51,7 @@ M3U8 添加界面使用 `m3u8_dialog.py`、`panels/m3u8_form.py`，FFmpeg 合并
 
 ## 安装与运行
 
-已验证环境：Windows、Python 3.10.11。建议使用 Python 3.10 创建独立环境，在项目根目录执行：
+已验证环境：Windows、Python 3.10.11。数据库拆列升级需要 Python 链接的 SQLite 版本不低于 3.35（本地验证为 3.40.1），可用 `python -c "import sqlite3; print(sqlite3.sqlite_version)"` 查看。建议使用 Python 3.10 创建独立环境，在项目根目录执行：
 
 ```powershell
 py -3.10 -m venv .venv
@@ -130,11 +130,13 @@ macOS 从源码启动时也会在 Dock 显示项目 Logo，无需打包为应用
 `src/storage/task_repository.py` 提供 `TaskRepository`，使用 SQLAlchemy Core 访问 SQLite，`src/storage/schema.py` 定义表映射。默认数据库位于应用数据目录的 `downloads.db`，程序在创建窗口和启动下载前自动完成初始化与升级。测试可传入独立数据库路径，不接触用户数据。
 
 - `create(task)` 新增，`get(id)` 读取，`list_tasks()` 恢复全部任务，`update(task)` 更新，`delete(id)` 删除记录。
-- `tasks` 保存公共字段，`task_m3u8`、`task_mp4`、`task_rtmp` 保存各类型详情，`task_segments` 保存分片，`task_outputs` 保存输出文件。详情与进度字段使用 JSON，并通过统一任务模型校验。
+- `tasks` 保存公共字段和独立的进度列：已完成/总分片数、已下载/总字节数、录制秒数。`task_m3u8` 保存播放列表路径、TS 规则和目录状态，`task_mp4` 保存文件路径、ETag、续传及完整落盘状态，`task_rtmp` 保存录制路径和起始时间。三张类型表均不再使用 `data`，主表不再使用 `progress` JSON。
+- 仅 M3U8/MP4 的 `request_headers` 字典继续作为独立 JSON 列保存，其他固定字段均为独立列。旧记录尚未核对的 `work_dir_missing` / `file_missing` 保存为 NULL；核对后保存实际布尔值，未知状态与明确的 false 不混淆。
+- `task_segments` 将相对路径、来源网址、状态、文件大小、时长、时长检测状态及错误信息保存为独立列；`task_outputs` 将相对路径、输出类型、状态和文件大小保存为独立列，保留输出 ID 与顺序。这两张表不再使用 `data`，可直接查询和关联。
 - 保存目录属于每个任务。存储操作不扫描下载目录，不创建下载文件，也不启动下载；删除记录不会删除磁盘文件。
 - 一次任务写入在同一事务内完成，失败全部回滚。`update` 使用 `updated_at` 检查旧快照，成功后返回带新时间的任务；调用方必须保留返回值，遇到 `TaskConflictError` 时重新读取并处理冲突。
 - 下载回调通过 `mutate` 在事务内读取最新记录，只写变化的分片/输出行，避免并发结果覆盖。回调使用任务 UUID 和分片序号，记录删除后迟到的回调不会重新创建任务。
-- 数据库使用 Alembic 管理版本：现有 `user_version=1` 数据库在核验结构后自动升级为版本 `2`（revision `0002`），保留原有业务表、JSON 内容和任务 ID，仅增加迁移版本记录。新数据库直接创建到最新版本，无需手动执行 Alembic 命令。不导入旧目录或其他数据库格式。
+- 数据库使用 Alembic 管理版本，当前为版本 `4`（revision `0004`）。完整拆列集中在本次 `0003` 迁移中，版本 `1` / `2` 自动执行；`0004` 仅衔接曾测试过“只拆分片与输出”的版本 `3`，补齐剩余字段，已经执行完整拆列时不重复修改。保留任务 ID、分片序号、输出 ID、顺序及字段值。新数据库直接创建到最新版本，无需手动执行 Alembic 命令。不导入旧目录或其他数据库格式。旧 JSON 损坏、包含未知字段或身份与主键不一致时停止并回滚，不静默丢弃内容。
 - 升级已有数据库前，通过 SQLite 备份接口将已提交数据（包含 WAL）保存到数据库同级 `backups/<数据库名>-v<旧版本>-<时间>-<唯一标记>.db`。已是最新版本时不重复备份；备份失败则停止升级。备份不会自动删除。
 - 一次启动中所有待执行迁移、DDL、数据修改与版本号均在同一事务中提交，出错全部回滚并阻止启动，修复原因后可重新运行。未知版本、比程序更新的数据库、版本记录不一致或未标记版本但已有表的数据库会明确报错，不清空、不降级。
 
@@ -142,14 +144,14 @@ macOS 从源码启动时也会在 Dock 显示项目 Logo，无需打包为应用
 
 ### 后续数据库变更
 
-修改 `src/storage/schema.py` 时，必须同时在 `src/storage/alembic/versions/` 追加一个迁移文件；已发布的迁移文件保持不变。版本号使用四位递增数字，并将 `down_revision` 指向前一版，保持单条迁移链。例如下一版文件 `0003_example.py`：
+修改 `src/storage/schema.py` 时，必须同时在 `src/storage/alembic/versions/` 追加一个迁移文件；已发布的迁移文件保持不变。版本号使用四位递增数字，并将 `down_revision` 指向前一版，保持单条迁移链。例如下一版文件 `0005_example.py`：
 
 ```python
 from alembic import op
 import sqlalchemy as sa
 
-revision = '0003'
-down_revision = '0002'
+revision = '0005'
+down_revision = '0004'
 branch_labels = None
 depends_on = None
 

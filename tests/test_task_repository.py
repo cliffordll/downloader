@@ -149,7 +149,7 @@ class TaskRepositoryTests(unittest.TestCase):
     def test_invalid_stored_data_is_reported_without_overwrite(self):
         task = self.repo.create(self.task())
         with closing(sqlite3.connect(self.path)) as connection, connection:
-            connection.execute("UPDATE tasks SET progress='{broken' WHERE id=?", (str(task.id),))
+            connection.execute("UPDATE tasks SET source_type='unsupported' WHERE id=?", (str(task.id),))
         before = self.path.read_bytes()
         with self.assertRaisesRegex(TaskDataError, str(task.id)):
             self.repo.list_tasks()

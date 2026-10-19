@@ -134,17 +134,13 @@ class TaskTypesUITests(unittest.TestCase):
 
     def test_legacy_removed_work_directory_is_detected_without_scanning_segments(self):
         from contextlib import closing
-        import json
         import sqlite3
         task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
                                        '#EXTM3U\n#EXTINF:4,\na.ts\n')
         (task.save_dir / task.details.playlist_path).parent.replace(self.root / 'old-work')
-        # 模拟此前版本的数据库详情，尚无目录清理状态字段。
+        # 拆列后 NULL 保留此前版本尚未记录目录存在状态的含义。
         with closing(sqlite3.connect(self.repo.path)) as connection, connection:
-            data = json.loads(connection.execute('SELECT data FROM task_m3u8 WHERE task_id=?',
-                                                 (str(task.id),)).fetchone()[0])
-            data.pop('work_dir_missing')
-            connection.execute('UPDATE task_m3u8 SET data=? WHERE task_id=?', (json.dumps(data), str(task.id)))
+            connection.execute('UPDATE task_m3u8 SET work_dir_missing=NULL WHERE task_id=?', (str(task.id),))
         service = TaskService(TaskRepository(self.repo.path))
         with patch.object(TaskService, '_file_size', side_effect=AssertionError('不能扫描分片')):
             restored = service.load_tasks()[0]

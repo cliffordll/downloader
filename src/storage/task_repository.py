@@ -7,7 +7,6 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-import json
 from pathlib import Path
 import sqlite3
 from uuid import UUID
@@ -22,11 +21,7 @@ from src.core.app_paths import database_path
 from src.schemas.task import TASK_ADAPTER, Task
 from src.storage.errors import TaskConflictError, TaskDataError
 from src.storage.migrations import upgrade_database
-from src.storage.schema import tasks, detail_tables, segments, outputs
-
-
-def _json(value) -> str:
-    return json.dumps(value, ensure_ascii=False, allow_nan=False)
+from src.storage.schema import tasks, detail_tables, segments, outputs, PROGRESS_COLUMNS
 
 
 class TaskRepository:
@@ -84,7 +79,7 @@ class TaskRepository:
     @staticmethod
     def _values(task: Task) -> dict:
         data = task.model_dump(mode='json')
-        data['progress'] = _json(data['progress'])
+        data.update(data.pop('progress'))
         return {column.name: data[column.name] for column in tasks.columns}
 
     @staticmethod
@@ -94,14 +89,14 @@ class TaskRepository:
         segment_data = details.pop('segments', [])
         table = detail_tables[data['type']]
         task_id = str(task.id)
-        connection.execute(table.insert().values(task_id=task_id, data=_json(details)))
+        connection.execute(table.insert().values(task_id=task_id, **details))
         if segment_data:
             connection.execute(segments.insert(), [
-                {'task_id': task_id, 'sequence': segment['sequence'], 'data': _json(segment)}
+                {'task_id': task_id, **segment}
                 for segment in segment_data])
         if data['outputs']:
             connection.execute(outputs.insert(), [
-                {'task_id': task_id, 'id': output['id'], 'position': index, 'data': _json(output)}
+                {'task_id': task_id, 'position': index, **output}
                 for index, output in enumerate(data['outputs'])])
 
     def create(self, task: Task) -> Task:
@@ -155,19 +150,22 @@ class TaskRepository:
         task_id = row['id']
         try:
             data = dict(row)
-            data['progress'] = json.loads(data['progress'])
+            data['progress'] = {name: data.pop(name) for name in PROGRESS_COLUMNS}
             table = detail_tables[data['type']]
-            detail = connection.execute(sa.select(table.c.data).where(table.c.task_id == task_id)).mappings().first()
+            detail = connection.execute(sa.select(table).where(table.c.task_id == task_id)).mappings().first()
             if detail is None:
                 raise ValueError('缺少任务类型详情')
-            data['details'] = json.loads(detail['data'])
+            data['details'] = {key: value for key, value in detail.items() if key != 'task_id'}
+            for name in ('work_dir_missing', 'file_missing'):
+                if data['details'].get(name, False) is None:
+                    data['details'].pop(name)
             if data['type'] == 'm3u8':
-                data['details']['segments'] = [json.loads(value) for value in connection.execute(
-                    sa.select(segments.c.data).where(segments.c.task_id == task_id)
-                    .order_by(segments.c.sequence)).scalars()]
-            data['outputs'] = [json.loads(value) for value in connection.execute(
-                sa.select(outputs.c.data).where(outputs.c.task_id == task_id)
-                .order_by(outputs.c.position)).scalars()]
+                data['details']['segments'] = [dict(segment) for segment in connection.execute(
+                    sa.select(*(column for column in segments.c if column.name != 'task_id'))
+                    .where(segments.c.task_id == task_id).order_by(segments.c.sequence)).mappings()]
+            data['outputs'] = [dict(output) for output in connection.execute(
+                sa.select(*(column for column in outputs.c if column.name not in ('task_id', 'position')))
+                .where(outputs.c.task_id == task_id).order_by(outputs.c.position)).mappings()]
             return TASK_ADAPTER.validate_python(data)
         except (ValueError, KeyError, TypeError) as error:
             raise TaskDataError(f'任务 {task_id} 数据异常，未修改数据库。') from error
@@ -208,7 +206,7 @@ class TaskRepository:
             if old['details'] != new['details']:
                 table = detail_tables[new['type']]
                 connection.execute(table.update().where(table.c.task_id == str(task.id))
-                                   .values(data=_json(new['details'])))
+                                   .values(**new['details']))
             old_by_sequence = {segment['sequence']: segment for segment in old_segments}
             new_by_sequence = {segment['sequence']: segment for segment in new_segments}
             for sequence in old_by_sequence.keys() - new_by_sequence.keys():
@@ -216,15 +214,16 @@ class TaskRepository:
                                                            segments.c.sequence == sequence))
             for sequence, segment in new_by_sequence.items():
                 if old_by_sequence.get(sequence) != segment:
-                    statement = sqlite_insert(segments).values(
-                        task_id=str(task.id), sequence=sequence, data=_json(segment))
+                    statement = sqlite_insert(segments).values(task_id=str(task.id), **segment)
                     connection.execute(statement.on_conflict_do_update(
-                        index_elements=['task_id', 'sequence'], set_={'data': statement.excluded.data}))
+                        index_elements=['task_id', 'sequence'], set_={
+                            column.name: statement.excluded[column.name] for column in segments.c
+                            if column.name not in ('task_id', 'sequence')}))
             if old['outputs'] != new['outputs']:
                 connection.execute(outputs.delete().where(outputs.c.task_id == str(task.id)))
                 if new['outputs']:
                     connection.execute(outputs.insert(), [
-                        {'task_id': str(task.id), 'id': output['id'], 'position': index, 'data': _json(output)}
+                        {'task_id': str(task.id), 'position': index, **output}
                         for index, output in enumerate(new['outputs'])])
             return task
 
