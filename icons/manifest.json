@@ -2802,6 +2802,38 @@
         21.0
       ],
       "circle_offset_y": 1.5
+    },
+    {
+      "category": "tools",
+      "name": "task-start",
+      "label": "下载任务开始",
+      "origin": "task-download-state",
+      "added": true,
+      "source": "source/tools/task-start.png"
+    },
+    {
+      "category": "tools",
+      "name": "task-pause",
+      "label": "下载任务暂停",
+      "origin": "task-download-state",
+      "added": true,
+      "source": "source/tools/task-pause.png"
+    },
+    {
+      "category": "tools",
+      "name": "task-stop",
+      "label": "下载任务停止",
+      "origin": "task-download-state",
+      "added": true,
+      "source": "source/tools/task-stop.png"
+    },
+    {
+      "category": "tools",
+      "name": "task-resume",
+      "label": "下载任务继续",
+      "origin": "task-download-state",
+      "added": true,
+      "source": "source/tools/task-resume.png"
     }
   ],
   "file_frame": {

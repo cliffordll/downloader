@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="384" height="384" viewBox="0 0 384 384">
+  <!-- A circular sweep that meets a right-angle retry arrow. -->
+  <path d="M 325.686 210.288 A 135 135 0 1 1 324.949 168.057"
+        fill="none" stroke="#444444" stroke-width="22"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 339 109 L 339 169 L 280 169"
+        fill="none" stroke="#444444" stroke-width="22"
+        stroke-linecap="butt" stroke-linejoin="miter"/>
+</svg>

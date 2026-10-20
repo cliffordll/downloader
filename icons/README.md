@@ -9,9 +9,11 @@
 - Windows 标题栏单独使用小图；任务栏使用大图。SVG 源文件继续保留，程序当前仍直接从 SVG 绘制应用图标。
 - 任务栏大 Logo 以中心为基准纵向拉高 5%，按 32×32 显示时四周约留 0.5px，图案约占 31×31px；其他尺寸按比例留白。圆角和斜切处仍透明，标题栏小 Logo 使用独立的简化造型和留白设置。
 
-共 159 个命名图标：117 个文件类型、35 个工具操作、7 个应用／导航图标。
+共 163 个命名图标：117 个文件类型、39 个工具操作、7 个应用／导航图标。
 `tools/extension.png` 使用拼图轮廓表示浏览器扩展，矢量源为 `source/tools/extension.svg`。
 `tools/player.png` 使用显示器和齿轮表示播放器设置，矢量源为 `source/tools/player.svg`。
+`tools/retry.png` 使用圆弧连接直角箭头，矢量源为 `source/tools/retry.svg`。
+`tools/task-start.png`、`task-pause.png`、`task-resume.png`、`task-stop.png` 以下载托盘区分任务下载状态，使用相同线宽并对齐中心。
 本目录是程序唯一使用的图标库。原图、旧工具栏资源和设计稿已归档到 `../backups/icons-before-consolidation.zip`。
 
 ## 设计规则
@@ -52,7 +54,7 @@ TS 统一保留紫色色块版本，文件名为 `files/ts.png`。
 
 ## 本次补齐
 
-工具：开始、暂停、停止、重试、搜索、保存、复制、链接、完成、关闭、警告、外部打开、选择播放器、排序、筛选、全部下载、合并。
+工具：开始、暂停、停止、下载任务开始、下载任务暂停、下载任务继续、下载任务停止、重试、搜索、保存、复制、链接、完成、关闭、警告、外部打开、选择播放器、排序、筛选、全部下载、合并。
 首页、下载、上传、列表、设置也提供工具目录别名。
 
 文件类型：M3U、MPD、WEBM、M4A、FLAC、OPUS、WEBP、SVG、HEIC、AVIF、TAR、TGZ、BZ2、XZ、LOG、INI、YAML、YML、TOML、SQL、DB、SQLITE、EPUB、SEED。

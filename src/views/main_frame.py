@@ -191,7 +191,7 @@ class MainFrame(wx.Frame):
         self.toolBar.SetToolShortHelp(expandButton.GetId(), '展开当前列表中的全部任务')
         self.toolBar.SetToolShortHelp(collapseButton.GetId(), '折叠当前列表中的全部任务')
         self._pauseTool = add_tool(wx.ID_ANY, "全部暂停", "pause")
-        self._pauseIcons = {False: toolbar_icon('pause'), True: toolbar_icon('start')}
+        self._pauseIcons = {False: toolbar_icon('task-pause'), True: toolbar_icon('task-resume')}
         self._pauseToolState = None
         refreshButton = add_tool(wx.ID_REFRESH, "刷新", "refresh")
         self.toolBar.AddSeparator()
