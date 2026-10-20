@@ -9,7 +9,7 @@ import requests
 
 from src.core.sys_setting import SysSetting
 from src.media.downloader import Downloader, DownloadRemoved
-from src.schemas.task import FileStatus, TaskStatus
+from src.schemas.task import FileStatus, SegmentStatus, TaskStatus
 
 
 class DownloadSnapshot(TypedDict):
@@ -52,6 +52,8 @@ class M3U8Downloader:
     errors = SimpleQueue()
     _unsaved = {}  # 落库失败的结果保留，用户继续后先重试保存，不重新下载已完成的文件。
     _storage_error = ''
+    _key_locks = {}
+    _key_locks_lock = threading.Lock()
 
     @classmethod
     def changes(cls):
@@ -79,8 +81,8 @@ class M3U8Downloader:
             cls._jobs[task_id] = [service, keys, record.status]
             count = 0
             missing = []
-            for segment in record.details.segments:
-                if segment.sequence not in selected or segment.status == FileStatus.COMPLETED:
+            for segment in record.details.media_segments:
+                if segment.sequence not in selected or segment.status == SegmentStatus.COMPLETED:
                     continue
                 path = str(record.save_dir / segment.relative_path)
                 key = cls.FileKey(path)
@@ -89,8 +91,34 @@ class M3U8Downloader:
                     missing.append((path, segment.sequence, key))
                     continue
                 options = {'headers': record.details.request_headers} if record.details.request_headers else {}
+                prepare = None
+                transform = None
+                if segment.encryption and segment.encryption.get('method') == 'AES-128':
+                    key_sequence = segment.encryption.get('key_sequence')
+                    key_entry = next((entry for entry in record.details.key_entries
+                                      if entry.sequence == key_sequence), None)
+                    if key_entry is None:
+                        missing.append((path, segment.sequence, key))
+                        with cls.threadLock:
+                            cls._errors[key] = 'M3U8 加密分片缺少对应密钥条目。'
+                        continue
+                    get_key = lambda entry=key_entry: cls._EnsureKey(service, task_id, entry, options)
+                    prepare = lambda get_key=get_key, sequence=segment.sequence: (
+                        get_key(), cls._SetSegmentStatus(
+                            service, task_id, sequence, SegmentStatus.DOWNLOADING))[0]
+                    from src.media.m3u8.aes128 import decrypt_aes128_segment
+                    transform = lambda ciphertext, info=segment.encryption, get_key=get_key: decrypt_aes128_segment(
+                        ciphertext, get_key(), info['iv'])
+                status = SegmentStatus.WAITING_KEY if prepare else SegmentStatus.DOWNLOADING
+                on_started = (lambda sequence=segment.sequence, stage=status: cls._SetSegmentStatus(
+                    service, task_id, sequence, stage)) if prepare else None
+                on_transform = (lambda sequence=segment.sequence: cls._SetSegmentStatus(
+                    service, task_id, sequence, SegmentStatus.DECRYPTING)) if transform else None
+                callbacks = {name: value for name, value in (
+                    ('prepare', prepare), ('transform', transform),
+                    ('on_started', on_started), ('on_transform', on_transform)) if value is not None}
                 if cls.DownloadTSFile(segment.source_url, path, cls._SaveResult,
-                                      (task_id, segment.sequence), **options):
+                                      (task_id, segment.sequence), **callbacks, **options):
                     count += 1
             for path, sequence, key in missing:
                 with cls.threadLock:
@@ -101,6 +129,50 @@ class M3U8Downloader:
                 cls._jobs.pop(task_id, None)
             cls._changes.put(task_id)
             return count
+
+    @classmethod
+    def _SetSegmentStatus(cls, service, task_id, sequence, status):
+        service.segment_status(task_id, sequence, status)
+        cls._changes.put(task_id)
+
+    @classmethod
+    def _EnsureKey(cls, service, task_id, key_entry, options):
+        path = Path(service.repository.get(task_id).save_dir / key_entry.relative_path)
+        lock_key = (str(task_id), key_entry.sequence)
+        with cls._key_locks_lock:
+            lock = cls._key_locks.setdefault(lock_key, threading.Lock())
+        with lock:
+            if path.is_file():
+                content = path.read_bytes()
+                if len(content) == 16:
+                    return content
+            service.key_status(task_id, key_entry.sequence, SegmentStatus.DOWNLOADING)
+            cls._changes.put(task_id)
+            success, content = cls.DownloadContent(key_entry.source_url, respect_pause=True,
+                request_key=cls.FileKey(path), **options)
+            if not success:
+                service.key_status(task_id, key_entry.sequence, SegmentStatus.FAILED, str(content))
+                cls._changes.put(task_id)
+                raise ValueError(f'密钥下载失败：{content}')
+            if not isinstance(content, bytes) or len(content) != 16:
+                service.key_status(task_id, key_entry.sequence, SegmentStatus.FAILED,
+                                   'AES-128 密钥必须正好为 16 字节。')
+                cls._changes.put(task_id)
+                raise ValueError('AES-128 密钥长度不是 16 字节。')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(path.name + '.part')
+            try:
+                with temporary.open('wb') as output:
+                    output.write(content)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
+            service.key_status(task_id, key_entry.sequence, SegmentStatus.COMPLETED,
+                               size_bytes=len(content))
+            cls._changes.put(task_id)
+            return content
 
     @classmethod
     def _StorageFailure(cls, error):
@@ -348,15 +420,29 @@ class M3U8Downloader:
         return False, error
 
     @classmethod
-    def _DownLoadFile(cls, baseUrl, fileName, headers=None):
+    def _DownLoadFile(cls, baseUrl, fileName, headers=None, prepare=None, transform=None,
+                      on_started=None, on_transform=None):
         """由统一调度器分配额度；实际文件写入由 _SaveFile 完成。"""
         with cls.threadLock:
             if cls._shutdown.is_set() or cls.IsPaused() or cls.FileKey(fileName) in cls._paused_files:
                 raise _TaskPaused()
-        return cls._SaveFile(baseUrl, fileName, headers)
+        try:
+            if on_started:
+                on_started()
+            if prepare:
+                prepare()
+        except _TaskPaused:
+            raise
+        except Exception as error:
+            with cls.threadLock:
+                cls._errors[cls.FileKey(fileName)] = str(error)
+            return False, fileName
+        if transform is None and on_transform is None:
+            return cls._SaveFile(baseUrl, fileName, headers)
+        return cls._SaveFile(baseUrl, fileName, headers, transform, on_transform)
 
     @classmethod
-    def _SaveFile(cls, baseUrl, fileName, headers=None):
+    def _SaveFile(cls, baseUrl, fileName, headers=None, transform=None, on_transform=None):
         """线程池逐块写入分片；每次重试截断临时文件，从头重新下载。
 
         先写同目录 .part 临时文件，再用 os.replace 替换目标，避免未写完的文件
@@ -392,9 +478,23 @@ class M3U8Downloader:
                 with cls.threadLock:
                     cls._errors[cls.FileKey(fileName)] = str(content)
                 return False, fileName
-            os.replace(partial, fileName)
+            if transform:
+                if on_transform:
+                    on_transform()
+                clear = transform(Path(partial).read_bytes())
+                clear_partial = partial + '.clear'
+                with open(clear_partial, 'wb') as output:
+                    output.write(clear)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(clear_partial, fileName)
+                if os.path.isfile(clear_partial):
+                    os.unlink(clear_partial)
+                os.unlink(partial)
+            else:
+                os.replace(partial, fileName)
             return True, fileName
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             print(f'保存失败：{fileName}：{exc}')
             with cls.threadLock:
                 cls._errors[cls.FileKey(fileName)] = str(exc)
@@ -405,9 +505,15 @@ class M3U8Downloader:
                     os.unlink(partial)
                 except OSError:
                     pass
+            if os.path.isfile(partial + '.clear'):
+                try:
+                    os.unlink(partial + '.clear')
+                except OSError:
+                    pass
 
     @classmethod
-    def DownloadTSFile(cls, absUri, absFile, callback, item, headers=None):
+    def DownloadTSFile(cls, absUri, absFile, callback, item, headers=None, *, prepare=None,
+                       transform=None, on_started=None, on_transform=None):
         """底层单分片入队方法；任务入口为 StartTask，不在调用线程中等待网络请求。
 
         返回 True 表示接受入队，不代表下载成功；重复任务或程序退出时返回 False。
@@ -421,14 +527,18 @@ class M3U8Downloader:
             cls._failed.discard(key)
             cls._errors.pop(key, None)
             # 请求头随分片快照入队；不同任务不共享 Session 或可变字典。
-            task = (absUri, absFile, callback, item, key)
+            task = (absUri, absFile, callback, item, key, dict(headers or {}),
+                    prepare, transform, on_started, on_transform)
             task_id = item[0] if isinstance(item, tuple) and len(item) == 2 else 'legacy-ts'
             options = {'headers': dict(headers)} if headers else {}
+            options.update({name: value for name, value in (
+                ('prepare', prepare), ('transform', transform),
+                ('on_started', on_started), ('on_transform', on_transform)) if value is not None})
             cls._scheduled[key] = Downloader.Submit(
                 task_id, cls._DownLoadFile, absUri, absFile,
                 ready=lambda: not cls.IsPaused() and key not in cls._paused_files,
                 cancelled=cls._shutdown.is_set, **options)
-            cls.threadQueue.put(task + (dict(headers),) if headers else task)
+            cls.threadQueue.put(task)
             if cls.isStop:
                 cls.isStop = False
                 cls._master = threading.Thread(target=cls._MasterThreadRun, name='download-scheduler')
@@ -502,7 +612,12 @@ class M3U8Downloader:
                             else:
                                 task_id = task[3][0] if isinstance(task[3], tuple) and len(task[3]) == 2 else 'legacy-ts'
                                 key = task[4]
-                                options = {'headers': task[5]} if len(task) > 5 else {}
+                                options = {'headers': task[5]} if len(task) > 5 and task[5] else {}
+                                if len(task) > 6:
+                                    options.update({name: value for name, value in (
+                                        ('prepare', task[6]), ('transform', task[7]),
+                                        ('on_started', task[8]), ('on_transform', task[9]))
+                                        if value is not None})
                                 cls._scheduled[key] = Downloader.Submit(
                                     task_id, cls._DownLoadFile, task[0], task[1],
                                     ready=lambda key=key: not cls.IsPaused() and key not in cls._paused_files,

@@ -152,20 +152,65 @@ class TaskServiceTests(unittest.TestCase):
         self.assertEqual(other.details.segments[0].source_url, 'https://example.com/chunks/a.ts?token=1')
 
     def test_rejects_empty_unresolved_unsupported_and_existing_directory(self):
-        invalid = ['', '#EXTM3U\n', 'garbage',
-                   '#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key"\n#EXTINF:4,\na.ts\n']
+        invalid = ['', '#EXTM3U\n', 'garbage']
         for content in invalid:
             with self.subTest(content=content), self.assertRaises(ValueError):
                 self.service.create_m3u8(self.directory, 'https://example.com/index.m3u8', content)
         with self.assertRaises(ValueError):
             self.service.create_m3u8(self.directory, '', CONTENT, source_type=SourceType.TS_PATTERN)
         self.assertFalse(self.directory.exists())
+        aes_directory = self.root / 'encrypted'
+        encrypted = self.service.create_m3u8(
+            aes_directory, 'https://example.com/index.m3u8',
+            '#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key"\n#EXTINF:4,\na.ts\n')
+        self.assertEqual([entry.entry_type for entry in encrypted.details.segments], ['key', 'segment'])
         self.directory.mkdir(parents=True)
         existing = self.directory / 'keep.txt'
         existing.write_text('keep')
         task = self.create()
         self.assertEqual(existing.read_text(), 'keep')
         self.assertEqual(task.outputs[0].relative_path, 'video.mp4')
+
+    def test_aes128_key_rotation_and_iv_are_saved_per_playlist_entry(self):
+        content = ('#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:20\n'
+                   '#EXT-X-KEY:METHOD=AES-128,URI="key-a",IV=0x1\n'
+                   '#EXTINF:4,\na.ts\n'
+                   '#EXT-X-KEY:METHOD=AES-128,URI="key-a",IV=0x2\n'
+                   '#EXTINF:4,\nb.ts\n'
+                   '#EXT-X-KEY:METHOD=AES-128,URI="key-b"\n'
+                   '#EXTINF:4,\nc.ts\n'
+                   '#EXT-X-KEY:METHOD=NONE\n#EXTINF:4,\nd.ts\n')
+        task = self.service.create_m3u8(self.root / 'rotated', 'https://example.com/hls/index.m3u8', content)
+        keys = task.details.key_entries
+        media = task.details.media_segments
+        self.assertEqual([key.source_url for key in keys], [
+            'https://example.com/hls/key-a', 'https://example.com/hls/key-b'])
+        self.assertEqual([segment.encryption['iv'] for segment in media[:3]], [
+            '0x' + '0' * 31 + '1', '0x' + '0' * 31 + '2', '0x' + f'{22:032x}'])
+        self.assertEqual(media[0].encryption['key_sequence'], media[1].encryption['key_sequence'])
+        self.assertNotEqual(media[1].encryption['key_sequence'], media[2].encryption['key_sequence'])
+        self.assertEqual(media[3].encryption, {'method': 'NONE'})
+
+    def test_sample_aes_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, '暂不支持此加密方式'):
+            self.service.create_m3u8(self.root / 'sample-aes', 'https://example.com/index.m3u8',
+                '#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="key"\n#EXTINF:4,\na.ts\n')
+
+    def test_recovery_clears_stale_key_and_decryption_states_even_for_partial_task(self):
+        from src.schemas.task import SegmentStatus, TaskStatus
+        task = self.service.create_m3u8(self.root / 'recover', 'https://example.com/index.m3u8',
+            '#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key"\n#EXTINF:4,\na.ts\n')
+        def leave_in_flight(record):
+            record.status = TaskStatus.PARTIAL
+            record.details.segments[0].status = SegmentStatus.DOWNLOADING
+            record.details.segments[1].status = SegmentStatus.DECRYPTING
+        self.repository.mutate(task.id, leave_in_flight)
+
+        restored = TaskService(self.repository).load_tasks()[0]
+
+        self.assertEqual(restored.status, TaskStatus.PARTIAL)
+        self.assertEqual([entry.status for entry in restored.details.segments],
+                         [SegmentStatus.PENDING, SegmentStatus.PENDING])
 
     def test_database_failure_cleans_only_new_artifacts(self):
         with patch.object(self.repository, '_write_children', side_effect=sqlite3.OperationalError('disk full')):

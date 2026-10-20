@@ -50,6 +50,16 @@ class FileStatus(str, Enum):
     MISSING = 'missing'
 
 
+class SegmentStatus(str, Enum):
+    PENDING = 'pending'
+    WAITING_KEY = 'waiting_key'
+    DOWNLOADING = 'downloading'
+    DECRYPTING = 'decrypting'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
+    MISSING = 'missing'
+
+
 def _relative_file(value: str) -> str:
     """统一保存相对路径，拒绝越界、盘符、UNC 和空文件路径。"""
     value = value.replace('\\', '/')
@@ -98,12 +108,14 @@ class TaskProgress(TaskModel):
 
 class TaskSegment(TaskModel):
     sequence: NonNegativeInt
+    entry_type: Literal['segment', 'key'] = 'segment'
     relative_path: RelativeFile
     source_url: HttpUrl = None
+    encryption: dict[str, object] | None = None
     duration: NonNegativeFloat | None = None
     duration_status: Literal['pending', 'detected', 'failed'] = 'pending'
     duration_error: str | None = None
-    status: FileStatus = FileStatus.PENDING
+    status: SegmentStatus = SegmentStatus.PENDING
     size_bytes: NonNegativeInt | None = None
     last_error: str | None = None
 
@@ -123,6 +135,14 @@ class M3U8Details(TaskModel):
     work_dir_missing: bool = False  # 文件核对后持久化；保留分片来源，但隐藏已删除的工作目录。
     ts_pattern: str | None = None
     segments: list[TaskSegment] = Field(default_factory=list)
+
+    @property
+    def media_segments(self) -> list[TaskSegment]:
+        return [entry for entry in self.segments if entry.entry_type == 'segment']
+
+    @property
+    def key_entries(self) -> list[TaskSegment]:
+        return [entry for entry in self.segments if entry.entry_type == 'key']
 
     @model_validator(mode='after')
     def unique_sequences(self):

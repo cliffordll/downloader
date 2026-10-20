@@ -6,3 +6,4 @@ pydantic==2.13.3
 Send2Trash==2.1.0
 SQLAlchemy==2.0.43
 alembic==1.18.4
+cryptography==45.0.7

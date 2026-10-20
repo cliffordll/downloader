@@ -74,6 +74,8 @@ segments = sa.Table(
     sa.Column('task_id', sa.Text, sa.ForeignKey('task_m3u8.task_id', ondelete='CASCADE'),
               primary_key=True, nullable=False),
     sa.Column('sequence', sa.Integer, primary_key=True, nullable=False),
+    sa.Column('entry_type', sa.Text, nullable=False, server_default='segment'),
+    sa.Column('encryption', sa.JSON),
     sa.Column('relative_path', sa.Text, nullable=False),
     sa.Column('source_url', sa.Text),
     sa.Column('duration', sa.Float),
@@ -86,7 +88,8 @@ segments = sa.Table(
     sa.CheckConstraint('duration >= 0'),
     sa.CheckConstraint('size_bytes >= 0'),
     sa.CheckConstraint("duration_status IN ('pending', 'detected', 'failed')"),
-    sa.CheckConstraint("status IN ('pending', 'completed', 'failed', 'missing')"),
+    sa.CheckConstraint("entry_type IN ('segment', 'key')"),
+    sa.CheckConstraint("status IN ('pending', 'waiting_key', 'downloading', 'decrypting', 'completed', 'failed', 'missing')"),
 )
 outputs = sa.Table(
     'task_outputs', metadata,

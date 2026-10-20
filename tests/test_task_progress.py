@@ -131,6 +131,18 @@ class TaskProgressTests(unittest.TestCase):
                 self.assertIn(self.task.childs[1].absUri, model.GetItemToolTip(child))
                 self.assertEqual(model.GetItemToolTip(folder), '目录：' + str(Path('task') / 'segments'))
                 self.assertNotIn('下载地址', model.GetItemToolTip(playlist))
+                self.task.childs = [
+                    FileItem(fileName='task/keys/key-0001.key', sequence=0, entry_type='key',
+                             absUri='https://cdn.example.com/key', encryption={'method': 'AES-128'}),
+                    FileItem(fileName='task/segments/000000.ts', sequence=1,
+                             encryption={'method': 'AES-128', 'key_sequence': 0}),
+                    FileItem(fileName='task/segments/000001.ts', sequence=2,
+                             encryption={'method': 'AES-128', 'key_sequence': 0}),
+                ]
+                key = model.ObjectToItem(model._BuildKey((0, 0)))
+                tooltip = model.GetItemToolTip(key)
+                self.assertIn('密钥地址：https://cdn.example.com/key', tooltip)
+                self.assertIn('生效切片：1–2', tooltip)
             source = frame.mcTree.GetMainWindow()
             event = SimpleNamespace(Skip=Mock(), GetEventObject=lambda: source,
                                     GetPosition=lambda: wx.Point(10, 10), Dragging=lambda: False)
@@ -155,7 +167,7 @@ class TaskProgressTests(unittest.TestCase):
         from src.schemas.task import TaskStatus
         self.task.task_status = TaskStatus.WAITING_MERGE
         self.task.download = len(self.task.childs)
-        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(segments=[]))
+        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(segments=[], media_segments=[]))
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
@@ -514,7 +526,8 @@ class TaskProgressTests(unittest.TestCase):
 
     def test_edit_segment_url_saves_only_on_confirmation(self):
         segment = SimpleNamespace(sequence=7, source_url='https://example.com/old.ts', duration=4, status='pending')
-        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(segments=[segment]))
+        self.service.repository.get.return_value = SimpleNamespace(details=SimpleNamespace(
+            segments=[segment], media_segments=[segment]))
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:

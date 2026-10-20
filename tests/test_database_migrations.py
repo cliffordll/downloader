@@ -58,6 +58,11 @@ class DatabaseMigrationTests(unittest.TestCase):
                 connection.execute(f'INSERT INTO task_{data["type"]} VALUES (?, ?)',
                                    (data['id'], json.dumps(details, ensure_ascii=False)))
                 for segment in segments:
+                    # Historical v1 rows predate the key-entry schema.
+                    segment.pop('entry_type', None)
+                    segment.pop('encryption', None)
+                    if segment.get('status') in ('waiting_key', 'decrypting'):
+                        segment['status'] = 'pending'
                     connection.execute('INSERT INTO task_segments VALUES (?, ?, ?)',
                                        (data['id'], segment['sequence'], json.dumps(segment)))
                 for index, output in enumerate(outputs):
@@ -121,10 +126,10 @@ class DatabaseMigrationTests(unittest.TestCase):
     def scripts(self, *, failing=False):
         location = self.root / 'migration scripts'
         shutil.copytree(migrations.SCRIPT_LOCATION, location, ignore=shutil.ignore_patterns('__pycache__'))
-        (location / 'versions' / '0005_test.py').write_text('''
+        (location / 'versions' / '0006_test.py').write_text('''
 from alembic import op
-revision = '0005'
-down_revision = '0004'
+revision = '0006'
+down_revision = '0005'
 def upgrade():
     op.execute('CREATE TABLE migration_probe (value TEXT NOT NULL)')
     op.execute("INSERT INTO migration_probe VALUES ('upgraded')")
@@ -132,10 +137,10 @@ def upgrade():
 ''', encoding='utf-8')
         last = "op.execute('SELECT * FROM deliberately_missing_table')" if failing else (
             "op.execute('CREATE INDEX migration_probe_value ON migration_probe(value)')")
-        (location / 'versions' / '0006_test.py').write_text(f'''
+        (location / 'versions' / '0007_test.py').write_text(f'''
 from alembic import op
-revision = '0006'
-down_revision = '0005'
+revision = '0007'
+down_revision = '0006'
 def upgrade():
     {last}
 ''', encoding='utf-8')
@@ -145,7 +150,7 @@ def upgrade():
         tasks = self.legacy()
         original = self.snapshot()
         repo = TaskRepository(self.path)
-        self.assertEqual(self.version(), (4, '0004'))
+        self.assertEqual(self.version(), (5, '0005'))
         self.assertEqual(self.snapshot(), original)
         for task in tasks:
             self.assertEqual(repo.get(task.id), task)
@@ -162,7 +167,7 @@ def upgrade():
 
     def test_new_database_matches_mapping_and_reopen_does_not_write_or_backup(self):
         repo = TaskRepository(self.path)
-        self.assertEqual(self.version(), (4, '0004'))
+        self.assertEqual(self.version(), (5, '0005'))
         with repo.engine.connect() as connection:
             differences = compare_metadata(MigrationContext.configure(connection), metadata)
         self.assertEqual(differences, [])
@@ -177,7 +182,7 @@ def upgrade():
         location = self.scripts()
         with patch.object(migrations, 'SCRIPT_LOCATION', location):
             repo = TaskRepository(self.path)
-            self.assertEqual(self.version(), (6, '0006'))
+            self.assertEqual(self.version(), (7, '0007'))
             for task in tasks:
                 self.assertEqual(repo.get(task.id).last_error, 'migrated')
             before = self.path.read_bytes()
@@ -194,7 +199,7 @@ def upgrade():
             with self.assertRaises(sqlite3.OperationalError):
                 TaskRepository(self.path)
         self.assertEqual(self.snapshot(), before)
-        self.assertEqual(self.version(), (4, '0004'))
+        self.assertEqual(self.version(), (5, '0005'))
         self.assertEqual(len(list((self.root / 'backups').glob('*.db'))), 2)
         self.assertEqual(TaskRepository(self.path).list_tasks()[0].last_error, None)
 
@@ -237,7 +242,7 @@ def upgrade():
     def test_unknown_revision_is_not_overwritten(self):
         TaskRepository(self.path)
         with closing(sqlite3.connect(self.path)) as connection, connection:
-            connection.execute("UPDATE alembic_version SET version_num='4'")
+            connection.execute("UPDATE alembic_version SET version_num='9999'")
         before = self.path.read_bytes()
         with self.assertRaises(TaskDataError):
             TaskRepository(self.path)
@@ -257,7 +262,7 @@ def upgrade():
         with ThreadPoolExecutor(max_workers=4) as executor:
             results = list(executor.map(lambda _: len(TaskRepository(self.path).list_tasks()), range(4)))
         self.assertEqual(results, [3] * 4)
-        self.assertEqual(self.version(), (4, '0004'))
+        self.assertEqual(self.version(), (5, '0005'))
         self.assertEqual(len(list((self.root / 'backups').glob('*.db'))), 1)
 
     def test_wal_database_backup_contains_committed_wal_rows(self):
@@ -284,9 +289,9 @@ def upgrade():
         self.legacy()
         before = self.path.read_bytes()
         location = self.scripts()
-        (location / 'versions' / '0006_test.py').write_text('''
-revision = '0006'
-down_revision = '0005'
+        (location / 'versions' / '0007_test.py').write_text('''
+revision = '0007'
+down_revision = '0006'
 def upgrade():
     raise RuntimeError('simulated Python migration failure')
 ''', encoding='utf-8')
@@ -318,7 +323,9 @@ def upgrade():
         with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute('DELETE FROM task_segments WHERE task_id=?', (str(expected.id),))
             connection.executemany('INSERT INTO task_segments VALUES (?, ?, ?)', [
-                (str(expected.id), segment['sequence'], json.dumps(segment, ensure_ascii=False))
+                (str(expected.id), segment['sequence'], json.dumps(
+                    {key: value for key, value in segment.items() if key not in ('entry_type', 'encryption')},
+                    ensure_ascii=False))
                 for segment in data['details']['segments']])
             connection.execute('DELETE FROM task_outputs WHERE task_id=?', (str(expected.id),))
             connection.executemany('INSERT INTO task_outputs VALUES (?, ?, ?, ?)', [
@@ -328,7 +335,7 @@ def upgrade():
                                (json.dumps(data['progress']), str(expected.id)))
         before = self.snapshot()
         repo = TaskRepository(self.path)
-        self.assertEqual(self.version(), (4, '0004'))
+        self.assertEqual(self.version(), (5, '0005'))
         self.assertEqual(repo.get(expected.id), expected)
         self.assertEqual(self.snapshot(), before)
         backup, = (self.root / 'backups').glob('*.db')
@@ -412,6 +419,7 @@ def upgrade():
         location = self.root / 'partial-v3'
         shutil.copytree(migrations.SCRIPT_LOCATION, location, ignore=shutil.ignore_patterns('__pycache__'))
         (location / 'versions' / '0004_complete_columns.py').unlink()
+        (location / 'versions' / '0005_hls_key_entries.py').unlink()
         version = location / 'versions' / '0003_segment_output_columns.py'
         version.write_text(version.read_text(encoding='utf-8').replace('    upgrade_remaining()\n', ''),
                            encoding='utf-8')
@@ -423,8 +431,10 @@ def upgrade():
         tasks = self.legacy(managed=True)
         self.partial_v3()
         before = self.snapshot()
+        for row in before['task_segments']:
+            row.update(entry_type='segment', encryption=None)
         repo = TaskRepository(self.path)
-        self.assertEqual(self.version(), (4, '0004'))
+        self.assertEqual(self.version(), (5, '0005'))
         self.assertEqual(self.snapshot(), before)
         for task in tasks:
             self.assertEqual(repo.get(task.id), task)

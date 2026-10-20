@@ -7,14 +7,16 @@ from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from pathlib import Path
 from src.models.presentation import TaskSummary, single_file_info
-from src.schemas.task import FileStatus, TaskStatus, TaskType, M3U8Task
+from src.schemas.task import FileStatus, SegmentStatus, TaskStatus, TaskType, M3U8Task
 from src.models.file_base import FileItem, TreeData, TreeItem
 
 
-def _file(path, display_name, source_url='', *, size=None, status=FileStatus.PENDING):
+def _file(path, display_name, source_url='', *, size=None, status=FileStatus.PENDING,
+          entry_type='segment', encryption=None):
     """只投影任务记录；展示层不查询磁盘文件。"""
     return FileItem(fileName=str(path), displayName=display_name, absUri=source_url or '',
-                    status=status, fileSize=size if size is not None else (
+                    status=status, entry_type=entry_type, encryption=encryption,
+                    fileSize=size if size is not None else (
                         '—' if status == FileStatus.COMPLETED else '-'), modifyAt='—')
 
 
@@ -49,8 +51,12 @@ def to_tree_item(task, previous=None):
         if (child is None or child.status != segment.status or child.fileName != str(path)
                 or child.absUri != (segment.source_url or '')):
             child = _file(path, path.name, segment.source_url, size=(
-                segment.size_bytes if segment.status == FileStatus.COMPLETED else None), status=segment.status)
+                segment.size_bytes if segment.status == SegmentStatus.COMPLETED else None),
+                status=segment.status, entry_type=segment.entry_type, encryption=segment.encryption)
         child.sequence = segment.sequence
+        child.entry_type = segment.entry_type
+        child.encryption = segment.encryption
+        child.last_error = segment.last_error
         children.append(child)
     outputs = [_file(task.save_dir / output.relative_path, Path(output.relative_path).name,
                      size=output.size_bytes, status=output.status)
@@ -61,8 +67,8 @@ def to_tree_item(task, previous=None):
                     work_dir_missing=task.details.work_dir_missing,
                     output_path=task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged'),
                     duration_pending=task.details.detect_duration and any(
-                        s.status == FileStatus.COMPLETED and s.duration_status == 'pending'
-                        for s in task.details.segments),
+                        s.status == SegmentStatus.COMPLETED and s.duration_status == 'pending'
+                        for s in task.details.media_segments),
                     progress=task.progress, task_status=task.status, last_error=task.last_error,
                     parent=parent, childs=children, outputs=outputs,
                     download=task.progress.completed_segments)
@@ -154,17 +160,19 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         task = self.fileTree.items[index]
         if task.task_type != TaskType.M3U8:
             return single_file_info(task)
-        total = len(task.childs)
-        done = sum(child.fileSize != '-' for child in task.childs)
+        media_children = [child for child in task.childs if child.entry_type == 'segment']
+        total = len(media_children)
+        done = sum(child.status == SegmentStatus.COMPLETED or child.fileSize != '-'
+                   for child in media_children)
         keys = {M3U8Downloader.FileKey(PathManager.GetAbsPath(child.fileName))
-                for child in task.childs if child.fileSize == '-'}
+                for child in media_children if child.fileSize == '-'}
         snapshot = M3U8Downloader.Snapshot()
         # 下载器管理全部任务；集合交集只取出属于当前任务的未完成文件。
         # pending 包含排队/处理中任务，requesting 只包含尚未结束的网络请求。
         pending = keys & snapshot['pending']
         requesting = keys & snapshot['requesting']
-        stored_failed = {M3U8Downloader.FileKey(child.fileName) for child in task.childs
-                         if child.status == FileStatus.FAILED and child.fileSize == '-'}
+        stored_failed = {M3U8Downloader.FileKey(child.fileName) for child in media_children
+                         if child.status == SegmentStatus.FAILED and child.fileSize == '-'}
         failed = ((keys & snapshot['failed']) | stored_failed) - snapshot['pending']
         paused = snapshot['paused'] or bool(pending and pending <= snapshot['paused_files'])
         merging = task.task_status == TaskStatus.MERGING or bool(
@@ -223,6 +231,16 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         if child_index < len(task.outputs):
             return '已完成'
         child = task.childs[child_index - len(task.outputs)]
+        if child.entry_type == 'key':
+            return {
+                SegmentStatus.PENDING: '未下载', SegmentStatus.DOWNLOADING: '下载中',
+                SegmentStatus.COMPLETED: '已下载', SegmentStatus.FAILED: '下载失败',
+                SegmentStatus.MISSING: '文件缺失',
+            }.get(child.status, '未下载')
+        if child.status == SegmentStatus.DECRYPTING:
+            return '解密中'
+        if child.status == SegmentStatus.WAITING_KEY:
+            return '等待密钥'
         if child.fileSize != '-' or child.status == FileStatus.COMPLETED:
             return '已完成'
         snapshot = M3U8Downloader.Snapshot() if snapshot is None else snapshot
@@ -247,6 +265,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         if task.task_type != TaskType.M3U8 or task.work_dir_missing or not 0 <= segment_index < len(task.childs):
             return False
         child = task.childs[segment_index]
+        if child.entry_type != 'segment':
+            return False
         if child.fileSize != '-' or child.status == FileStatus.COMPLETED:
             return False
         # 这里只需判断是否在处理媒体，不能调用 TaskInfo 遍历整个任务的分片。
@@ -399,7 +419,25 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             return ''
         lines = ['文件名：' + (file.displayName or Path(file.fileName).name), '本地路径：' + file.fileName]
         if source_url:
-            lines.append('下载地址：' + source_url)
+            lines.append(('密钥地址：' if file.entry_type == 'key' else '下载地址：') + source_url)
+        if file.entry_type == 'key':
+            lines.append('类型：HLS 加密密钥')
+            if file.encryption:
+                lines.append('加密方式：' + str(file.encryption.get('method', '未知')))
+            # fileTree.items contains presentation TreeItems, not database task
+            # records. Their children are already ordered by playlist sequence.
+            media = [entry for entry in task.childs if entry.entry_type == 'segment']
+            positions = [index + 1 for index, entry in enumerate(media)
+                         if entry.encryption and entry.encryption.get('key_sequence') == file.sequence]
+            if positions:
+                lines.append(f'生效切片：{positions[0]}–{positions[-1]}')
+            if file.status == SegmentStatus.FAILED and file.last_error:
+                lines.append('错误：' + file.last_error)
+        elif file.encryption and file.encryption.get('method') == 'AES-128':
+            lines.append('加密方式：AES-128')
+            lines.append('解密状态：' + self.ChildStatus(keys[0], keys[1]))
+            if file.status == SegmentStatus.FAILED and file.last_error:
+                lines.append('错误：' + file.last_error)
         return '\n'.join(lines)
 
     def GetColumnCount(self):
@@ -597,7 +635,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 return self._DisplayMetadata(self.fileTree.items[idxi].childs[idxj].modifyAt)
             else:
                 # return ''
-                if self.fileTree.items[idxi].childs[idxj].fileSize != "-":
+                child = self.fileTree.items[idxi].childs[idxj]
+                if child.entry_type == 'key' or child.fileSize != "-":
                     return ""
                 return json.dumps([dict(id='download', label='下载',
                     enabled=self.CanDownloadSegment(idxi, objs[1]))], ensure_ascii=False)
