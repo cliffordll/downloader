@@ -2648,6 +2648,14 @@
     },
     {
       "category": "tools",
+      "name": "player",
+      "label": "选择播放器",
+      "origin": "custom-toolbar",
+      "added": true,
+      "source": "source/tools/player.png"
+    },
+    {
+      "category": "tools",
       "name": "sort",
       "label": "排序",
       "origin": "additional-tools",

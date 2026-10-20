@@ -25,6 +25,7 @@ from src.core.file_export import save_file_as
 
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.core.sys_setting import SysSetting
+from src.core.media_players import discover_media_players
 from src.core.task_service import TaskService
 from src.models.file_base import TreeData
 from src.core.path_manager import PathManager
@@ -103,7 +104,9 @@ class MainFrame(wx.Frame):
         addMP4Item = fileMenu.Append(wx.ID_ANY, '下载 MP4\tCtrl-P')
         fileMenu.AppendSeparator()
         settingItem  = fileMenu.Append(wx.ID_ANY, "设置\tCtrl-,")
+        playerItem = fileMenu.Append(wx.ID_ANY, '选择播放器')
         browserItem = fileMenu.Append(wx.ID_ANY, '浏览器扩展配对…')
+        self.Bind(wx.EVT_MENU, self.OnSelectPlayer, playerItem)
         self.Bind(wx.EVT_MENU, self.OnBrowserConnect, browserItem)
         exitItem    = fileMenu.Append(wx.ID_EXIT, "&退出")
         # 绑定事件
@@ -193,6 +196,7 @@ class MainFrame(wx.Frame):
         refreshButton = add_tool(wx.ID_REFRESH, "刷新", "refresh")
         self.toolBar.AddSeparator()
         settingButton = add_tool(wx.ID_ANY, "设置", "settings")
+        playerButton = add_tool(wx.ID_ANY, '选择播放器', 'player')
         self.toolBar.AddSeparator()
         helpButton = add_tool(wx.ID_ANY, "帮助", "help")
         aboutButton = add_tool(wx.ID_ANY, "关于", "about")
@@ -209,6 +213,7 @@ class MainFrame(wx.Frame):
         self.toolBar.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads, self._pauseTool)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnRefresh, refreshButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnSetting, settingButton)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnSelectPlayer, playerButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnHelp, helpButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAbout, aboutButton)
         # 启用工具栏
@@ -738,28 +743,64 @@ class MainFrame(wx.Frame):
         except (OSError, subprocess.SubprocessError) as error:
             wx.MessageBox(f'无法启动播放器：{error}', '提示', parent=self)
 
-    def _ChoosePlayerAndOpen(self, path):
-        current = SysSetting.GetAll()['player_path']
-        if sys.platform == 'darwin':
-            dialog = wx.DirDialog(self, '选择播放器应用（例如 VLC.app 或 IINA.app）',
-                                  defaultPath=current or '/Applications')
+    def _OpenVideo(self, path):
+        player = SysSetting.GetAll()['player_path']
+        if player and Path(player).exists():
+            self._OpenWithPlayer(path, player)
         else:
-            dialog = wx.FileDialog(self, '选择播放器程序', defaultDir=str(Path(current).parent) if current else '',
-                                   wildcard='可执行文件 (*.*)|*.*', style=wx.FD_OPEN)
+            self._OpenLocalPath(path)
+
+    def _ChoosePlayer(self):
+        current = SysSetting.GetAll()['player_path']
+        players = discover_media_players()
+        if current and Path(current).exists() and all(Path(candidate).resolve() != Path(current).resolve()
+                                                      for _, candidate in players):
+            players.insert(0, (f'已选播放器（{Path(current).name}）', current))
+        labels = [f'{name} — {Path(candidate).name}' for name, candidate in players]
+        labels.append('浏览选择其他播放器…')
+        dialog = wx.SingleChoiceDialog(self, '选择用于打开视频的播放器', '选择播放器', labels)
+        dialog.SetSize(self.FromDIP((480, 320)))
+        dialog.SetMinSize(self.FromDIP((480, 320)))
         try:
             if dialog.ShowModal() != wx.ID_OK:
                 return
-            player = dialog.GetPath()
+            selection = dialog.GetSelection()
         finally:
             dialog.Destroy()
+        if selection == len(players):
+            if sys.platform == 'darwin':
+                browser = wx.DirDialog(self, '选择播放器应用（例如 VLC.app 或 IINA.app）',
+                                       defaultPath=str(Path(current).parent) if current else '/Applications')
+            else:
+                browser = wx.FileDialog(
+                    self, '选择播放器程序', defaultDir=str(Path(current).parent) if current else '',
+                    wildcard='可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*', style=wx.FD_OPEN)
+            try:
+                if browser.ShowModal() != wx.ID_OK:
+                    return
+                player = browser.GetPath()
+            finally:
+                browser.Destroy()
+        else:
+            player = players[selection][1]
         try:
             values = SysSetting.GetAll()
             values['player_path'] = player
             SysSetting.Save(values)
         except (OSError, ValueError) as error:
             wx.MessageBox(f'播放器设置保存失败：{error}', '提示', parent=self)
-            return
-        self._OpenWithPlayer(path, player)
+            return None
+        return player
+
+    def _ChoosePlayerAndOpen(self, path):
+        player = self._ChoosePlayer()
+        if player:
+            self._OpenWithPlayer(path, player)
+
+    def OnSelectPlayer(self, event):
+        player = self._ChoosePlayer()
+        if player:
+            self.statusBar.SetStatusText(f'已选择播放器：{Path(player).name}', 0)
 
     def _SaveFileAs(self, source):
         source = Path(source)
@@ -881,11 +922,8 @@ class MainFrame(wx.Frame):
             elif key in task.manifests:
                 # 清单节点单独登记在 manifests 中，当前 -2 对应 download.m3u8。
                 path = Path(task.manifests[key].fileName)
-                add('打开', lambda: self._OpenLocalPath(path))
-                player = SysSetting.GetAll()['player_path']
-                if player:
-                    add('用已选播放器打开', lambda: self._OpenWithPlayer(path), new_group=True)
-                add('选择播放器打开…', lambda: self._ChoosePlayerAndOpen(path), new_group=not player)
+                add('打开/播放', lambda: self._OpenVideo(path))
+                add('选择播放器…', lambda: self._ChoosePlayerAndOpen(path), new_group=True)
                 add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
                 add('查看内容', lambda: self._ViewPlaylist(path), new_group=True)
             elif 0 <= key < len(task.outputs) + len(task.childs):
@@ -905,11 +943,8 @@ class MainFrame(wx.Frame):
                         self.model.CanDownloadSegment(index, key))
                 else:
                     if not partial:
-                        add('打开', lambda: self._OpenLocalPath(path))
-                        player = SysSetting.GetAll()['player_path']
-                        if player:
-                            add('用已选播放器打开', lambda: self._OpenWithPlayer(path), new_group=True)
-                        add('选择播放器打开…', lambda: self._ChoosePlayerAndOpen(path), new_group=not player)
+                        add('打开/播放', lambda: self._OpenVideo(path))
+                        add('选择播放器…', lambda: self._ChoosePlayerAndOpen(path), new_group=True)
                     add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
                 # 分片使用自己的 URL；直链 MP4（含 .part）使用任务 URL。
                 # 合成 MP4 是本地生成文件，没有独立下载地址。
@@ -937,13 +972,9 @@ class MainFrame(wx.Frame):
         if task.outputs and (task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
             for output in task.outputs:
                 path = PathManager.GetAbsPath(output.fileName)
-                add('播放视频：' + Path(path).name, lambda path=path: self._OpenLocalPath(path))
-                player = SysSetting.GetAll()['player_path']
-                if player:
-                    add('用已选播放器播放：' + Path(path).name,
-                        lambda path=path: self._OpenWithPlayer(path), new_group=True)
-                add('选择播放器播放：' + Path(path).name,
-                    lambda path=path: self._ChoosePlayerAndOpen(path), new_group=not player)
+                add('播放视频', lambda path=path: self._OpenVideo(path))
+                add('选择播放器',
+                    lambda path=path: self._ChoosePlayerAndOpen(path), new_group=True)
         else:
             add('播放视频', lambda: None, False)
         if task.parent.absUri:

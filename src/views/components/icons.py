@@ -18,6 +18,7 @@ ICON_FILES = {
     "pause": "tools/pause.png",
     "start": "tools/start.png",
     "settings": "tools/settings.png",
+    "player": "tools/player.png",
     "help": "tools/help.png",
     "about": "tools/about.png",
 }
