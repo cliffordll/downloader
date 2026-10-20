@@ -424,10 +424,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             lines.append('类型：HLS 加密密钥')
             if file.encryption:
                 lines.append('加密方式：' + str(file.encryption.get('method', '未知')))
-            task_segments = next((record.details.segments for record in self.fileTree.items
-                                  if record.task_id == task.task_id), [])
-            media = [entry for entry in sorted(task_segments, key=lambda item: item.sequence)
-                     if entry.entry_type == 'segment']
+            # fileTree.items contains presentation TreeItems, not database task
+            # records. Their children are already ordered by playlist sequence.
+            media = [entry for entry in task.childs if entry.entry_type == 'segment']
             positions = [index + 1 for index, entry in enumerate(media)
                          if entry.encryption and entry.encryption.get('key_sequence') == file.sequence]
             if positions:
