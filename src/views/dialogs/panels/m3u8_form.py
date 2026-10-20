@@ -43,6 +43,11 @@ class DownloadEditMU(wx.Panel):
         self.fetchButton = btnM3U8
         self._fetching = False
         self.request_headers = {}
+        self.advertisementHint = wx.StaticText(
+            self, label=("广告标记参考：携带广告属性的 #EXT-X-DATERANGE；"
+                         "#EXT-X-CUE-OUT 开始 / #EXT-X-CUE-IN 结束。"))
+        btnSizer.Add(self.advertisementHint, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT,
+                     border=self.FromDIP(8))
         btnSizer.AddStretchSpacer(prop=84)
         btnSizer.Add(btnM3U8, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=self.FromDIP(5))
 

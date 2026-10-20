@@ -810,7 +810,7 @@ class MainFrame(wx.Frame):
             record = self.tasks.repository.get(task_id)
             if record is None:
                 raise ValueError('任务不存在，请刷新后重试。')
-            segment = next((s for s in record.details.segments if s.sequence == sequence), None)
+            segment = next((s for s in record.details.media_segments if s.sequence == sequence), None)
             if segment is None:
                 raise ValueError('分片不存在，请刷新后重试。')
             dialog = SegmentEditDialog(self, segment.source_url or '', segment.duration,
@@ -1762,7 +1762,7 @@ class MainFrame(wx.Frame):
             self._QueueDurationCheck(task)
             return
         playlist_saved = self._CreateM3U8File(task.parent.fileName)
-        failures = sum(s.duration_status == 'failed' for s in record.details.segments)
+        failures = sum(s.duration_status == 'failed' for s in record.details.media_segments)
         if failures:
             self.statusBar.SetStatusText(f'{task.parent.displayName}：{failures} 个分片时长检测失败，保留原时长。', 0)
         elif manual and playlist_saved:
