@@ -1,5 +1,7 @@
 import json
 import sqlite3
+import subprocess
+import sys
 import textwrap
 from queue import Empty
 from pathlib import Path
@@ -719,6 +721,46 @@ class MainFrame(wx.Frame):
         if not wx.LaunchDefaultApplication(str(target)):
             wx.MessageBox('无法打开，请检查系统的默认应用设置。', '提示', parent=self)
 
+    def _OpenWithPlayer(self, path, player=None):
+        target = Path(path)
+        player = player or SysSetting.GetAll()['player_path']
+        if not target.is_file():
+            wx.MessageBox('视频文件已不存在，请确认保存位置或重新下载。', '提示', parent=self)
+            return
+        if not player or not Path(player).exists():
+            wx.MessageBox('尚未选择有效的播放器，请使用“选择播放器打开”。', '提示', parent=self)
+            return
+        try:
+            if sys.platform == 'darwin':
+                subprocess.Popen(['open', '-a', player, '--', str(target)])
+            else:
+                subprocess.Popen([player, str(target)])
+        except (OSError, subprocess.SubprocessError) as error:
+            wx.MessageBox(f'无法启动播放器：{error}', '提示', parent=self)
+
+    def _ChoosePlayerAndOpen(self, path):
+        current = SysSetting.GetAll()['player_path']
+        if sys.platform == 'darwin':
+            dialog = wx.DirDialog(self, '选择播放器应用（例如 VLC.app 或 IINA.app）',
+                                  defaultPath=current or '/Applications')
+        else:
+            dialog = wx.FileDialog(self, '选择播放器程序', defaultDir=str(Path(current).parent) if current else '',
+                                   wildcard='可执行文件 (*.*)|*.*', style=wx.FD_OPEN)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            player = dialog.GetPath()
+        finally:
+            dialog.Destroy()
+        try:
+            values = SysSetting.GetAll()
+            values['player_path'] = player
+            SysSetting.Save(values)
+        except (OSError, ValueError) as error:
+            wx.MessageBox(f'播放器设置保存失败：{error}', '提示', parent=self)
+            return
+        self._OpenWithPlayer(path, player)
+
     def _SaveFileAs(self, source):
         source = Path(source)
         if not source.is_file():
@@ -840,6 +882,10 @@ class MainFrame(wx.Frame):
                 # 清单节点单独登记在 manifests 中，当前 -2 对应 download.m3u8。
                 path = Path(task.manifests[key].fileName)
                 add('打开', lambda: self._OpenLocalPath(path))
+                player = SysSetting.GetAll()['player_path']
+                if player:
+                    add('用已选播放器打开', lambda: self._OpenWithPlayer(path), new_group=True)
+                add('选择播放器打开…', lambda: self._ChoosePlayerAndOpen(path), new_group=not player)
                 add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
                 add('查看内容', lambda: self._ViewPlaylist(path), new_group=True)
             elif 0 <= key < len(task.outputs) + len(task.childs):
@@ -860,6 +906,10 @@ class MainFrame(wx.Frame):
                 else:
                     if not partial:
                         add('打开', lambda: self._OpenLocalPath(path))
+                        player = SysSetting.GetAll()['player_path']
+                        if player:
+                            add('用已选播放器打开', lambda: self._OpenWithPlayer(path), new_group=True)
+                        add('选择播放器打开…', lambda: self._ChoosePlayerAndOpen(path), new_group=not player)
                     add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
                 # 分片使用自己的 URL；直链 MP4（含 .part）使用任务 URL。
                 # 合成 MP4 是本地生成文件，没有独立下载地址。
@@ -888,6 +938,12 @@ class MainFrame(wx.Frame):
             for output in task.outputs:
                 path = PathManager.GetAbsPath(output.fileName)
                 add('播放视频：' + Path(path).name, lambda path=path: self._OpenLocalPath(path))
+                player = SysSetting.GetAll()['player_path']
+                if player:
+                    add('用已选播放器播放：' + Path(path).name,
+                        lambda path=path: self._OpenWithPlayer(path), new_group=True)
+                add('选择播放器播放：' + Path(path).name,
+                    lambda path=path: self._ChoosePlayerAndOpen(path), new_group=not player)
         else:
             add('播放视频', lambda: None, False)
         if task.parent.absUri:

@@ -29,6 +29,7 @@ class SysSetting:
             'connect_timeout': 10,
             'read_timeout': 30,
             'ffmpeg_path': '',
+            'player_path': '',
             'auto_merge': False,
             'default_expand_tasks': False,
         }
@@ -65,6 +66,13 @@ class SysSetting:
         if ffmpeg and (not Path(ffmpeg).is_absolute() or not Path(ffmpeg).is_file()):
             raise ValueError('请选择已有的 FFmpeg 可执行文件，或留空使用自动检测。')
         result['ffmpeg_path'] = ffmpeg
+        player = result['player_path']
+        if not isinstance(player, str):
+            raise ValueError('播放器路径无效。')
+        player = player.strip()
+        if player and (not Path(player).is_absolute() or not Path(player).exists()):
+            raise ValueError('请选择已有的播放器程序。')
+        result['player_path'] = player
         if not isinstance(result['auto_merge'], bool):
             raise ValueError('自动合并设置必须为开启或关闭。')
         if not isinstance(result['default_expand_tasks'], bool):
