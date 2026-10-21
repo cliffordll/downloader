@@ -68,6 +68,7 @@ class TaskTypesUITests(unittest.TestCase):
         row = to_tree_item(task)
         self.assertEqual(row.parent.absUri, task.source_url)
         self.assertEqual([file.displayName for file in row.manifests.values()], ['download.m3u8'])
+
         self.assertEqual(row.outputs, [])
         self.assertEqual(row.childs[0].displayName, '000000.ts')
         playlist = task.save_dir / task.name / task.details.playlist_path
@@ -85,6 +86,12 @@ class TaskTypesUITests(unittest.TestCase):
         concat.unlink()
         row = to_tree_item(task, previous=row)
         self.assertNotIn(-3, row.manifests)
+
+    def test_encrypted_task_is_marked_in_the_list_projection(self):
+        task = self.mp4(encrypted=True)
+        row = to_tree_item(task)
+        self.assertTrue(row.encrypted)
+        self.assertEqual(row.parent.displayName, 'MP4')
 
     def test_deleted_work_directory_stays_hidden_after_reopen_and_can_be_recreated(self):
         from src.core.task_files import trash_task_files

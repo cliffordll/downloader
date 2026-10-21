@@ -38,6 +38,7 @@ def to_tree_item(task, previous=None):
             partial = task.save_dir / task.details.temporary_path
             outputs = [_file(partial, partial.name, size=task.progress.downloaded_bytes)]
         return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                        encrypted=task.encrypted,
                         rename_allowed=can_rename(task),
                         progress=task.progress, task_status=task.status,
                         last_error=task.last_error, parent=parent, outputs=outputs)
@@ -66,6 +67,7 @@ def to_tree_item(task, previous=None):
                      size=output.size_bytes, status=output.status)
                for output in task.outputs if output.status == FileStatus.COMPLETED]
     return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                    encrypted=task.encrypted,
                     rename_allowed=can_rename(task),
                     manifests={-2: _file(playlist, playlist.name)},
                     work_dir=work_dir(task),

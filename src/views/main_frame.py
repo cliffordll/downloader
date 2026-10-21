@@ -19,6 +19,8 @@ from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
 from src.views.dialogs.browser_connect_dialog import BrowserConnectDialog
 from src.views.dialogs.player_select_dialog import PlayerSelectDialog
 from src.views.dialogs.task_rename_dialog import TaskRenameDialog
+from src.views.dialogs.task_unlock_dialog import TaskUnlockDialog
+from src.views.dialogs.task_password_dialog import TaskPasswordDialog
 from src.core.task_runner import TaskRunner
 from src.core.browser_bridge import BrowserBridge
 from src.core.browser_pairing import pairing_path
@@ -29,6 +31,7 @@ from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.core.sys_setting import SysSetting
 from src.core.media_players import discover_media_players
 from src.core.task_service import TaskService
+from src.core.task_encryption import TaskEncryption
 from src.models.file_base import TreeData
 from src.core.path_manager import PathManager
 from src.storage.task_repository import TaskDataError, TaskConflictError
@@ -45,6 +48,7 @@ class MainFrame(wx.Frame):
         self._closing = False
         self.browser_bridge = None
         self._capture_dialog_open = False
+        self._encrypted_tasks_unlocked = False
         # 窗口、下载器和添加任务弹窗共享入口创建的服务，列表模型不持有业务服务。
         self.tasks = task_service
         self.SetSize(self.FromDIP((1024, 700)))
@@ -130,6 +134,11 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnResumeAllDownloads, self.resumeAllItem)
         self.Bind(wx.EVT_UPDATE_UI, self.OnUpdateGlobalDownloadAction, self.pauseAllItem)
         self.Bind(wx.EVT_UPDATE_UI, self.OnUpdateGlobalDownloadAction, self.resumeAllItem)
+        taskMenu.AppendSeparator()
+        self.setEncryptedPasswordItem = taskMenu.Append(wx.ID_ANY, '设置加密密码…')
+        self.Bind(wx.EVT_MENU, self.OnSetEncryptedPassword, self.setEncryptedPasswordItem)
+        self.encryptedTasksItem = taskMenu.Append(wx.ID_ANY, '解锁加密任务…')
+        self.Bind(wx.EVT_MENU, self.OnUnlockEncryptedTasks, self.encryptedTasksItem)
 
         viewMenu = wx.Menu()
         expandItem = viewMenu.Append(wx.ID_ANY, "全部展开\tCtrl-Shift-E")
@@ -197,6 +206,8 @@ class MainFrame(wx.Frame):
         self._pauseToolState = None
         refreshButton = add_tool(wx.ID_REFRESH, "刷新", "refresh")
         self.toolBar.AddSeparator()
+        passwordButton = add_tool(wx.ID_ANY, "设置加密密码", "key")
+        unlockButton = add_tool(wx.ID_ANY, "解锁加密任务", "unlock")
         settingButton = add_tool(wx.ID_ANY, "设置", "settings")
         playerButton = add_tool(wx.ID_ANY, '选择播放器', 'player')
         self.toolBar.AddSeparator()
@@ -214,6 +225,8 @@ class MainFrame(wx.Frame):
         self.toolBar.Bind(wx.EVT_TOOL, self.OnPauseDownloads, self._pauseTool)
         self.toolBar.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads, self._pauseTool)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnRefresh, refreshButton)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnSetEncryptedPassword, passwordButton)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnUnlockEncryptedTasks, unlockButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnSetting, settingButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnSelectPlayer, playerButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnHelp, helpButton)
@@ -273,6 +286,9 @@ class MainFrame(wx.Frame):
         listSizer = wx.BoxSizer(wx.HORIZONTAL)
         # 创建并关联模型
         self.model = MultiColumnTreeModel(initial_tree, self)
+        encrypted_indexes = {index for index, task in enumerate(initial_tree.items) if task.encrypted}
+        if encrypted_indexes:
+            self.model.visible_tasks = set(range(len(initial_tree.items))) - encrypted_indexes
         # 创建DataViewCtrl
         self.mcTree = dv.DataViewCtrl(panel, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
         if wx.Platform == '__WXMAC__':
@@ -1050,15 +1066,63 @@ class MainFrame(wx.Frame):
         if empty:
             self.emptyPanel.Layout()
 
+    def OnUnlockEncryptedTasks(self, _event):
+        try:
+            password_store = TaskEncryption()
+            if not password_store.is_configured():
+                wx.MessageBox('请先从“任务”菜单设置加密任务密码。',
+                              '尚未设置密码', wx.OK | wx.ICON_INFORMATION, parent=self)
+                return
+        except ValueError as error:
+            wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
+            return
+
+        dialog = TaskUnlockDialog(self)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            if not password_store.verify(dialog.password.GetValue()):
+                wx.MessageBox('密码不正确。', '无法解锁', wx.OK | wx.ICON_ERROR, parent=self)
+                return
+            self._encrypted_tasks_unlocked = True
+            self._ApplyTaskFilter(force=True)
+        finally:
+            dialog.Destroy()
+
+    def OnSetEncryptedPassword(self, _event):
+        password_store = TaskEncryption()
+        try:
+            has_existing = password_store.is_configured()
+        except ValueError as error:
+            wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
+            return
+
+        dialog = TaskPasswordDialog(self, has_existing=has_existing)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            password_store.set_password(dialog.GetPassword(),
+                                        current_password=dialog.GetCurrentPassword())
+            wx.MessageBox('加密任务密码已保存。', '设置完成',
+                          wx.OK | wx.ICON_INFORMATION, parent=self)
+        except ValueError as error:
+            wx.MessageBox(str(error), '设置密码失败', wx.OK | wx.ICON_ERROR, parent=self)
+        finally:
+            dialog.Destroy()
+
     def _ApplyTaskFilter(self, force=False, expanded_keys=None):
         self.ClearTaskToolTip()
         """只筛选根任务，保持原始任务索引，避免筛选后暂停、删除或下载回调操作错行。"""
         text = self._filterText
         status = self.statusFilter.GetStringSelection()
         visible = None
-        if text or status != '全部状态':
+        locked_encrypted = {index for index, task in enumerate(self.model.fileTree.items)
+                            if task.encrypted and not self._encrypted_tasks_unlocked}
+        if text or status != '全部状态' or locked_encrypted:
             visible = set()
             for index, task in enumerate(self.model.fileTree.items):
+                if index in locked_encrypted:
+                    continue
                 if text and not (
                     (task.parent and (text in task.parent.fileName.casefold()
                                      or text in task.parent.displayName.casefold()))
