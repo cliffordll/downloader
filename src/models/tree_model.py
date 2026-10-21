@@ -601,7 +601,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             if parent is None:
                 return ''
             if col == 1:
-                return parent.displayName or parent.fileName
+                name = parent.displayName or parent.fileName
+                return f'🔒 {name}' if self.fileTree.items[idxi].encrypted else name
             elif col == 2:
                 return self._DisplayMetadata(parent.fileSize)
             elif col == 3:

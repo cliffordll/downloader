@@ -410,7 +410,7 @@ class TaskProgressTests(unittest.TestCase):
             def inspect_menu(menu):
                 entries = {entry.GetItemLabelText(): entry for entry in menu.GetMenuItems()
                            if not entry.IsSeparator()}
-                self.assertEqual(set(entries), {'重命名…', '打开文件夹', '检测分片时长', '转 MP4', '播放视频', '另存为…'})
+                self.assertEqual(set(entries), {'重命名…', '加锁任务', '打开文件夹', '检测分片时长', '转 MP4', '播放视频', '另存为…'})
                 self.assertTrue(entries['打开文件夹'].IsEnabled())
                 self.assertFalse(entries['播放视频'].IsEnabled())
                 self.assertFalse(entries['转 MP4'].IsEnabled())
@@ -702,7 +702,7 @@ class TaskProgressTests(unittest.TestCase):
             view_labels.append('显示状态栏')
             for index, expected in enumerate((
                 ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
-                ['全部暂停', '全部继续'],
+                ['全部暂停', '全部继续', '设置加密密码…', '解锁加密任务…', '锁定加密任务'],
                 view_labels,
                 ['使用说明', '关于'],
             )):
@@ -723,8 +723,13 @@ class TaskProgressTests(unittest.TestCase):
                 return
             tools = [frame.toolBar.GetToolByPos(i).GetLabel()
                      for i in range(frame.toolBar.GetToolsCount())]
-            for label in ('浏览器扩展配对', '全部展开', '全部折叠', '全部暂停', '刷新', '设置'):
+            for label in ('浏览器扩展配对', '全部展开', '全部折叠', '全部暂停', '刷新',
+                          '解锁加密任务', '设置'):
                 self.assertIn(label, tools)
+            self.assertNotIn('设置加密密码', tools)
+            self.assertNotIn('锁定加密任务', tools)
+            self.assertEqual(sum(label in ('解锁加密任务', '锁定加密任务') for label in tools), 1)
+            self.assertEqual(frame._encryptedTasksTool.GetLabel(), '解锁加密任务')
             self.assertFalse(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
             M3U8Downloader._pending.add(self.key)
             frame._UpdatePauseTool()
@@ -732,6 +737,32 @@ class TaskProgressTests(unittest.TestCase):
             M3U8Downloader.Pause()
             frame._UpdatePauseTool()
             self.assertEqual(frame._pauseTool.GetLabel(), '全部继续')
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_locking_again_hides_encrypted_tasks_immediately(self):
+        self.task.encrypted = True
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            self.assertNotIn(0, frame.model.visible_tasks)
+            frame._encrypted_tasks_unlocked = True
+            frame._SyncLockEncryptedTasksEnabled()
+            self.assertTrue(frame.toolBar.GetToolEnabled(frame._encryptedTasksTool.GetId()))
+            self.assertEqual(frame._encryptedTasksTool.GetLabel(), '锁定加密任务')
+            frame._ApplyTaskFilter(force=True)
+            self.assertTrue(frame.model.visible_tasks is None or 0 in frame.model.visible_tasks)
+
+            event = wx.CommandEvent(wx.EVT_TOOL.typeId, frame._encryptedTasksTool.GetId())
+            event.SetEventObject(frame.toolBar)
+            frame.toolBar.GetEventHandler().ProcessEvent(event)
+
+            self.assertFalse(frame._encrypted_tasks_unlocked)
+            self.assertFalse(frame.lockEncryptedTasksItem.IsEnabled())
+            self.assertTrue(frame.toolBar.GetToolEnabled(frame._encryptedTasksTool.GetId()))
+            self.assertEqual(frame._encryptedTasksTool.GetLabel(), '解锁加密任务')
+            self.assertNotIn(0, frame.model.visible_tasks)
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
@@ -761,7 +792,7 @@ class TaskProgressTests(unittest.TestCase):
             frame.OnPauseDownloads(None)
             self.assertEqual(frame._GlobalDownloadActions(), (True, False))
             self.assertEqual([item.GetItemLabelText() for item in frame.menuBar.GetMenu(1).GetMenuItems()],
-                             ['全部暂停', '全部继续'])
+                             ['全部暂停', '全部继续', '', '设置加密密码…', '解锁加密任务…', '锁定加密任务'])
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()

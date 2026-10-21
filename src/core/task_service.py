@@ -158,6 +158,18 @@ class TaskService:
                     pass
             raise
 
+    def set_task_encrypted(self, task_id, encrypted):
+        """Change the task's list-visibility lock marker without touching its files."""
+        def change(task):
+            if not can_rename(task):
+                raise ValueError('任务正在下载、检测或合并，暂时不能加锁或取消加锁。')
+            task.encrypted = bool(encrypted)
+
+        task = self.repository.mutate(task_id, change)
+        if task is None:
+            raise ValueError('任务不存在，请刷新后重试。')
+        return task
+
     def _create_named(self, save_dir, filename, source_url, build):
         """文件、同名工作目录及数据库记录共同参与重名检查。"""
         directory = Path(save_dir).expanduser()

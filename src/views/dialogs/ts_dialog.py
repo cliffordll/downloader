@@ -7,11 +7,13 @@ from src.core.task_service import TaskService
 from src.storage.task_repository import TaskDataError
 from src.schemas.task import SourceType
 from src.core.sys_setting import SysSetting
+from src.views.components.icons import app_icons
 
 class DownloadDialogTS(wx.Dialog):
     def __init__(self, parent, work_path, task_service: TaskService, *, title='下载 TS'):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.SetIcons(app_icons())
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
         self.SetTitle(title)
         sizer = wx.BoxSizer(wx.VERTICAL)

@@ -1,4 +1,5 @@
 import wx
+from src.views.components.icons import app_icons
 
 from src.core.sys_setting import SysSetting
 
@@ -93,6 +94,7 @@ class TabSetting(wx.Panel):
 class SettingsDialog(wx.Dialog):
     def __init__(self, parent):
         super().__init__(parent, title='设置', style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.SetIcons(app_icons())
         layout = wx.BoxSizer(wx.VERTICAL)
         self.form = TabSetting(self)
         layout.Add(self.form, 1, wx.EXPAND)

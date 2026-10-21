@@ -139,6 +139,9 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnSetEncryptedPassword, self.setEncryptedPasswordItem)
         self.encryptedTasksItem = taskMenu.Append(wx.ID_ANY, '解锁加密任务…')
         self.Bind(wx.EVT_MENU, self.OnUnlockEncryptedTasks, self.encryptedTasksItem)
+        self.lockEncryptedTasksItem = taskMenu.Append(wx.ID_ANY, '锁定加密任务')
+        self.lockEncryptedTasksItem.Enable(self._encrypted_tasks_unlocked)
+        self.Bind(wx.EVT_MENU, self.OnLockEncryptedTasks, self.lockEncryptedTasksItem)
 
         viewMenu = wx.Menu()
         expandItem = viewMenu.Append(wx.ID_ANY, "全部展开\tCtrl-Shift-E")
@@ -206,8 +209,7 @@ class MainFrame(wx.Frame):
         self._pauseToolState = None
         refreshButton = add_tool(wx.ID_REFRESH, "刷新", "refresh")
         self.toolBar.AddSeparator()
-        passwordButton = add_tool(wx.ID_ANY, "设置加密密码", "key")
-        unlockButton = add_tool(wx.ID_ANY, "解锁加密任务", "unlock")
+        self._encryptedTasksTool = add_tool(wx.ID_ANY, "解锁加密任务", "unlock")
         settingButton = add_tool(wx.ID_ANY, "设置", "settings")
         playerButton = add_tool(wx.ID_ANY, '选择播放器', 'player')
         self.toolBar.AddSeparator()
@@ -225,14 +227,17 @@ class MainFrame(wx.Frame):
         self.toolBar.Bind(wx.EVT_TOOL, self.OnPauseDownloads, self._pauseTool)
         self.toolBar.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads, self._pauseTool)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnRefresh, refreshButton)
-        self.toolBar.Bind(wx.EVT_TOOL, self.OnSetEncryptedPassword, passwordButton)
-        self.toolBar.Bind(wx.EVT_TOOL, self.OnUnlockEncryptedTasks, unlockButton)
+        # Bind directly to the tool as well as the frame ID.  wxMSW versions differ
+        # in whether toolbar command events bubble to the frame after realization.
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnEncryptedTasksTool,
+                          self._encryptedTasksTool)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnSetting, settingButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnSelectPlayer, playerButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnHelp, helpButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAbout, aboutButton)
         # 启用工具栏
         self.toolBar.Realize()
+        self._SyncLockEncryptedTasksEnabled()
         self.showToolItem.Check(self.toolBar.IsShown())
 
     def _createStatusBar(self):
@@ -986,6 +991,9 @@ class MainFrame(wx.Frame):
         parent_item = self.model.ObjectToItem(self.model._BuildKey((index,)))
         add('重命名…', lambda: self._RenameTask(task.task_id, task.parent.displayName),
             task.rename_allowed)
+        add('取消加锁' if task.encrypted else '加锁任务',
+            lambda: self._SetTaskEncrypted(task.task_id, not task.encrypted),
+            task.rename_allowed, new_group=True)
         add('打开文件夹', lambda: self._OpenLocalPath(directory))
         if task.outputs and (task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
             for output in task.outputs:
@@ -1041,6 +1049,23 @@ class MainFrame(wx.Frame):
         finally:
             dialog.Destroy()
 
+    def _SetTaskEncrypted(self, task_id, encrypted):
+        if encrypted:
+            try:
+                if not TaskEncryption().is_configured():
+                    wx.MessageBox('请先从“任务”菜单设置加密任务密码。',
+                                  '尚未设置密码', wx.OK | wx.ICON_INFORMATION, parent=self)
+                    return
+            except ValueError as error:
+                wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
+                return
+        try:
+            self.runner.set_task_encrypted(task_id, encrypted)
+            self.OnRefresh(None)
+        except (ValueError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
+            wx.MessageBox(str(error), '任务加锁失败' if encrypted else '取消加锁失败',
+                          wx.OK | wx.ICON_ERROR, parent=self)
+
 
     ###################################
     ### 事件所需函数
@@ -1085,9 +1110,37 @@ class MainFrame(wx.Frame):
                 wx.MessageBox('密码不正确。', '无法解锁', wx.OK | wx.ICON_ERROR, parent=self)
                 return
             self._encrypted_tasks_unlocked = True
+            self._SyncLockEncryptedTasksEnabled()
             self._ApplyTaskFilter(force=True)
         finally:
             dialog.Destroy()
+
+    def OnLockEncryptedTasks(self, _event):
+        """Clear the in-memory unlock state and immediately hide encrypted tasks."""
+        if not self._encrypted_tasks_unlocked:
+            return
+        self._encrypted_tasks_unlocked = False
+        self._SyncLockEncryptedTasksEnabled()
+        self._ApplyTaskFilter(force=True)
+        self.statusBar.SetStatusText('加密任务已锁定并隐藏。', 0)
+
+    def OnEncryptedTasksTool(self, event):
+        if self._encrypted_tasks_unlocked:
+            self.OnLockEncryptedTasks(event)
+        else:
+            self.OnUnlockEncryptedTasks(event)
+
+    def _SyncLockEncryptedTasksEnabled(self):
+        unlocked = self._encrypted_tasks_unlocked
+        self.lockEncryptedTasksItem.Enable(unlocked)
+        if self.toolBar is not None:
+            tool_id = self._encryptedTasksTool.GetId()
+            label = '锁定加密任务' if unlocked else '解锁加密任务'
+            icon = 'lock' if unlocked else 'unlock'
+            self.toolBar.SetToolNormalBitmap(tool_id, toolbar_icon(icon))
+            self._encryptedTasksTool.SetLabel(label)
+            self.toolBar.SetToolShortHelp(tool_id, label)
+            self.toolBar.EnableTool(tool_id, True)
 
     def OnSetEncryptedPassword(self, _event):
         password_store = TaskEncryption()

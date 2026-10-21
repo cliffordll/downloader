@@ -48,6 +48,24 @@ class TaskServiceTests(unittest.TestCase):
     def create(self):
         return self.service.create_m3u8(self.directory, 'https://example.com/media/index.m3u8', CONTENT, filename='video.mp4')
 
+    def test_task_lock_marker_persists_without_changing_output_paths(self):
+        task = self.create()
+        paths = [output.output_path for output in task.outputs]
+
+        locked = self.service.set_task_encrypted(task.id, True)
+        self.assertTrue(locked.encrypted)
+        self.assertEqual([output.output_path for output in locked.outputs], paths)
+        self.assertTrue(self.repository.get(task.id).encrypted)
+
+        unlocked = self.service.set_task_encrypted(task.id, False)
+        self.assertFalse(unlocked.encrypted)
+
+    def test_task_lock_marker_rejects_active_tasks(self):
+        task = self.create()
+        self.service.begin_download(task.id, [0])
+        with self.assertRaisesRegex(ValueError, '正在下载'):
+            self.service.set_task_encrypted(task.id, True)
+
     def test_mp4_dialog_creates_record_and_returns_task_id(self):
         dialog = DownloadDialogMP4(None, str(self.root), self.service)
         try:

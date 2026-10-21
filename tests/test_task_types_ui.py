@@ -16,6 +16,8 @@ from src.core.task_service import TaskService
 from src.models.tree_model import MultiColumnTreeModel, to_tree_item
 from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskOutput, TaskProgress, TaskStatus, FileStatus
 from src.views.main_frame import MainFrame, TaskActionRenderer, TaskProgressRenderer
+from src.views.dialogs.task_password_dialog import TaskPasswordDialog
+from src.views.dialogs.task_unlock_dialog import TaskUnlockDialog
 
 
 class TaskTypesUITests(unittest.TestCase):
@@ -92,6 +94,30 @@ class TaskTypesUITests(unittest.TestCase):
         row = to_tree_item(task)
         self.assertTrue(row.encrypted)
         self.assertEqual(row.parent.displayName, 'MP4')
+        model = self.model()
+        item = model.ObjectToItem(model._BuildKey((0,)))
+        self.assertEqual(model.GetValue(item, 1), '🔒 MP4')
+
+    def test_encryption_dialogs_share_the_existing_task_dialog_layout(self):
+        dialogs = [TaskPasswordDialog(None, has_existing=True), TaskUnlockDialog(None)]
+        try:
+            expected_width = dialogs[0].FromDIP(440)
+            for dialog in dialogs:
+                self.assertEqual(dialog.GetClientSize().width, expected_width)
+            password = dialogs[0]
+            field_x = password.password.GetPosition().x
+            self.assertEqual(password.confirm_password.GetPosition().x, field_x)
+            self.assertEqual(dialogs[1].password.GetPosition().x, field_x)
+            self.assertLess(field_x, password.FromDIP(90))
+            self.assertEqual(password.ok.GetMinSize().width,
+                             password.FindWindowById(wx.ID_CANCEL).GetMinSize().width)
+            self.assertEqual(dialogs[1].unlock.GetLabel(), '确定')
+            self.assertEqual(dialogs[1].unlock.GetMinSize().width,
+                             dialogs[1].cancel.GetMinSize().width)
+        finally:
+            for dialog in dialogs:
+                dialog.Destroy()
+            self.app.ProcessPendingEvents()
 
     def test_deleted_work_directory_stays_hidden_after_reopen_and_can_be_recreated(self):
         from src.core.task_files import trash_task_files
@@ -533,8 +559,8 @@ class TaskTypesUITests(unittest.TestCase):
         opened = Mock()
         def inspect_menu(menu):
             labels = ['|' if entry.IsSeparator() else entry.GetItemLabelText() for entry in menu.GetMenuItems()]
-            self.assertEqual(labels, ['重命名…', '打开文件夹', '播放视频', '|', '查看下载地址', '|', '另存为…'])
-            entry = menu.GetMenuItems()[1]
+            self.assertEqual(labels, ['重命名…', '|', '加锁任务', '打开文件夹', '播放视频', '|', '查看下载地址', '|', '另存为…'])
+            entry = menu.GetMenuItems()[3]
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=inspect_menu),
                                 _OpenLocalPath=opened, _CreateMP4File=Mock(), _DownloadFiles=Mock(),

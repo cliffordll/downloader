@@ -5,12 +5,14 @@ from src.core.task_service import TaskService
 from src.storage.task_repository import TaskDataError
 from src.views.dialogs.panels.path_picker import DownloadPath
 from src.views.dialogs.panels.mp4_form import DownloadEditMP4
+from src.views.components.icons import app_icons
 
 
 class DownloadDialogMP4(wx.Dialog):
     """MP4 直链只需网址、保存目录和文件名，不显示分片编辑器。"""
     def __init__(self, parent, work_path, task_service: TaskService, *, title='下载 MP4', capture=None):
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.SetIcons(app_icons())
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
         self.task_id = None
         self.request_headers = {'Referer': capture['referer']} if capture and capture.get('referer') else {}
