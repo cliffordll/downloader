@@ -186,6 +186,7 @@ class RTMPDetails(TaskModel):
 class TaskBase(TaskModel):
     id: UUID = Field(default_factory=uuid4, frozen=True)
     name: str = Field(min_length=1)
+    encrypted: bool = False
     save_dir: Path
     status: TaskStatus = TaskStatus.NEW
     created_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc))

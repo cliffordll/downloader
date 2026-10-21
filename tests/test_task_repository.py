@@ -54,6 +54,12 @@ class TaskRepositoryTests(unittest.TestCase):
             self.assertFalse(task.save_dir.exists(), '存储任务不应创建下载文件夹')
         self.assertIsNone(reopened.get(uuid4()))
 
+    def test_encrypted_task_marker_survives_reopen(self):
+        task = self.task('加密任务')
+        task.encrypted = True
+        self.repo.create(task)
+        self.assertTrue(TaskRepository(self.path).get(task.id).encrypted)
+
     def test_update_replaces_children_and_does_not_mutate_input(self):
         original = self.repo.create(self.task())
         changed = self.repo.get(original.id)
@@ -92,13 +98,21 @@ class TaskRepositoryTests(unittest.TestCase):
         output = task.save_dir / '成品.mp4'
         output.write_bytes(b'keep')
         other = self.repo.create(self.task('其他任务'))
-        self.assertTrue(self.repo.delete(task.id))
-        self.assertFalse(self.repo.delete(task.id))
         self.assertEqual(output.read_bytes(), b'keep')
         with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute('PRAGMA foreign_keys=ON')
+            connection.execute(
+                'INSERT INTO task_encryption '
+                '(task_id, format_version, kdf_salt, wrapped_key_nonce, wrapped_key) '
+                'VALUES (?, 1, ?, ?, ?)', (str(task.id), b'salt', b'nonce', b'wrapped-key'))
+        self.assertTrue(self.repo.delete(task.id))
+        self.assertFalse(self.repo.delete(task.id))
+        with closing(sqlite3.connect(self.path)) as connection:
             for table in ('task_m3u8', 'task_segments', 'task_outputs'):
                 self.assertEqual(connection.execute(f'SELECT COUNT(*) FROM {table} WHERE task_id=?',
                                                     (str(task.id),)).fetchone()[0], 0)
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM task_encryption WHERE task_id=?',
+                                                (str(task.id),)).fetchone()[0], 0)
         self.assertEqual(self.repo.list_tasks(), [other])
         with self.assertRaises(TaskConflictError):
             self.repo.update(task)

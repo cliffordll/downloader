@@ -11,6 +11,7 @@ tasks = sa.Table(
     sa.Column('type', sa.Text, nullable=False),
     sa.Column('source_type', sa.Text, nullable=False),
     sa.Column('name', sa.Text, nullable=False),
+    sa.Column('encrypted', sa.Boolean, nullable=False, server_default='0'),
     sa.Column('source_url', sa.Text),
     sa.Column('save_dir', sa.Text, nullable=False),
     sa.Column('status', sa.Text, nullable=False),
@@ -105,4 +106,14 @@ outputs = sa.Table(
     sa.CheckConstraint('size_bytes >= 0'),
     sa.CheckConstraint("kind IN ('download', 'merged', 'recording')"),
     sa.CheckConstraint("status IN ('pending', 'completed', 'failed', 'missing')"),
+)
+task_encryption = sa.Table(
+    'task_encryption', metadata,
+    sa.Column('task_id', sa.Text, sa.ForeignKey('tasks.id', ondelete='CASCADE'),
+              primary_key=True, nullable=False),
+    sa.Column('format_version', sa.Integer, nullable=False),
+    sa.Column('kdf_salt', sa.LargeBinary, nullable=False),
+    sa.Column('wrapped_key_nonce', sa.LargeBinary, nullable=False),
+    sa.Column('wrapped_key', sa.LargeBinary, nullable=False),
+    sa.CheckConstraint('format_version > 0'),
 )
