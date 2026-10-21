@@ -8,6 +8,7 @@ from typing import Any, TypedDict
 import requests
 
 from src.core.sys_setting import SysSetting
+from src.core.task_paths import segment_path
 from src.media.downloader import Downloader, DownloadRemoved
 from src.schemas.task import FileStatus, SegmentStatus, TaskStatus
 
@@ -84,7 +85,7 @@ class M3U8Downloader:
             for segment in record.details.media_segments:
                 if segment.sequence not in selected or segment.status == SegmentStatus.COMPLETED:
                     continue
-                path = str(record.save_dir / segment.relative_path)
+                path = str(segment_path(record, segment))
                 key = cls.FileKey(path)
                 keys.add(key)
                 if not segment.source_url:
@@ -137,7 +138,7 @@ class M3U8Downloader:
 
     @classmethod
     def _EnsureKey(cls, service, task_id, key_entry, options):
-        path = Path(service.repository.get(task_id).save_dir / key_entry.relative_path)
+        path = segment_path(service.repository.get(task_id), key_entry)
         lock_key = (str(task_id), key_entry.sequence)
         with cls._key_locks_lock:
             lock = cls._key_locks.setdefault(lock_key, threading.Lock())

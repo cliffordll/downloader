@@ -67,7 +67,7 @@ class TaskRuntimeTests(unittest.TestCase):
         return frame
 
     def write_segment(self, task, sequence):
-        path = task.save_dir / next(segment.relative_path for segment in task.details.segments
+        path = task.save_dir / next(segment.segment_path for segment in task.details.segments
                                     if segment.sequence == sequence)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b'12345')
@@ -89,7 +89,7 @@ class TaskRuntimeTests(unittest.TestCase):
             record = self.repository.get(task_id)
             if record is None:
                 return
-            keys = {M3U8Downloader.FileKey(record.save_dir / s.relative_path) for s in record.details.segments}
+            keys = {M3U8Downloader.FileKey(record.save_dir / record.name / s.segment_path) for s in record.details.segments}
             M3U8Downloader._jobs[task_id] = [self.service, keys, record.status]
         key = M3U8Downloader.FileKey(filename)
         M3U8Downloader._Deliver(('url', filename, M3U8Downloader._SaveResult, context, key), success)
@@ -112,7 +112,7 @@ class TaskRuntimeTests(unittest.TestCase):
         item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
         with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue):
             frame.OnTaskAction(item, 'start')
-        first_path = task.save_dir / task.details.segments[0].relative_path
+        first_path = task.save_dir / task.name / task.details.segments[0].segment_path
         key = M3U8Downloader.FileKey(first_path)
         M3U8Downloader._requesting.add(key)
         self.sync(frame)
@@ -129,7 +129,7 @@ class TaskRuntimeTests(unittest.TestCase):
         M3U8Downloader._requesting.clear()
         M3U8Downloader._pending.discard(key)
         self.deliver(frame, True, str(first_path), (task.id, 0))
-        second_path = task.save_dir / task.details.segments[1].relative_path
+        second_path = task.save_dir / task.name / task.details.segments[1].segment_path
         M3U8Downloader._pending.clear()
         self.deliver(frame, False, str(second_path), (task.id, 1))
         with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue) as retry:
@@ -166,7 +166,7 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertTrue(FFmpegConverter.IsBusy())
         new_default = self.root / 'new-default'
         self.save_default_directory(frame, new_default)
-        self.assertEqual(output, task.save_dir / task.outputs[0].relative_path)
+        self.assertEqual(output, task.save_dir / task.outputs[0].output_path)
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.MERGING)
         output.write_bytes(b'video')
         frame.runner._merge_finished(True, str(output), task.id)
@@ -218,7 +218,7 @@ class TaskRuntimeTests(unittest.TestCase):
         self.service.begin_download(task.id, [0, 1])
         first = self.write_segment(task, 0)
         self.service.finish_segment(task.id, 0, str(first), True)
-        second = task.save_dir / task.details.segments[1].relative_path
+        second = task.save_dir / task.name / task.details.segments[1].segment_path
         failed = self.service.finish_segment(task.id, 1, str(second), False, 'HTTP 403')
         self.assertEqual(failed.status, TaskStatus.FAILED)
         self.assertEqual(failed.progress.completed_segments, 1)
@@ -240,7 +240,7 @@ class TaskRuntimeTests(unittest.TestCase):
         for task, status in zip(tasks, (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.MERGING, TaskStatus.PAUSED)):
             self.service.runtime_status(task.id, status)
         self.write_segment(tasks[0], 0)  # 文件已写完，但退出前尚未来得及保存回调。
-        partial = tasks[2].save_dir / (tasks[2].outputs[0].relative_path + '.part.mp4')
+        partial = tasks[2].save_dir / (tasks[2].outputs[0].output_path + '.part.mp4')
         partial.write_bytes(b'incomplete')
         with patch.object(M3U8Downloader, 'DownloadTSFile') as download:
             tree = load_tree(TaskService(TaskRepository(self.repository.path)))
@@ -269,7 +269,7 @@ class TaskRuntimeTests(unittest.TestCase):
             connection.execute("""CREATE TRIGGER fail_segment BEFORE UPDATE ON task_segments
                                   BEGIN SELECT RAISE(ABORT, 'write failed'); END""")
         with self.assertRaises(sqlite3.IntegrityError):
-            self.service.finish_segment(task.id, 0, str(task.save_dir / task.details.segments[0].relative_path), False, 'failed')
+            self.service.finish_segment(task.id, 0, str(task.save_dir / task.name / task.details.segments[0].segment_path), False, 'failed')
         self.assertEqual(self.repository.get(task.id), task)
 
     def test_queue_pause_resume_persist_and_unchanged_poll_does_not_write(self):
@@ -279,7 +279,7 @@ class TaskRuntimeTests(unittest.TestCase):
         with patch.object(M3U8Downloader, 'DownloadTSFile', side_effect=self.enqueue) as download:
             frame.OnTaskAction(item, 'start')
         self.assertEqual([call.args[3] for call in download.call_args_list], [(task.id, 0), (task.id, 1)])
-        key = M3U8Downloader.FileKey(task.save_dir / task.details.segments[0].relative_path)
+        key = M3U8Downloader.FileKey(task.save_dir / task.name / task.details.segments[0].segment_path)
         M3U8Downloader._requesting.add(key)
         self.sync(frame)
         frame.OnTaskProgress(None)
@@ -332,7 +332,7 @@ class TaskRuntimeTests(unittest.TestCase):
     def test_failed_callback_retains_error_and_retry_after_reopen(self):
         task = self.create()
         frame = self.frame()
-        path = str(task.save_dir / task.details.segments[1].relative_path)
+        path = str(task.save_dir / task.name / task.details.segments[1].segment_path)
         M3U8Downloader._errors[M3U8Downloader.FileKey(path)] = 'HTTP 500'
         self.deliver(frame, False, path, (task.id, 1))
         self.assertEqual(self.repository.get(task.id).last_error, 'HTTP 500')
@@ -369,7 +369,7 @@ class TaskRuntimeTests(unittest.TestCase):
     def test_all_resume_keeps_existing_queue_scope(self):
         task = self.create()
         frame = self.frame()
-        key = M3U8Downloader.FileKey(task.save_dir / task.details.segments[0].relative_path)
+        key = M3U8Downloader.FileKey(task.save_dir / task.name / task.details.segments[0].segment_path)
         M3U8Downloader._pending.add(key)
         M3U8Downloader.Pause()
         M3U8Downloader._jobs[task.id] = [self.service, {key}, task.status]
@@ -442,7 +442,7 @@ class TaskRuntimeTests(unittest.TestCase):
             frame._DurationChecked(task.id, record, None)
             event.assert_called_once()
             self.assertEqual(frame.model.TaskInfo(0)['status'], '待合并')
-            self.assertIn('#EXTINF:3.5,', (task.save_dir / task.details.playlist_path).read_text())
+            self.assertIn('#EXTINF:3.5,', (task.save_dir / task.name / task.details.playlist_path).read_text())
 
     def test_restored_task_passes_saved_headers_to_segment_queue(self):
         task = self.create(count=1)
@@ -510,7 +510,7 @@ class TaskRuntimeTests(unittest.TestCase):
         with patch('src.models.tree_model._file', wraps=tree_model._file) as read_file:
             frame.model.ApplyTaskRecord(record)
         # 任务行和清单子行可以更新文件信息，未变化的 20 个分片不能重新扫描。
-        segment_paths = {task.save_dir / segment.relative_path for segment in task.details.segments}
+        segment_paths = {task.save_dir / task.name / segment.segment_path for segment in task.details.segments}
         self.assertTrue(segment_paths.isdisjoint(call.args[0] for call in read_file.call_args_list))
 
     def test_merge_result_and_failure_survive_restart(self):
@@ -518,7 +518,7 @@ class TaskRuntimeTests(unittest.TestCase):
         for index in range(2):
             self.write_segment(task, index)
         self.service.begin_merge(task.id)
-        output = task.save_dir / task.outputs[0].relative_path
+        output = task.save_dir / task.outputs[0].output_path
         self.service.finish_merge(task.id, str(output), False)
         failed = load_tree(TaskService(TaskRepository(self.repository.path))).items[0]
         self.assertEqual(failed.task_status, TaskStatus.FAILED)
@@ -550,7 +550,7 @@ class TaskRuntimeTests(unittest.TestCase):
     def test_deliver_exposes_real_error_after_clearing_pending(self):
         task = self.create()
         frame = self.frame()
-        filename = str(task.save_dir / task.details.segments[0].relative_path)
+        filename = str(task.save_dir / task.name / task.details.segments[0].segment_path)
         key = M3U8Downloader.FileKey(filename)
         M3U8Downloader._pending.add(key)
         with patch.object(M3U8Downloader, 'DownloadContent', return_value=(False, 'HTTP 403')):

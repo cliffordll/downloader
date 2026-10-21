@@ -3,6 +3,8 @@ import json
 # import wx.gizmos as gizmos
 import wx.dataview as dv
 from src.core.path_manager import PathManager
+from src.core.task_paths import output_path, playlist_path, segment_path, work_dir
+from src.core.task_rules import can_rename
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from pathlib import Path
@@ -22,9 +24,10 @@ def _file(path, display_name, source_url='', *, size=None, status=FileStatus.PEN
 
 def to_tree_item(task, previous=None):
     """数据库记录决定文件行及状态，未知的文件信息显示为空缺。"""
-    name = Path(task.name).stem
+    name = task.name
     if not isinstance(task, M3U8Task):
-        target = task.save_dir / task.details.target_path
+        output = task.outputs[0] if task.outputs else None
+        target = output_path(task, output) if output else task.save_dir / task.name
         parent = _file(target, name, task.source_url, size=task.progress.downloaded_bytes)
         parent.modifyAt = task.updated_at.astimezone().strftime('%Y-%m-%d %H:%M')
         outputs = []
@@ -35,9 +38,10 @@ def to_tree_item(task, previous=None):
             partial = task.save_dir / task.details.temporary_path
             outputs = [_file(partial, partial.name, size=task.progress.downloaded_bytes)]
         return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                        rename_allowed=can_rename(task),
                         progress=task.progress, task_status=task.status,
                         last_error=task.last_error, parent=parent, outputs=outputs)
-    playlist = task.save_dir / (task.details.playlist_path or 'download.m3u8')
+    playlist = playlist_path(task)
     size = task.progress.downloaded_bytes
     if task.details.work_dir_missing:
         size = next((o.size_bytes for o in task.outputs if o.status == FileStatus.COMPLETED), size)
@@ -46,7 +50,7 @@ def to_tree_item(task, previous=None):
     children = []
     previous_children = {child.sequence: child for child in previous.childs} if previous else {}
     for segment in sorted(task.details.segments, key=lambda segment: segment.sequence):
-        path = task.save_dir / segment.relative_path
+        path = segment_path(task, segment)
         child = previous_children.get(segment.sequence)
         if (child is None or child.status != segment.status or child.fileName != str(path)
                 or child.absUri != (segment.source_url or '')):
@@ -58,14 +62,15 @@ def to_tree_item(task, previous=None):
         child.encryption = segment.encryption
         child.last_error = segment.last_error
         children.append(child)
-    outputs = [_file(task.save_dir / output.relative_path, Path(output.relative_path).name,
+    outputs = [_file(output_path(task, output), Path(output.output_path).name,
                      size=output.size_bytes, status=output.status)
                for output in task.outputs if output.status == FileStatus.COMPLETED]
     return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                    rename_allowed=can_rename(task),
                     manifests={-2: _file(playlist, playlist.name)},
-                    work_dir=playlist.parent,
+                    work_dir=work_dir(task),
                     work_dir_missing=task.details.work_dir_missing,
-                    output_path=task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged'),
+                    output_path=output_path(task, next(o for o in task.outputs if o.kind == 'merged')),
                     duration_pending=task.details.detect_duration and any(
                         s.status == SegmentStatus.COMPLETED and s.duration_status == 'pending'
                         for s in task.details.media_segments),

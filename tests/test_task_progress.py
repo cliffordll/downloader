@@ -410,7 +410,7 @@ class TaskProgressTests(unittest.TestCase):
             def inspect_menu(menu):
                 entries = {entry.GetItemLabelText(): entry for entry in menu.GetMenuItems()
                            if not entry.IsSeparator()}
-                self.assertEqual(set(entries), {'打开文件夹', '检测分片时长', '转 MP4', '播放视频', '另存为…'})
+                self.assertEqual(set(entries), {'重命名…', '打开文件夹', '检测分片时长', '转 MP4', '播放视频', '另存为…'})
                 self.assertTrue(entries['打开文件夹'].IsEnabled())
                 self.assertFalse(entries['播放视频'].IsEnabled())
                 self.assertFalse(entries['转 MP4'].IsEnabled())
@@ -593,9 +593,9 @@ class TaskProgressTests(unittest.TestCase):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
-            cases = [(-2, ['打开', '打开所在文件夹', '|', '查看内容']),
-                     (0, ['打开', '打开所在文件夹', '|', '另存为…']),
-                     (1, ['打开', '打开所在文件夹', '|', '修改分片信息', '|', '另存为…']),
+            cases = [(-2, ['打开/播放', '|', '选择播放器…', '打开所在文件夹', '|', '查看内容']),
+                     (0, ['打开/播放', '|', '选择播放器…', '打开所在文件夹', '|', '另存为…']),
+                     (1, ['打开/播放', '|', '选择播放器…', '打开所在文件夹', '|', '修改分片信息', '|', '另存为…']),
                      (2, ['下载', '|', '修改分片信息'])]
             for key, labels in cases:
                 item = frame.model.ObjectToItem(frame.model._BuildKey((0, key)))
@@ -701,7 +701,7 @@ class TaskProgressTests(unittest.TestCase):
                 view_labels.append('显示工具栏')
             view_labels.append('显示状态栏')
             for index, expected in enumerate((
-                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '浏览器扩展配对…', '退出'],
+                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
                 ['全部暂停', '全部继续'],
                 view_labels,
                 ['使用说明', '关于'],

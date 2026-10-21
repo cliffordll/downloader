@@ -24,7 +24,7 @@ class DurationDetectionTests(unittest.TestCase):
         task = self.service.create_m3u8(self.root / 'video', 'https://example.com/index.m3u8',
             '#EXTM3U\n#EXTINF:5,\na.ts\n#EXTINF:5,\nb.ts\n', detect_duration=enabled)
         for segment in task.details.segments:
-            path = task.save_dir / segment.relative_path
+            path = task.save_dir / task.name / segment.segment_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'media')
             task = self.service.finish_segment(task.id, segment.sequence, path, True)

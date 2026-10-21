@@ -48,13 +48,13 @@ detail_tables = {
         sa.Column('request_headers', sa.JSON, nullable=False, server_default=sa.text("'{}'")),
         sa.Column('detect_duration', sa.Boolean, nullable=False, server_default='0'),
         sa.Column('playlist_path', sa.Text),
+        sa.Column('detecting', sa.Boolean, nullable=False, server_default='0'),
         sa.Column('work_dir_missing', sa.Boolean),  # NULL 为旧记录尚未核对，读取时使用模型默认值。
         sa.Column('ts_pattern', sa.Text),
     ),
     'mp4': _details(
         'task_mp4',
         sa.Column('request_headers', sa.JSON, nullable=False, server_default=sa.text("'{}'")),
-        sa.Column('target_path', sa.Text, nullable=False, server_default=''),
         sa.Column('temporary_path', sa.Text, nullable=False, server_default=''),
         sa.Column('file_missing', sa.Boolean),
         sa.Column('etag', sa.Text),
@@ -65,7 +65,6 @@ detail_tables = {
     ),
     'rtmp': _details(
         'task_rtmp',
-        sa.Column('target_path', sa.Text, nullable=False, server_default=''),
         sa.Column('recording_started_at', sa.Text),
     ),
 }
@@ -76,7 +75,7 @@ segments = sa.Table(
     sa.Column('sequence', sa.Integer, primary_key=True, nullable=False),
     sa.Column('entry_type', sa.Text, nullable=False, server_default='segment'),
     sa.Column('encryption', sa.JSON),
-    sa.Column('relative_path', sa.Text, nullable=False),
+    sa.Column('segment_path', sa.Text, nullable=False),
     sa.Column('source_url', sa.Text),
     sa.Column('duration', sa.Float),
     sa.Column('duration_status', sa.Text, nullable=False),
@@ -97,7 +96,7 @@ outputs = sa.Table(
               primary_key=True, nullable=False),
     sa.Column('id', sa.Text, primary_key=True, nullable=False),
     sa.Column('position', sa.Integer, nullable=False),
-    sa.Column('relative_path', sa.Text, nullable=False),
+    sa.Column('output_path', sa.Text, nullable=False),
     sa.Column('kind', sa.Text, nullable=False),
     sa.Column('status', sa.Text, nullable=False),
     sa.Column('size_bytes', sa.Integer),

@@ -42,6 +42,7 @@ class FileItem(BaseModel):
         return v
 
 class TreeItem(BaseModel):
+    rename_allowed: bool = False
     duration_pending: bool = False
     task_type: TaskType = TaskType.M3U8
     save_dir: Optional[Path] = None

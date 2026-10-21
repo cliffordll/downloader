@@ -10,6 +10,7 @@ import requests
 
 from src.core.sys_setting import SysSetting
 from src.core.path_manager import PathManager
+from src.core.task_paths import output_for, output_path
 from src.media.downloader import Downloader
 from src.schemas.task import MP4Task, TaskProgress, TaskStatus, FileStatus
 
@@ -159,7 +160,10 @@ class MP4Downloader:
         if not isinstance(task, MP4Task):
             raise ValueError('MP4 任务不存在。')
         path = task.save_dir / task.details.temporary_path
-        target = task.save_dir / task.details.target_path
+        download = output_for(task, 'download')
+        if download is None:
+            raise ValueError('MP4 任务缺少下载产物记录。')
+        target = output_path(task, download)
         if target.exists():
             raise ValueError('目标文件已经存在，请核对文件；为避免覆盖，下载已停止。')
         path.parent.mkdir(parents=True, exist_ok=True)

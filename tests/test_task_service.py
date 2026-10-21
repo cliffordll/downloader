@@ -59,8 +59,10 @@ class TaskServiceTests(unittest.TestCase):
             task = self.repository.get(dialog.task_id)
             self.assertEqual(task.source_url, 'https://example.com/movie.mp4')
             self.assertEqual(task.save_dir, self.root)
-            self.assertEqual(task.details.target_path, 'direct-video.mp4')
-            self.assertFalse((task.save_dir / task.details.target_path).exists())
+            self.assertEqual(task.name, 'direct-video')
+            target = task.save_dir / task.outputs[0].output_path
+            self.assertEqual(target.name, 'direct-video.mp4')
+            self.assertFalse(target.exists())
         finally:
             dialog.Destroy()
         self.app.ProcessPendingEvents()
@@ -99,11 +101,11 @@ class TaskServiceTests(unittest.TestCase):
     def test_redownload_restores_native_tree_container_after_all_files_deleted(self):
         task = self.create()
         for segment in task.details.segments:
-            path = task.save_dir / segment.relative_path
+            path = task.save_dir / task.name / segment.segment_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'media')
             self.service.finish_segment(task.id, segment.sequence, path, True)
-        work = (task.save_dir / task.details.playlist_path).parent
+        work = (task.save_dir / task.name / task.details.playlist_path).parent
         work.replace(self.root / 'removed-work')
         self.service.check_files(task.id)
         frame = self.frame()
@@ -135,7 +137,7 @@ class TaskServiceTests(unittest.TestCase):
         self.assertEqual(task.source_type, SourceType.M3U8)
         self.assertEqual([segment.source_url for segment in task.details.segments], [
             'https://example.com/media/a.ts?token=1', 'https://example.com/media/a.ts?token=2'])
-        self.assertEqual(len({segment.relative_path for segment in task.details.segments}), 2)
+        self.assertEqual(len({segment.segment_path for segment in task.details.segments}), 2)
         self.assertFalse((self.directory / 'download.seed').exists())
         content = (self.directory / 'video/download.m3u8').read_text(encoding='utf-8')
         self.assertIn('segments/000001.ts', content)
@@ -169,7 +171,7 @@ class TaskServiceTests(unittest.TestCase):
         existing.write_text('keep')
         task = self.create()
         self.assertEqual(existing.read_text(), 'keep')
-        self.assertEqual(task.outputs[0].relative_path, 'video.mp4')
+        self.assertEqual(task.outputs[0].output_path, 'video.mp4')
 
     def test_aes128_key_rotation_and_iv_are_saved_per_playlist_entry(self):
         content = ('#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:20\n'
@@ -239,13 +241,13 @@ class TaskServiceTests(unittest.TestCase):
     def test_startup_refresh_and_tree_projection_do_not_read_download_files(self):
         task = self.create()
         segment = task.details.segments[0]
-        path = task.save_dir / segment.relative_path
+        path = task.save_dir / task.name / segment.segment_path
         path.parent.mkdir(parents=True)
         path.write_bytes(b'data')
         self.service.finish_segment(task.id, segment.sequence, str(path), True)
         self.service.runtime_status(task.id, TaskStatus.DOWNLOADING)
         path.unlink()
-        (task.save_dir / task.details.playlist_path).unlink()
+        (task.save_dir / task.name / task.details.playlist_path).unlink()
         reopened = TaskService(self.repository)
         original_stat = Path.stat
 
@@ -286,7 +288,7 @@ class TaskServiceTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in download.call_args_list],
                          [segment.source_url for segment in task.details.segments])
         self.assertEqual([Path(call.args[1]) for call in download.call_args_list],
-                         [self.directory / segment.relative_path for segment in task.details.segments])
+                         [self.directory / task.name / segment.segment_path for segment in task.details.segments])
         self.assertEqual(frame.model.GetValue(item, 1), 'video')
         self.assertTrue(frame._CreateM3U8File(str(self.directory / 'video/download.m3u8')))
 
@@ -330,7 +332,7 @@ class TaskServiceTests(unittest.TestCase):
     def test_merge_uses_regenerated_playlist_and_recorded_directory(self):
         task = self.create()
         for segment in task.details.segments:
-            path = task.save_dir / segment.relative_path
+            path = task.save_dir / task.name / segment.segment_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'test segment')
             self.service.finish_segment(task.id, segment.sequence, str(path), True)
@@ -342,7 +344,7 @@ class TaskServiceTests(unittest.TestCase):
         self.assertEqual(Path(convert.call_args.args[1]), self.directory / 'video.mp4')
         manifest = Path(convert.call_args.args[0]).read_text()
         for segment in task.details.segments:
-            self.assertIn(str(self.directory / segment.relative_path), manifest)
+            self.assertIn(str(self.directory / task.name / segment.segment_path), manifest)
         self.assertTrue((self.directory / 'video/download.m3u8').is_file())
 
     def test_both_dialogs_write_through_service(self):
@@ -369,7 +371,7 @@ class TaskServiceTests(unittest.TestCase):
     def test_failed_manifest_generation_does_not_launch_converter(self):
         task = self.create()
         for segment in task.details.segments:
-            path = task.save_dir / segment.relative_path
+            path = task.save_dir / task.name / segment.segment_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'data')
             self.service.finish_segment(task.id, segment.sequence, str(path), True)

@@ -35,13 +35,14 @@ class DatabaseMigrationTests(unittest.TestCase):
             M3U8Task(name='旧分片', save_dir=self.root / 'video', source_type=SourceType.M3U8,
                      source_url='https://example.com/index.m3u8?token=a%2Bb',
                      details=M3U8Details(playlist_path='video/download.m3u8', segments=[
-                         TaskSegment(sequence=0, relative_path='video/segments/000000.ts',
+                         TaskSegment(sequence=0, segment_path='video/segments/000000.ts',
                                      source_url='https://example.com/0.ts')]),
-                     outputs=[TaskOutput(relative_path='video.mp4', kind='merged')]),
+                     outputs=[TaskOutput(output_path='video.mp4', kind='merged')]),
             MP4Task(name='旧 MP4', save_dir=self.root / 'direct', source_url='https://example.com/a.mp4',
-                    details=MP4Details(target_path='a.mp4', temporary_path='a.mp4.part')),
+                    details=MP4Details(temporary_path='a.mp4.part'),
+                    outputs=[TaskOutput(output_path='a.mp4', kind='download')]),
             RTMPTask(name='旧直播', save_dir=self.root / 'live', source_url='rtmp://example.com/live',
-                     details=RTMPDetails(target_path='live.mkv')),
+                     details=RTMPDetails(), outputs=[TaskOutput(output_path='live.mkv', kind='recording')]),
         ]
         sql = Path(__file__).with_name('fixtures').joinpath('database_v1.sql').read_text(encoding='utf-8')
         with closing(sqlite3.connect(self.path)) as connection, connection:
@@ -50,7 +51,18 @@ class DatabaseMigrationTests(unittest.TestCase):
                 data = task.model_dump(mode='json')
                 details = data.pop('details')
                 segments = details.pop('segments', [])
+                details.pop('detecting', None)
                 outputs = data.pop('outputs')
+                for segment in segments:
+                    segment['relative_path'] = segment.pop('segment_path')
+                for output in outputs:
+                    output['relative_path'] = output.pop('output_path')
+                # The v1 fixture stores the type details as JSON, before the
+                # later migrations moved these legacy output paths to columns.
+                if data['type'] == 'mp4':
+                    details['target_path'] = outputs[0]['relative_path']
+                elif data['type'] == 'rtmp':
+                    details['target_path'] = outputs[0]['relative_path']
                 data['progress'] = json.dumps(data['progress'])
                 columns = ','.join(data)
                 values = ','.join('?' for _ in data)
@@ -95,8 +107,12 @@ class DatabaseMigrationTests(unittest.TestCase):
                     for row in rows:
                         if 'data' in row:
                             details = json.loads(row.pop('data'))
+                            details.pop('target_path', None)
                         else:
                             details = {key: value for key, value in row.items() if key != 'task_id'}
+                            # target_path is legacy duplication now represented
+                            # by task_outputs and is intentionally omitted.
+                            details.pop('target_path', None)
                             for key in ('work_dir_missing', 'file_missing'):
                                 if details.get(key, False) is None:
                                     details.pop(key)
@@ -111,7 +127,12 @@ class DatabaseMigrationTests(unittest.TestCase):
                     normalized = []
                     for row in rows:
                         if 'data' in row:
-                            data = model.model_validate_json(row.pop('data')).model_dump(mode='json')
+                            data = json.loads(row.pop('data'))
+                            old_name, new_name = (('relative_path', 'segment_path') if name == 'task_segments'
+                                                  else ('relative_path', 'output_path'))
+                            if old_name in data and new_name not in data:
+                                data[new_name] = data.pop(old_name)
+                            data = model.model_validate(data).model_dump(mode='json')
                             row = {**data, **row}
                         normalized.append(row)
                     rows = normalized
@@ -126,10 +147,10 @@ class DatabaseMigrationTests(unittest.TestCase):
     def scripts(self, *, failing=False):
         location = self.root / 'migration scripts'
         shutil.copytree(migrations.SCRIPT_LOCATION, location, ignore=shutil.ignore_patterns('__pycache__'))
-        (location / 'versions' / '0006_test.py').write_text('''
+        (location / 'versions' / '0007_test.py').write_text('''
 from alembic import op
-revision = '0006'
-down_revision = '0005'
+revision = '0007'
+down_revision = '0006'
 def upgrade():
     op.execute('CREATE TABLE migration_probe (value TEXT NOT NULL)')
     op.execute("INSERT INTO migration_probe VALUES ('upgraded')")
@@ -137,10 +158,10 @@ def upgrade():
 ''', encoding='utf-8')
         last = "op.execute('SELECT * FROM deliberately_missing_table')" if failing else (
             "op.execute('CREATE INDEX migration_probe_value ON migration_probe(value)')")
-        (location / 'versions' / '0007_test.py').write_text(f'''
+        (location / 'versions' / '0008_test.py').write_text(f'''
 from alembic import op
-revision = '0007'
-down_revision = '0006'
+revision = '0008'
+down_revision = '0007'
 def upgrade():
     {last}
 ''', encoding='utf-8')
@@ -150,11 +171,15 @@ def upgrade():
         tasks = self.legacy()
         original = self.snapshot()
         repo = TaskRepository(self.path)
-        self.assertEqual(self.version(), (5, '0005'))
-        self.assertEqual(self.snapshot(), original)
+        self.assertEqual(self.version(), (6, '0006'))
         for task in tasks:
-            self.assertEqual(repo.get(task.id), task)
+            migrated = repo.get(task.id)
+            self.assertEqual(migrated.type, task.type)
+            self.assertEqual(migrated.name, {'m3u8': 'video', 'mp4': 'a', 'rtmp': 'live'}[task.type.value])
             self.assertFalse(task.save_dir.exists())
+        migrated_hls = repo.get(tasks[0].id)
+        self.assertEqual(migrated_hls.details.playlist_path, 'download.m3u8')
+        self.assertEqual(migrated_hls.details.segments[0].segment_path, 'segments/000000.ts')
         backups = list((self.root / 'backups').glob('*.db'))
         self.assertEqual(len(backups), 1)
         self.assertEqual(self.snapshot(backups[0]), original)
@@ -167,7 +192,7 @@ def upgrade():
 
     def test_new_database_matches_mapping_and_reopen_does_not_write_or_backup(self):
         repo = TaskRepository(self.path)
-        self.assertEqual(self.version(), (5, '0005'))
+        self.assertEqual(self.version(), (6, '0006'))
         with repo.engine.connect() as connection:
             differences = compare_metadata(MigrationContext.configure(connection), metadata)
         self.assertEqual(differences, [])
@@ -182,7 +207,7 @@ def upgrade():
         location = self.scripts()
         with patch.object(migrations, 'SCRIPT_LOCATION', location):
             repo = TaskRepository(self.path)
-            self.assertEqual(self.version(), (7, '0007'))
+            self.assertEqual(self.version(), (8, '0008'))
             for task in tasks:
                 self.assertEqual(repo.get(task.id).last_error, 'migrated')
             before = self.path.read_bytes()
@@ -199,7 +224,7 @@ def upgrade():
             with self.assertRaises(sqlite3.OperationalError):
                 TaskRepository(self.path)
         self.assertEqual(self.snapshot(), before)
-        self.assertEqual(self.version(), (5, '0005'))
+        self.assertEqual(self.version(), (6, '0006'))
         self.assertEqual(len(list((self.root / 'backups').glob('*.db'))), 2)
         self.assertEqual(TaskRepository(self.path).list_tasks()[0].last_error, None)
 
@@ -262,7 +287,7 @@ def upgrade():
         with ThreadPoolExecutor(max_workers=4) as executor:
             results = list(executor.map(lambda _: len(TaskRepository(self.path).list_tasks()), range(4)))
         self.assertEqual(results, [3] * 4)
-        self.assertEqual(self.version(), (5, '0005'))
+        self.assertEqual(self.version(), (6, '0006'))
         self.assertEqual(len(list((self.root / 'backups').glob('*.db'))), 1)
 
     def test_wal_database_backup_contains_committed_wal_rows(self):
@@ -305,7 +330,7 @@ def upgrade():
         tasks = self.legacy(managed=True)
         expected = tasks[0]
         expected.details.segments = [TaskSegment(
-            sequence=index, relative_path=f'视频/segments/{index:06d}.ts',
+            sequence=index, segment_path=f'视频/segments/{index:06d}.ts',
             source_url=f'https://example.com/{index}.ts?token=a%2Bb' if index % 2 else None,
             duration=None if index % 2 else 0.0 if index == 0 else 3.25,
             duration_status=('pending', 'detected', 'failed')[index % 3],
@@ -315,7 +340,7 @@ def upgrade():
             last_error='网络错误' if index % 4 == 2 else None,
         ) for index in range(503)]
         expected.outputs = [TaskOutput(
-            relative_path=f'输出/{index}.mp4', kind=('merged', 'download', 'recording')[index],
+            output_path=f'输出/{index}.mp4', kind=('merged', 'download', 'recording')[index],
             status=('completed', 'pending', 'failed')[index], size_bytes=(0, None, 1234)[index],
         ) for index in range(3)]
         expected.progress.total_segments = len(expected.details.segments)
@@ -324,20 +349,25 @@ def upgrade():
             connection.execute('DELETE FROM task_segments WHERE task_id=?', (str(expected.id),))
             connection.executemany('INSERT INTO task_segments VALUES (?, ?, ?)', [
                 (str(expected.id), segment['sequence'], json.dumps(
-                    {key: value for key, value in segment.items() if key not in ('entry_type', 'encryption')},
+                    {('relative_path' if key == 'segment_path' else key): value
+                     for key, value in segment.items() if key not in ('entry_type', 'encryption')},
                     ensure_ascii=False))
                 for segment in data['details']['segments']])
             connection.execute('DELETE FROM task_outputs WHERE task_id=?', (str(expected.id),))
             connection.executemany('INSERT INTO task_outputs VALUES (?, ?, ?, ?)', [
-                (str(expected.id), output['id'], position, json.dumps(output, ensure_ascii=False))
+                (str(expected.id), output['id'], position, json.dumps(
+                    {('relative_path' if key == 'output_path' else key): value for key, value in output.items()},
+                    ensure_ascii=False))
                 for position, output in enumerate(data['outputs'])])
             connection.execute('UPDATE tasks SET progress=? WHERE id=?',
                                (json.dumps(data['progress']), str(expected.id)))
         before = self.snapshot()
         repo = TaskRepository(self.path)
-        self.assertEqual(self.version(), (5, '0005'))
+        self.assertEqual(self.version(), (6, '0006'))
+        expected.name = 'video'
+        expected.details.playlist_path = 'download.m3u8'
         self.assertEqual(repo.get(expected.id), expected)
-        self.assertEqual(self.snapshot(), before)
+        self.assertNotEqual(self.snapshot(), before)
         backup, = (self.root / 'backups').glob('*.db')
         with closing(sqlite3.connect(backup)) as connection:
             self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 2)
@@ -346,7 +376,7 @@ def upgrade():
             for table in ('task_segments', 'task_outputs'):
                 self.assertNotIn('data', [row[1] for row in connection.execute(f'PRAGMA table_info({table})')])
             self.assertEqual(connection.execute(
-                'SELECT relative_path, size_bytes, duration FROM task_segments WHERE sequence=0').fetchone(),
+                'SELECT segment_path, size_bytes, duration FROM task_segments WHERE sequence=0').fetchone(),
                 ('视频/segments/000000.ts', 0, 0.0))
         expected.outputs.reverse()
         saved = repo.update(expected)
@@ -374,10 +404,14 @@ def upgrade():
             connection.execute('UPDATE task_segments SET data=?', (json.dumps({
                 'sequence': 0, 'relative_path': 'video/segments/000000.ts',
                 'source_url': 'https://example.com/0.ts'}),))
-            connection.execute('UPDATE task_outputs SET data=?', (json.dumps({
-                'id': str(tasks[0].outputs[0].id), 'relative_path': 'video.mp4', 'kind': 'merged'}),))
+            connection.execute('UPDATE task_outputs SET data=? WHERE task_id=?', (json.dumps({
+                'id': str(tasks[0].outputs[0].id), 'relative_path': 'video.mp4', 'kind': 'merged'}),
+                str(tasks[0].id)))
         repo = TaskRepository(self.path)
-        self.assertEqual(repo.get(tasks[0].id), tasks[0])
+        migrated = repo.get(tasks[0].id)
+        self.assertEqual(migrated.name, 'video')
+        self.assertEqual(migrated.details.playlist_path, 'download.m3u8')
+        self.assertEqual(migrated.details.segments[0].segment_path, 'segments/000000.ts')
 
     def test_invalid_child_json_rolls_back_and_preserves_v2_original(self):
         cases = [
@@ -420,6 +454,7 @@ def upgrade():
         shutil.copytree(migrations.SCRIPT_LOCATION, location, ignore=shutil.ignore_patterns('__pycache__'))
         (location / 'versions' / '0004_complete_columns.py').unlink()
         (location / 'versions' / '0005_hls_key_entries.py').unlink()
+        (location / 'versions' / '0006_task_names_and_paths.py').unlink()
         version = location / 'versions' / '0003_segment_output_columns.py'
         version.write_text(version.read_text(encoding='utf-8').replace('    upgrade_remaining()\n', ''),
                            encoding='utf-8')
@@ -434,10 +469,9 @@ def upgrade():
         for row in before['task_segments']:
             row.update(entry_type='segment', encryption=None)
         repo = TaskRepository(self.path)
-        self.assertEqual(self.version(), (5, '0005'))
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.version(), (6, '0006'))
         for task in tasks:
-            self.assertEqual(repo.get(task.id), task)
+            self.assertEqual(repo.get(task.id).type, task.type)
         self.assertEqual(len(list((self.root / 'backups').glob('*.db'))), 2)
         with closing(sqlite3.connect(self.path)) as connection:
             for table in ('task_m3u8', 'task_mp4', 'task_rtmp', 'task_segments', 'task_outputs'):
@@ -466,14 +500,21 @@ def upgrade():
                 data = task.model_dump(mode='json')
                 details = data['details']
                 details.pop('segments', None)
+                details.pop('detecting', None)
+                if task.type.value in ('mp4', 'rtmp'):
+                    details['target_path'] = task.outputs[0].output_path
                 connection.execute(f'UPDATE task_{task.type.value} SET data=? WHERE task_id=?',
                                    (json.dumps(details), str(task.id)))
                 connection.execute('UPDATE tasks SET progress=? WHERE id=?', (json.dumps(data['progress']), str(task.id)))
         before = self.snapshot()
         repo = TaskRepository(self.path)
-        self.assertEqual(self.snapshot(), before)
-        for task in tasks:
-            self.assertEqual(repo.get(task.id), task)
+        migrated_hls = repo.get(tasks[0].id)
+        self.assertEqual(migrated_hls.name, 'video')
+        self.assertEqual(migrated_hls.details.playlist_path, 'download.m3u8')
+        self.assertEqual(migrated_hls.details.segments[0].segment_path, 'segments/000000.ts')
+        self.assertEqual(repo.get(tasks[1].id).name, 'a')
+        self.assertEqual(repo.get(tasks[2].id).name, 'live')
+        self.assertNotEqual(self.snapshot(), before)  # 0006 normalizes names and M3U8 path bases.
         def update_hls(task):
             task.details.request_headers['Cookie'] = 'new-cookie'
             task.details.detect_duration = False

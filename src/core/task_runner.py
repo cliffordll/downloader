@@ -7,6 +7,8 @@ from threading import Event, RLock
 from src.core.sys_setting import SysSetting
 from src.core.task_service import TaskService
 from src.core.task_files import trash_task_files
+from src.core.task_paths import output_for, output_path, segment_path
+from src.core.task_rules import can_rename
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.media.mp4.mp4_downloader import MP4Downloader
@@ -41,10 +43,14 @@ class TaskRunner:
 
     @staticmethod
     def _keys(task):
-        return {M3U8Downloader.FileKey(task.save_dir / segment.relative_path)
+        return {M3U8Downloader.FileKey(segment_path(task, segment))
                 for segment in task.details.media_segments} if isinstance(task, M3U8Task) else set()
 
     def start(self, task_id, *, sequences=None, retry=False):
+        with self._lock:
+            return self._start_locked(task_id, sequences=sequences, retry=retry)
+
+    def _start_locked(self, task_id, *, sequences=None, retry=False):
         """按任务类型选择引擎；重试仅选择失败且缺失的分片，单片下载按稳定序号选择。"""
         if self.closed.is_set():
             return 0
@@ -60,7 +66,10 @@ class TaskRunner:
             raise ValueError('此任务类型尚不支持下载。')
         with self._lock:
             merging = task_id in self._merging
-        output = task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged')
+        merged = output_for(task, 'merged')
+        if merged is None:
+            raise ValueError('M3U8 任务缺少合并产物记录。')
+        output = output_path(task, merged)
         if merging or FFmpegConverter.IsConverting(str(output)):
             raise ValueError('任务正在合并，请稍后操作。')
         # 已完成分片的时长检测可与剩余分片下载并行；服务会校验文件身份再保存时长。
@@ -73,7 +82,7 @@ class TaskRunner:
                   if (selected is None or s.sequence in selected)
                   and s.status != SegmentStatus.COMPLETED
                   and (not retry or s.status == SegmentStatus.FAILED
-                       or M3U8Downloader.FileKey(task.save_dir / s.relative_path) in failed)]
+                       or M3U8Downloader.FileKey(segment_path(task, s)) in failed)]
         if not wanted:
             if task.status == TaskStatus.WAITING_MERGE:
                 self.complete(task_id)
@@ -82,7 +91,7 @@ class TaskRunner:
             count = M3U8Downloader.StartTask(self.tasks, task_id, wanted)
             if count:
                 # 用户主动开始/重试只恢复本次选择，其他全局暂停的任务保持暂停。
-                M3U8Downloader.ResumeFiles({M3U8Downloader.FileKey(task.save_dir / s.relative_path)
+                M3U8Downloader.ResumeFiles({M3U8Downloader.FileKey(segment_path(task, s))
                                            for s in task.details.media_segments if s.sequence in wanted})
             return count
         except Exception:
@@ -133,6 +142,10 @@ class TaskRunner:
 
     def activate(self, task_id, *, retry=False):
         """行内开始按钮：运行中暂停，已暂停队列继续；无队列才创建新下载请求。"""
+        with self._lock:
+            return self._activate_locked(task_id, retry=retry)
+
+    def _activate_locked(self, task_id, *, retry=False):
         task = self._task(task_id)
         if isinstance(task, MP4Task):
             if self.mp4.busy(task_id):
@@ -145,6 +158,7 @@ class TaskRunner:
             if pending:
                 if snapshot['paused'] or pending <= snapshot['paused_files']:
                     self._check_before_resume(task)
+                    self.tasks.runtime_status(task_id, TaskStatus.QUEUED)
                     M3U8Downloader.ResumeFiles(pending)
                 else:
                     M3U8Downloader.PauseFiles(pending)
@@ -166,9 +180,14 @@ class TaskRunner:
     def resume_all(self):
         """恢复现有队列；暂停、中断和部分完成的任务重新入队，不启动新建或失败任务。"""
         snapshot = M3U8Downloader.Snapshot()
-        for task in self.tasks.repository.list_tasks():
-            if isinstance(task, M3U8Task) and self._keys(task) & snapshot['pending']:
-                self._check_before_resume(task)
+        records = self.tasks.repository.list_tasks()
+        pending_tasks = [task for task in records
+                         if isinstance(task, M3U8Task) and self._keys(task) & snapshot['pending']]
+        for task in pending_tasks:
+            if task.status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED, TaskStatus.PARTIAL):
+                self.tasks.runtime_status(task.id, TaskStatus.QUEUED)
+        for task in pending_tasks:
+            self._check_before_resume(task)
         M3U8Downloader.Resume()
         pending = M3U8Downloader.Snapshot()['pending']
         started = set()
@@ -195,10 +214,19 @@ class TaskRunner:
             return True
         task = self._task(task_id)
         if isinstance(task, M3U8Task):
-            return bool(self._keys(task) & M3U8Downloader.Snapshot()['pending']) or FFmpegConverter.IsConverting(
-                str(task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged')))
+            pending = bool(self._keys(task) & M3U8Downloader.Snapshot()['pending'])
+            merged = output_for(task, 'merged')
+            return pending or bool(merged and FFmpegConverter.IsConverting(str(output_path(task, merged))))
         return task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING,
                                TaskStatus.RECORDING, TaskStatus.STOPPING)
+
+    def rename(self, task_id, name):
+        """Serialize rename against task starts and reject work represented in the task record."""
+        with self._lock:
+            task = self._task(task_id)
+            if not can_rename(task):
+                raise ValueError('任务正在下载、检测或合并，暂时不能重命名。')
+            return self.tasks.rename_task(task_id, name)
 
     def delete(self, task_id, *, delete_files=False, scope='task'):
         """统一处理任务、工作文件和 MP4 删除；单删文件保留记录并核对状态。"""
@@ -206,8 +234,8 @@ class TaskRunner:
             raise ValueError('无效的删除范围。')
         with self._lock:
             task = self._task(task_id)
-            output = (task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged')
-                      if isinstance(task, M3U8Task) else None)
+            merged = output_for(task, 'merged') if isinstance(task, M3U8Task) else None
+            output = output_path(task, merged) if merged else None
             merging = task_id in self._merging or task.status == TaskStatus.MERGING or bool(
                 output and FFmpegConverter.IsConverting(str(output)))
             if merging or (scope != 'output' and self.busy_processing(task_id)):
@@ -270,26 +298,35 @@ class TaskRunner:
             if (self.closed.is_set() or task_id in self._duration_jobs
                     or task_id in self._duration_blocked):
                 return
+            record = self.tasks.set_duration_detection(task_id, True)
+            if record is None:
+                raise ValueError('任务不存在，请刷新后重试。')
             self._duration_jobs.add(task_id)
             try:
                 future = self._duration_pool.submit(self.tasks.detect_durations, task_id, self.closed, force=force)
             except Exception:
                 self._duration_jobs.discard(task_id)
+                self.tasks.set_duration_detection(task_id, False)
                 raise
             future.add_done_callback(lambda result: self._duration_finished(task_id, result))
 
     def _duration_finished(self, task_id, future):
         with self._lock:
             self._duration_jobs.discard(task_id)
-            if future.cancelled() or self.closed.is_set():
-                return
             error = None
             try:
-                future.result()  # TaskService 已将每片检测结果保存到数据库。
+                if not future.cancelled():
+                    future.result()  # TaskService 已将每片检测结果保存到数据库。
             except Exception as failure:
                 error = str(failure)
                 self._duration_blocked.add(task_id)
-            self.duration_results.put((task_id, error))
+            try:
+                self.tasks.set_duration_detection(task_id, False)
+            except Exception as failure:
+                error = error or str(failure)
+                self._duration_blocked.add(task_id)
+            if not self.closed.is_set():
+                self.duration_results.put((task_id, error))
 
     def block_duration(self, task_id):
         with self._lock:
@@ -312,7 +349,10 @@ class TaskRunner:
                 raise ValueError('只有 M3U8 分片任务可以合并。')
             if self.busy(task_id):
                 raise ValueError('任务仍在下载、检测或合并中，请稍后操作。')
-            output = task.save_dir / next(o.relative_path for o in task.outputs if o.kind == 'merged')
+            merged = output_for(task, 'merged')
+            if merged is None:
+                raise ValueError('M3U8 任务缺少合并产物记录。')
+            output = output_path(task, merged)
             task = self.check_files(task_id)
             if output.exists():
                 raise ValueError('视频文件已经存在。')

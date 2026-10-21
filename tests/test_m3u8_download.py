@@ -101,7 +101,7 @@ class M3U8DownloadTests(unittest.TestCase):
         self.assertEqual(saved.progress.downloaded_bytes, len(DATA) * 3)
         self.assertTrue(all(worker != threading.get_ident() for worker in workers))
         for segment in saved.details.segments:
-            self.assertEqual((task.save_dir / segment.relative_path).read_bytes(), DATA)
+            self.assertEqual((task.save_dir / task.name / segment.segment_path).read_bytes(), DATA)
         self.assertEqual(Engine.changes(), {task.id})
         self.assertFalse(Engine.IsBusy())
         self.assertEqual(list(task.save_dir.rglob('*.part')), [])
@@ -156,7 +156,7 @@ class M3U8DownloadTests(unittest.TestCase):
         started = [0, 0, 0]
         lock = threading.Lock()
         original = Engine._SaveFile
-        paths = [{str(task.save_dir / segment.relative_path) for segment in task.details.segments}
+        paths = [{str(task.save_dir / task.name / segment.segment_path) for segment in task.details.segments}
                  for task in tasks]
 
         def download(uri, filename, headers=None):
@@ -191,7 +191,7 @@ class M3U8DownloadTests(unittest.TestCase):
         saved = self.repository.get(task.id)
         self.assertEqual(saved.status, TaskStatus.FAILED)
         self.assertEqual(saved.progress.completed_segments, 0)
-        self.assertFalse((task.save_dir / task.details.segments[0].relative_path).exists())
+        self.assertFalse((task.save_dir / task.name / task.details.segments[0].segment_path).exists())
         self.assertEqual(list(task.save_dir.rglob('*.part')), [])
 
     def test_pause_and_resume_are_persisted_without_gui_polling(self):

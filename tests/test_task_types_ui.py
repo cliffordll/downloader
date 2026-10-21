@@ -14,7 +14,7 @@ import wx
 from src.storage.task_repository import TaskRepository
 from src.core.task_service import TaskService
 from src.models.tree_model import MultiColumnTreeModel, to_tree_item
-from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskProgress, TaskStatus, FileStatus
+from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskOutput, TaskProgress, TaskStatus, FileStatus
 from src.views.main_frame import MainFrame, TaskActionRenderer, TaskProgressRenderer
 
 
@@ -33,11 +33,13 @@ class TaskTypesUITests(unittest.TestCase):
     def mp4(self, **kwargs):
         return self.repo.create(MP4Task(name='MP4', save_dir=self.root / 'mp4',
             source_url='https://example.com/video.mp4',
-            details=MP4Details(target_path='nested/video.mp4', temporary_path='video.part'), **kwargs))
+            details=MP4Details(temporary_path='video.part'),
+            outputs=[TaskOutput(output_path='nested/video.mp4', kind='download')], **kwargs))
 
     def live(self, **kwargs):
         return self.repo.create(RTMPTask(name='RTMP', save_dir=self.root / 'live',
-            source_url='rtmp://example.com/live', details=RTMPDetails(target_path='video.flv'), **kwargs))
+            source_url='rtmp://example.com/live', details=RTMPDetails(),
+            outputs=[TaskOutput(output_path='video.flv', kind='recording')], **kwargs))
 
     def model(self):
         return MultiColumnTreeModel(load_tree(self.service))
@@ -68,10 +70,10 @@ class TaskTypesUITests(unittest.TestCase):
         self.assertEqual([file.displayName for file in row.manifests.values()], ['download.m3u8'])
         self.assertEqual(row.outputs, [])
         self.assertEqual(row.childs[0].displayName, '000000.ts')
-        playlist = task.save_dir / task.details.playlist_path
+        playlist = task.save_dir / task.name / task.details.playlist_path
         concat = playlist.parent / 'playlist.txt'
         concat.write_text('concat', encoding='utf-8')
-        output = task.save_dir / task.outputs[0].relative_path
+        output = task.save_dir / task.outputs[0].output_path
         output.write_bytes(b'video')
         task.outputs[0].status = FileStatus.COMPLETED
         row = to_tree_item(task, previous=row)
@@ -89,11 +91,11 @@ class TaskTypesUITests(unittest.TestCase):
         task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
                                        '#EXTM3U\n#EXTINF:4,\na.ts\n#EXTINF:4,\nb.ts\n')
         for segment in task.details.segments:
-            path = task.save_dir / segment.relative_path
+            path = task.save_dir / task.name / segment.segment_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'media')
             self.service.finish_segment(task.id, segment.sequence, path, True)
-        output = task.save_dir / task.outputs[0].relative_path
+        output = task.save_dir / task.outputs[0].output_path
         output.write_bytes(b'video')
         self.service.finish_merge(task.id, output, True)
         def recycle(paths):
@@ -137,7 +139,7 @@ class TaskTypesUITests(unittest.TestCase):
         import sqlite3
         task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
                                        '#EXTM3U\n#EXTINF:4,\na.ts\n')
-        (task.save_dir / task.details.playlist_path).parent.replace(self.root / 'old-work')
+        (task.save_dir / task.name / task.details.playlist_path).parent.replace(self.root / 'old-work')
         # 拆列后 NULL 保留此前版本尚未记录目录存在状态的含义。
         with closing(sqlite3.connect(self.repo.path)) as connection, connection:
             connection.execute('UPDATE task_m3u8 SET work_dir_missing=NULL WHERE task_id=?', (str(task.id),))
@@ -423,7 +425,7 @@ class TaskTypesUITests(unittest.TestCase):
 
     def test_existing_unfinished_file_is_not_treated_as_completed(self):
         task = self.mp4()
-        target = task.save_dir / task.details.target_path
+        target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         target.parent.mkdir(parents=True)
         target.write_bytes(b'partial')
         row = load_tree(self.service).items[0]
@@ -451,7 +453,7 @@ class TaskTypesUITests(unittest.TestCase):
         self.assertEqual(model.GetValue(child, 2), '5.00 B')
         self.assertEqual(model.GetValue(child, 6), '已暂停')
         self.assertEqual(model.GetValue(child, 5), '')
-        target = task.save_dir / task.details.target_path
+        target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         target.parent.mkdir()
         partial.rename(target)
         self.repo.mutate(task.id, lambda current: setattr(current, 'status', TaskStatus.COMPLETED))
@@ -501,7 +503,7 @@ class TaskTypesUITests(unittest.TestCase):
 
     def test_completed_video_menu_exports_exact_output_path(self):
         task = self.mp4(status=TaskStatus.COMPLETED)
-        target = task.save_dir / task.details.target_path
+        target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         target.parent.mkdir(parents=True)
         target.write_bytes(b'video')
         model = self.model()
@@ -524,8 +526,8 @@ class TaskTypesUITests(unittest.TestCase):
         opened = Mock()
         def inspect_menu(menu):
             labels = ['|' if entry.IsSeparator() else entry.GetItemLabelText() for entry in menu.GetMenuItems()]
-            self.assertEqual(labels, ['打开文件夹', '播放视频', '|', '查看下载地址', '|', '另存为…'])
-            entry = menu.GetMenuItems()[0]
+            self.assertEqual(labels, ['重命名…', '打开文件夹', '播放视频', '|', '查看下载地址', '|', '另存为…'])
+            entry = menu.GetMenuItems()[1]
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=inspect_menu),
                                 _OpenLocalPath=opened, _CreateMP4File=Mock(), _DownloadFiles=Mock(),

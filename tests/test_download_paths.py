@@ -27,7 +27,7 @@ class DownloadPathsTests(unittest.TestCase):
     def test_url_name_excludes_query_without_changing_download_url(self):
         url = 'https://example.com/%E8%A7%86%E9%A2%91.mp4?token=secret&name=other'
         task = self.service.create_mp4(self.folder, url)
-        self.assertEqual(task.name, '视频.mp4')
+        self.assertEqual(task.name, '视频')
         self.assertEqual(task.save_dir, self.folder)
         self.assertEqual(task.source_url, url)
         self.assertTrue((self.folder / '视频.mp4.part').is_file())
@@ -43,22 +43,22 @@ class DownloadPathsTests(unittest.TestCase):
         mu = self.service.create_m3u8(self.folder, 'https://host/movie.m3u8', CONTENT)
         ts = self.service.create_m3u8(self.folder, '', CONTENT, filename='MOVIE',
                                       source_type=SourceType.TS_PATTERN)
-        self.assertEqual(mp4.name, 'movie (3).mp4')
-        self.assertEqual(mu.name, 'movie (4).mp4')
-        self.assertEqual(ts.name, 'MOVIE (5).mp4')
-        self.assertEqual(mu.details.playlist_path, 'movie (4)/download.m3u8')
-        self.assertEqual(mu.details.segments[0].relative_path, 'movie (4)/segments/000000.ts')
-        text = (mu.save_dir / mu.details.playlist_path).read_text()
+        self.assertEqual(mp4.name, 'movie (3)')
+        self.assertEqual(mu.name, 'movie (4)')
+        self.assertEqual(ts.name, 'MOVIE (5)')
+        self.assertEqual(mu.details.playlist_path, 'download.m3u8')
+        self.assertEqual(mu.details.segments[0].segment_path, 'segments/000000.ts')
+        text = (mu.save_dir / mu.name / mu.details.playlist_path).read_text()
         self.assertIn('\nsegments/000000.ts\n', text)
         self.assertNotIn('movie (4)/segments', text)
-        self.assertEqual(mu.outputs[0].relative_path, 'movie (4).mp4')
+        self.assertEqual(mu.outputs[0].output_path, 'movie (4).mp4')
         self.assertEqual((self.folder / 'movie.mp4').read_bytes(), b'keep')
 
     def test_record_reserves_name_after_work_files_removed(self):
         task = self.service.create_mp4(self.folder, 'https://host/movie.mp4')
         (task.save_dir / task.details.temporary_path).unlink()
         other = self.service.create_m3u8(self.folder, 'https://host/movie.m3u8', CONTENT)
-        self.assertEqual(other.name, 'movie (1).mp4')
+        self.assertEqual(other.name, 'movie (1)')
 
     def test_concurrent_services_choose_distinct_names(self):
         def create(_):

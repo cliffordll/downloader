@@ -48,7 +48,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_update_segment_info_persists_and_retry_uses_new_address(self):
         from src.models.tree_model import to_tree_item
         task = self.m3u8(count=2)
-        path = task.save_dir / task.details.segments[1].relative_path
+        path = task.save_dir / task.name / task.details.segments[1].segment_path
         self.service.finish_segment(task.id, 1, path, False, 'old URL failed')
         old = self.repo.get(task.id)
         previous = to_tree_item(old)
@@ -57,7 +57,7 @@ class TaskRunnerTests(unittest.TestCase):
         reopened = TaskRepository(self.repo.path).get(task.id)
         self.assertEqual(reopened.details.segments[1].source_url, url)
         self.assertEqual(reopened.details.segments[0], old.details.segments[0])
-        self.assertEqual(reopened.details.segments[1].relative_path, old.details.segments[1].relative_path)
+        self.assertEqual(reopened.details.segments[1].segment_path, old.details.segments[1].segment_path)
         self.assertEqual(reopened.details.segments[1].status, FileStatus.FAILED)
         self.assertEqual(to_tree_item(updated, previous).childs[1].absUri, url)
         with patch.object(Engine, 'DownloadTSFile', side_effect=self.enqueue) as download:
@@ -78,7 +78,7 @@ class TaskRunnerTests(unittest.TestCase):
         self.assertEqual(reloaded.details.segments[0].duration, 5.125)
         self.assertEqual(reloaded.details.segments[0].duration_status, 'detected')
         self.assertEqual(reloaded.details.segments[1], original.details.segments[1])
-        playlist = updated.save_dir / updated.details.playlist_path
+        playlist = updated.save_dir / updated.name / updated.details.playlist_path
         self.assertIn('#EXTINF:5.125,', playlist.read_text(encoding='utf-8'))
         self.service.finish_segment(task.id, 0, self.write(task, 0), True)
         updated = self.runner.update_segment_info(task.id, 0, url, '6.25')
@@ -99,7 +99,7 @@ class TaskRunnerTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 self.runner.update_segment_info(task.id, 0, url)
             self.assertEqual(self.repo.get(task.id).details.segments[0].source_url, original)
-        key = Engine.FileKey(task.save_dir / task.details.segments[0].relative_path)
+        key = Engine.FileKey(task.save_dir / task.name / task.details.segments[0].segment_path)
         for state in (Engine._pending, Engine._requesting):
             state.add(key)
             with self.assertRaises(ValueError):
@@ -114,8 +114,58 @@ class TaskRunnerTests(unittest.TestCase):
     def mp4(self, name='direct'):
         return self.service.create_mp4(self.root / name, 'https://example.com/video.mp4')
 
+    def test_rename_m3u8_moves_work_folder_and_preserves_relative_segment_paths(self):
+        task = self.m3u8(name='rename-hls', count=2)
+        old_work = task.save_dir / task.name
+        old_segments = [self.write(task, segment.sequence).read_bytes() for segment in task.details.segments]
+        self.complete_segments(task)
+        renamed = self.runner.rename(task.id, 'renamed')
+        new_work = task.save_dir / 'renamed'
+        self.assertEqual(renamed.name, 'renamed')
+        self.assertEqual(renamed.details.playlist_path, task.details.playlist_path)
+        self.assertEqual([s.segment_path for s in renamed.details.segments],
+                         [s.segment_path for s in task.details.segments])
+        self.assertFalse(old_work.exists())
+        self.assertTrue((new_work / task.details.playlist_path).is_file())
+        for segment, old_bytes in zip(renamed.details.segments, old_segments):
+            new_path = new_work / segment.segment_path
+            self.assertEqual(new_path.read_bytes(), old_bytes)
+        self.assertEqual((task.save_dir / 'renamed.mp4').name, 'renamed.mp4')
+
+    def test_rename_mp4_moves_output_and_partial_and_persists_name(self):
+        task = self.mp4()
+        target = task.save_dir / task.outputs[0].output_path
+        partial = task.save_dir / task.details.temporary_path
+        target.write_bytes(b'finished')
+        partial.write_bytes(b'partial')
+        renamed = self.runner.rename(task.id, 'renamed')
+        self.assertEqual(renamed.name, 'renamed')
+        self.assertEqual(renamed.outputs[0].output_path, 'renamed.mp4')
+        self.assertEqual(renamed.details.temporary_path, 'renamed.mp4.part')
+        self.assertEqual((task.save_dir / 'renamed.mp4').read_bytes(), b'finished')
+        self.assertEqual((task.save_dir / 'renamed.mp4.part').read_bytes(), b'partial')
+        self.assertFalse(target.exists())
+        self.assertFalse(partial.exists())
+        self.assertEqual(self.repo.get(task.id), renamed)
+
+    def test_rename_avoids_other_task_names_and_rejects_active_records(self):
+        task = self.service.create_m3u8(self.root, 'https://example.com/index.m3u8',
+                                        '#EXTM3U\n#EXTINF:4,\na.ts\n', filename='first')
+        self.service.create_m3u8(self.root, 'https://example.com/index.m3u8',
+                                 '#EXTM3U\n#EXTINF:4,\nb.ts\n', filename='taken')
+        renamed = self.runner.rename(task.id, 'taken')
+        self.assertEqual(renamed.name, 'taken (1)')
+        self.repo.mutate(task.id, lambda record: setattr(record, 'status', TaskStatus.DOWNLOADING))
+        with self.assertRaisesRegex(ValueError, '正在下载'):
+            self.runner.rename(task.id, 'blocked')
+        self.assertEqual(self.repo.get(task.id).name, 'taken (1)')
+        self.repo.mutate(task.id, lambda record: setattr(record, 'status', TaskStatus.PAUSED))
+        self.repo.mutate(task.id, lambda record: setattr(record.details, 'detecting', True))
+        with self.assertRaisesRegex(ValueError, '正在下载'):
+            self.runner.rename(task.id, 'blocked')
+
     def write(self, task, sequence):
-        path = task.save_dir / task.details.segments[sequence].relative_path
+        path = task.save_dir / task.name / task.details.segments[sequence].segment_path
         path.parent.mkdir(exist_ok=True, parents=True)
         path.write_bytes(b'media')
         return path
@@ -139,7 +189,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_engine_selection_and_retry_only_missing_failed_segments(self):
         direct, hls = self.mp4(), self.m3u8()
         self.write(hls, 0)
-        self.service.finish_segment(hls.id, 1, str(hls.save_dir / hls.details.segments[1].relative_path), False, 'HTTP 500')
+        self.service.finish_segment(hls.id, 1, str(hls.save_dir / hls.name / hls.details.segments[1].segment_path), False, 'HTTP 500')
         with patch.object(self.runner.mp4, 'start', return_value=True) as mp4, \
              patch.object(Engine, 'DownloadTSFile', side_effect=self.enqueue) as segment:
             self.assertTrue(self.runner.start(direct.id))
@@ -160,10 +210,10 @@ class TaskRunnerTests(unittest.TestCase):
         task, other = self.m3u8(), self.m3u8('other')
         self.complete_segments(task)
         self.complete_segments(other)
-        (task.save_dir / task.details.segments[1].relative_path).unlink()
-        changed = task.save_dir / task.details.segments[2].relative_path
+        (task.save_dir / task.name / task.details.segments[1].segment_path).unlink()
+        changed = task.save_dir / task.name / task.details.segments[2].segment_path
         changed.write_bytes(b'bad')
-        (other.save_dir / other.details.segments[0].relative_path).unlink()
+        (other.save_dir / other.name / other.details.segments[0].segment_path).unlink()
         self.service.load_tasks()
         self.assertEqual(self.repo.get(task.id).progress.completed_segments, 3)
         with patch.object(Engine, 'DownloadTSFile', side_effect=self.enqueue) as download:
@@ -183,7 +233,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_merge_missing_file_persists_correction_before_rejecting(self):
         task = self.m3u8()
         self.complete_segments(task)
-        (task.save_dir / task.details.segments[1].relative_path).unlink()
+        (task.save_dir / task.name / task.details.segments[1].segment_path).unlink()
         with patch.object(FFmpegConverter, 'ConvertTSFile') as convert:
             with self.assertRaisesRegex(ValueError, '分片尚未全部下载'):
                 self.runner.merge(task.id)
@@ -205,7 +255,7 @@ class TaskRunnerTests(unittest.TestCase):
             self.runner.activate(task.id)
         self.assertEqual([call.args[3][1] for call in download.call_args_list], [0])
         self.assertEqual(Engine.Snapshot()['pending'], {
-            Engine.FileKey(task.save_dir / task.details.segments[index].relative_path) for index in (0, 1)})
+            Engine.FileKey(task.save_dir / task.name / task.details.segments[index].segment_path) for index in (0, 1)})
 
     def test_mp4_missing_output_is_repaired_only_when_starting(self):
         task = self.mp4()
@@ -234,7 +284,7 @@ class TaskRunnerTests(unittest.TestCase):
             self.runner.activate(task.id)
             download.assert_not_called()
         snapshot = Engine.Snapshot()
-        self.assertEqual(snapshot['paused_files'], {Engine.FileKey(other.save_dir / other.details.segments[0].relative_path)})
+        self.assertEqual(snapshot['paused_files'], {Engine.FileKey(other.save_dir / other.name / other.details.segments[0].segment_path)})
         self.assertEqual(len(snapshot['pending']), 2)
         self.runner.activate(task.id)
         self.assertEqual(Engine.Snapshot()['pending'], Engine.Snapshot()['paused_files'])
@@ -249,12 +299,12 @@ class TaskRunnerTests(unittest.TestCase):
                     if retry:
                         segment = task.details.segments[1]
                         self.service.finish_segment(task.id, 1,
-                            str(task.save_dir / segment.relative_path), False, 'HTTP 500')
+                            str(task.save_dir / task.name / segment.segment_path), False, 'HTTP 500')
                     Engine.Pause()
                     self.assertEqual(self.runner.activate(task.id, retry=retry), 1 if retry else 3)
                     snapshot = Engine.Snapshot()
                     self.assertFalse(snapshot['paused'])
-                    selected = {Engine.FileKey(task.save_dir / s.relative_path)
+                    selected = {Engine.FileKey(task.save_dir / task.name / s.segment_path)
                                 for s in task.details.segments if not retry or s.sequence == 1}
                     self.assertTrue(selected <= snapshot['pending'])
                     self.assertFalse(selected & snapshot['paused_files'])
@@ -281,7 +331,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_delete_rechecks_busy_state_and_keeps_downloaded_files(self):
         task = self.m3u8()
         path = self.write(task, 0)
-        Engine._pending.add(Engine.FileKey(task.save_dir / task.details.segments[1].relative_path))
+        Engine._pending.add(Engine.FileKey(task.save_dir / task.name / task.details.segments[1].segment_path))
         with patch('src.core.task_files.send2trash') as trash:
             for delete_files in (False, True):
                 with self.assertRaisesRegex(ValueError, '不能删除'):
@@ -303,10 +353,10 @@ class TaskRunnerTests(unittest.TestCase):
         task, other = self.m3u8(), self.m3u8('other')
         segment = self.write(task, 0)
         other_file = self.write(other, 0)
-        playlist = task.save_dir / task.details.playlist_path
+        playlist = task.save_dir / task.name / task.details.playlist_path
         concat = playlist.parent / 'playlist.txt'
         partial = Path(str(segment) + '.part')
-        output = task.save_dir / task.outputs[0].relative_path
+        output = task.save_dir / task.outputs[0].output_path
         merge_partial = Path(str(output) + '.part.mp4')
         exported = self.root / 'exported.mp4'
         for path in (concat, partial, output, merge_partial, exported):
@@ -329,7 +379,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_delete_recycles_entire_work_directory_including_hidden_files(self):
         task = self.m3u8()
         self.write(task, 0)
-        directory = (task.save_dir / task.details.playlist_path).parent
+        directory = (task.save_dir / task.name / task.details.playlist_path).parent
         unknown = directory / 'notes.txt'
         unknown.write_text('keep', encoding='utf-8')
         hidden = directory / '.DS_Store'
@@ -346,7 +396,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_delete_mp4_recycles_output_and_partial_and_allows_missing_files(self):
         for name, create_files in (('direct', True), ('missing', False)):
             task = self.mp4(name)
-            target = task.save_dir / task.details.target_path
+            target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
             partial = task.save_dir / task.details.temporary_path
             if create_files:
                 target.write_bytes(b'media')
@@ -362,7 +412,7 @@ class TaskRunnerTests(unittest.TestCase):
 
     def test_delete_partial_recycle_failure_keeps_record_and_can_retry(self):
         task = self.mp4()
-        target = task.save_dir / task.details.target_path
+        target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         target.write_bytes(b'media')
 
         def fail(paths):
@@ -379,7 +429,7 @@ class TaskRunnerTests(unittest.TestCase):
 
     def test_delete_rejects_directory_replacing_expected_file_before_recycling(self):
         task = self.m3u8()
-        segment = task.save_dir / task.details.segments[0].relative_path
+        segment = task.save_dir / task.name / task.details.segments[0].segment_path
         segment.mkdir(parents=True)
         (segment / 'keep.txt').write_bytes(b'keep')
         with patch('src.core.task_files.send2trash') as trash:
@@ -392,7 +442,7 @@ class TaskRunnerTests(unittest.TestCase):
         task, other = self.mp4(), self.mp4('other')
         def share(record):
             record.save_dir = task.save_dir
-            record.details.target_path = task.details.target_path
+            record.outputs[0].output_path = task.outputs[0].output_path
         self.repo.mutate(other.id, share)
         with patch('src.core.task_files.send2trash') as trash:
             with self.assertRaisesRegex(ValueError, '其他任务'):
@@ -406,7 +456,7 @@ class TaskRunnerTests(unittest.TestCase):
         outside.mkdir()
         original = outside / '000000.ts'
         original.write_bytes(b'keep')
-        directory = (task.save_dir / task.details.segments[0].relative_path).parent
+        directory = (task.save_dir / task.name / task.details.segments[0].segment_path).parent
         try:
             directory.symlink_to(outside, target_is_directory=True)
         except OSError:
@@ -421,10 +471,10 @@ class TaskRunnerTests(unittest.TestCase):
     def test_delete_work_files_keeps_mp4_and_task_record(self):
         task = self.m3u8(count=2)
         self.complete_segments(task)
-        output = task.save_dir / task.outputs[0].relative_path
+        output = task.save_dir / task.outputs[0].output_path
         output.write_bytes(b'video')
         self.service.finish_merge(task.id, output, True)
-        ((task.save_dir / task.details.playlist_path).parent / '.DS_Store').write_bytes(b'metadata')
+        ((task.save_dir / task.name / task.details.playlist_path).parent / '.DS_Store').write_bytes(b'metadata')
         with patch('src.core.task_files.send2trash', side_effect=self.recycle):
             self.runner.delete(task.id, scope='work')
         saved = self.repo.get(task.id)
@@ -434,11 +484,11 @@ class TaskRunnerTests(unittest.TestCase):
         self.assertEqual(saved.progress.completed_segments, 0)
         self.assertTrue(all(s.status == FileStatus.MISSING for s in saved.details.segments))
         self.assertEqual(output.read_bytes(), b'video')
-        self.assertFalse((task.save_dir / task.details.playlist_path).parent.exists())
+        self.assertFalse((task.save_dir / task.name / task.details.playlist_path).parent.exists())
 
     def test_delete_work_directory_rejects_another_tasks_nested_files(self):
         task, other = self.m3u8(), self.mp4('other')
-        directory = (task.save_dir / task.details.playlist_path).parent
+        directory = (task.save_dir / task.name / task.details.playlist_path).parent
         def relocate(record):
             record.save_dir = directory / 'nested'
         self.repo.mutate(other.id, relocate)
@@ -465,7 +515,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_delete_mp4_keeps_segments_and_allows_merge_again(self):
         task = self.m3u8(count=2)
         self.complete_segments(task)
-        output = task.save_dir / task.outputs[0].relative_path
+        output = task.save_dir / task.outputs[0].output_path
         output.write_bytes(b'video')
         self.service.finish_merge(task.id, output, True)
         with patch('src.core.task_files.send2trash', side_effect=self.recycle):
@@ -475,7 +525,7 @@ class TaskRunnerTests(unittest.TestCase):
         self.assertFalse(saved.details.work_dir_missing)
         self.assertEqual(saved.outputs[0].status, FileStatus.MISSING)
         self.assertEqual(saved.progress.completed_segments, 2)
-        self.assertTrue(all((task.save_dir / s.relative_path).exists() for s in saved.details.segments))
+        self.assertTrue(all((task.save_dir / task.name / s.segment_path).exists() for s in saved.details.segments))
         self.assertFalse(output.exists())
         with patch.object(FFmpegConverter, 'ConvertTSFile') as convert:
             self.runner.merge(task.id)
@@ -483,7 +533,7 @@ class TaskRunnerTests(unittest.TestCase):
 
     def test_delete_direct_mp4_resets_saved_progress_for_redownload(self):
         task = self.mp4()
-        output = task.save_dir / task.details.target_path
+        output = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         output.write_bytes(b'video')
         def complete(record):
             record.status = TaskStatus.COMPLETED
@@ -509,7 +559,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_file_delete_failure_reconciles_partial_changes_and_keeps_record(self):
         task = self.m3u8(count=1)
         self.complete_segments(task)
-        output = task.save_dir / task.outputs[0].relative_path
+        output = task.save_dir / task.outputs[0].output_path
         output.write_bytes(b'video')
         self.service.finish_merge(task.id, output, True)
         def fail(paths):
@@ -655,7 +705,7 @@ class TaskRunnerTests(unittest.TestCase):
     def test_merge_success_saves_result_in_background_without_gui(self):
         task = self.m3u8(count=1)
         self.complete_segments(task)
-        output = task.save_dir / task.outputs[0].relative_path
+        output = task.save_dir / task.outputs[0].output_path
         threads = []
         original = self.service.finish_merge
 
@@ -699,7 +749,7 @@ class TaskRunnerTests(unittest.TestCase):
             self.runner.merge(task.id)
         self.runner.shutdown()
         self.assertEqual(self.repo.get(task.id).status, TaskStatus.INTERRUPTED)
-        output = task.save_dir / task.outputs[0].relative_path
+        output = task.save_dir / task.outputs[0].output_path
         output.write_bytes(b'finished-after-close')
         callback = convert.call_args.args[2]
         callback(True, str(output), task.id)

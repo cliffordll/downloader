@@ -32,18 +32,19 @@ class TaskRepositoryTests(unittest.TestCase):
             name=name, source_type=SourceType.M3U8,
             source_url='https://example.com/index.m3u8?token=a%2Bb', save_dir=self.root / name,
             details=M3U8Details(playlist_path='index.m3u8', segments=[
-                TaskSegment(sequence=i, relative_path=f'{i}.ts', source_url='https://example.com/same.ts')
+                TaskSegment(sequence=i, segment_path=f'{i}.ts', source_url='https://example.com/same.ts')
                 for i in range(3)]), progress=TaskProgress(total_segments=3),
-            outputs=[TaskOutput(relative_path='成品.mp4', kind='merged')])
+            outputs=[TaskOutput(output_path='成品.mp4', kind='merged')])
 
     def test_all_sources_survive_reopen_with_independent_directories(self):
         tasks = [self.task(),
                  M3U8Task(name='TS', save_dir=self.root / 'ts', source_type=SourceType.TS_PATTERN,
                           details=M3U8Details(ts_pattern='https://example.com/{index}.ts')),
                  MP4Task(name='MP4', save_dir=self.root / 'mp4', source_url='https://example.com/a.mp4',
-                         details=MP4Details(target_path='a.mp4', temporary_path='a.part', supports_ranges=True)),
+                         details=MP4Details(temporary_path='a.part', supports_ranges=True),
+                         outputs=[TaskOutput(output_path='a.mp4', kind='download')]),
                  RTMPTask(name='RTMP', save_dir=self.root / 'live', source_url='rtmp://example.com/live',
-                          details=RTMPDetails(target_path='live.mkv'))]
+                          details=RTMPDetails(), outputs=[TaskOutput(output_path='live.mkv', kind='recording')])]
         for task in tasks:
             self.repo.create(task)
         reopened = TaskRepository(self.path)
@@ -60,7 +61,7 @@ class TaskRepositoryTests(unittest.TestCase):
         changed.status = TaskStatus.PAUSED
         changed.progress = TaskProgress(total_segments=2, completed_segments=1)
         changed.details.segments.pop()
-        changed.outputs = [TaskOutput(relative_path='new.mp4', kind='merged')]
+        changed.outputs = [TaskOutput(output_path='new.mp4', kind='merged')]
         saved = self.repo.update(changed)
         self.assertGreater(saved.updated_at, original.updated_at)
         self.assertEqual(changed.updated_at, original.updated_at)

@@ -1,6 +1,6 @@
 """管理任务创建、持久化状态和恢复，不依赖窗口或列表模型。"""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import math
 import os
 import tempfile
@@ -11,6 +11,8 @@ from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.media.m3u8.aes128 import parse_iv, sequence_iv
 from src.core.path_manager import PathManager
+from src.core.task_paths import output_for, output_path, playlist_path, segment_path, work_dir
+from src.core.task_rules import can_rename
 from src.storage.task_repository import TaskRepository
 from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus, SegmentStatus
 
@@ -22,23 +24,158 @@ class TaskService:
         self.repository = repository
         self._recovered = False
 
+    @staticmethod
+    def _renamed_output_path(relative_path, old_name, new_name):
+        path = PurePosixPath(relative_path)
+        stem, suffix = path.stem, path.suffix
+        tail = stem[len(old_name):] if stem.casefold().startswith(old_name.casefold()) else ''
+        renamed = f'{new_name}{tail}{suffix}'
+        if path.parts and path.parts[0].casefold() == old_name.casefold():
+            if len(path.parts) == 1:
+                return renamed
+            return PurePosixPath(new_name, *path.parts[1:-1], renamed).as_posix()
+        return path.with_name(renamed).as_posix()
+
+    def rename_task(self, task_id, requested_name):
+        """Rename a task's physical folder and outputs, rolling files back if persistence fails."""
+        requested_name = PathManager.ValidateFileName(requested_name)
+        requested_base = Path(requested_name).stem
+        task = self.repository.get(task_id)
+        if task is None:
+            raise ValueError('任务不存在，请刷新后重试。')
+        if not can_rename(task):
+            raise ValueError('任务正在下载、检测或合并，暂时不能重命名。')
+        if requested_base.casefold() == task.name.casefold():
+            return task
+
+        records = self.repository.list_tasks()
+        old_work = work_dir(task) if isinstance(task, M3U8Task) else None
+        reserved = set()
+        other_work_dirs = []
+        other_save_dirs = []
+        for other in records:
+            if other.id == task.id:
+                continue
+            other_save_dirs.append(PathManager.GetPathKey(other.save_dir))
+            reserved.update(PathManager.GetPathKey(output_path(other, output)) for output in other.outputs)
+            if isinstance(other, MP4Task):
+                reserved.add(PathManager.GetPathKey(other.save_dir / other.details.temporary_path))
+                for output in other.outputs:
+                    if output.kind == 'merged':
+                        reserved.add(PathManager.GetPathKey(Path(str(output_path(other, output)) + '.part.mp4')))
+            elif isinstance(other, M3U8Task):
+                other_work_dirs.append(PathManager.GetPathKey(work_dir(other)))
+                reserved.add(other_work_dirs[-1])
+                for output in other.outputs:
+                    if output.kind == 'merged':
+                        reserved.add(PathManager.GetPathKey(Path(str(output_path(other, output)) + '.part.mp4')))
+
+        def plan_name(base):
+            updated = task.model_copy(deep=True)
+            updated.name = base
+            for output in updated.outputs:
+                output.output_path = self._renamed_output_path(output.output_path, task.name, base)
+            if isinstance(updated, MP4Task):
+                download = output_for(updated, 'download')
+                if download is None:
+                    raise ValueError('MP4 任务缺少下载产物记录。')
+                updated.details.temporary_path = download.output_path + '.part'
+            new_work = work_dir(updated) if isinstance(updated, M3U8Task) else None
+            new_paths = [output_path(updated, output) for output in updated.outputs]
+            for output in updated.outputs:
+                if output.kind == 'merged':
+                    new_paths.append(Path(str(output_path(updated, output)) + '.part.mp4'))
+            if isinstance(updated, MP4Task):
+                new_paths.append(updated.save_dir / updated.details.temporary_path)
+            if new_work is not None:
+                new_paths.append(new_work)
+            keys = [PathManager.GetPathKey(path) for path in new_paths]
+            if len(keys) != len(set(keys)):
+                raise ValueError('任务输出路径重名，无法安全重命名。')
+            if any(key in reserved for key in keys):
+                return None
+            separator = os.sep
+            if new_work is not None:
+                work_key = PathManager.GetPathKey(new_work)
+                if (any(key == work_key or key.startswith(work_key + separator) for key in reserved)
+                        or any(key == work_key or key.startswith(work_key + separator)
+                               or work_key.startswith(key + separator) for key in other_work_dirs)
+                        or any(key == work_key or key.startswith(work_key + separator)
+                               for key in other_save_dirs)):
+                    return None
+            if any(any(key == directory or key.startswith(directory + separator)
+                       for directory in other_work_dirs) for key in keys):
+                return None
+            for path in new_paths:
+                if path.exists() or path.is_symlink():
+                    return None
+            return updated, new_work
+
+        updated, new_work = None, None
+        base = requested_base
+        index = 0
+        while updated is None:
+            candidate = base if index == 0 else f'{base} ({index})'
+            plan = plan_name(candidate)
+            if plan is not None:
+                updated, new_work = plan
+                break
+            index += 1
+
+        moves = []
+
+        def move(source, destination):
+            if not source.exists():
+                return
+            if source.is_symlink():
+                raise ValueError(f'检测到符号链接，不能安全重命名：{source}')
+            if destination.exists() or destination.is_symlink():
+                raise FileExistsError(f'目标已存在：{destination}')
+            source.rename(destination)
+            moves.append((destination, source))
+
+        try:
+            if old_work is not None and new_work is not None and old_work.exists():
+                move(old_work, new_work)
+            for old_output, new_output in zip(task.outputs, updated.outputs):
+                old_path, new_path = output_path(task, old_output), output_path(updated, new_output)
+                if old_work is not None and old_path.is_relative_to(old_work):
+                    continue  # Moving the work folder already moved this output.
+                move(old_path, new_path)
+                if old_output.kind == 'merged':
+                    move(Path(str(old_path) + '.part.mp4'), Path(str(new_path) + '.part.mp4'))
+            if isinstance(task, MP4Task):
+                move(task.save_dir / task.details.temporary_path,
+                     updated.save_dir / updated.details.temporary_path)
+            saved = self.repository.update(updated)
+            return saved
+        except Exception:
+            for destination, source in reversed(moves):
+                try:
+                    if destination.exists() and not source.exists():
+                        destination.rename(source)
+                except OSError:
+                    pass
+            raise
+
     def _create_named(self, save_dir, filename, source_url, build):
         """文件、同名工作目录及数据库记录共同参与重名检查。"""
         directory = Path(save_dir).expanduser()
         if not directory.is_absolute():
             raise ValueError('保存目录必须是绝对路径。')
         directory = directory.resolve()
-        name = PathManager.ValidateFileName(filename) if filename and filename.strip() else PathManager.GetFileNameFromURI(source_url)
+        filename = PathManager.ValidateFileName(filename) if filename and filename.strip() else PathManager.GetFileNameFromURI(source_url)
+        name = Path(filename).stem
         created_files, created_dirs = [], []
 
         def allocate(existing):
             reserved = set()
             for task in existing:
-                reserved.update(PathManager.GetPathKey(task.save_dir / output.relative_path) for output in task.outputs)
+                reserved.update(PathManager.GetPathKey(task.save_dir / output.output_path) for output in task.outputs)
                 if isinstance(task, MP4Task):
                     reserved.add(PathManager.GetPathKey(task.save_dir / task.details.temporary_path))
-                if isinstance(task, M3U8Task) and task.details.playlist_path:
-                    work = (task.save_dir / task.details.playlist_path).parent
+                if isinstance(task, M3U8Task):
+                    work = work_dir(task)
                     if PathManager.GetPathKey(directory) == PathManager.GetPathKey(work) or PathManager.GetPathKey(directory).startswith(PathManager.GetPathKey(work) + os.sep):
                         raise ValueError('保存目录不能位于已有任务的分片工作目录内。')
                     reserved.add(PathManager.GetPathKey(work))
@@ -46,7 +183,7 @@ class TaskService:
             occupied = reserved | {PathManager.GetPathKey(path) for path in directory.iterdir()}
             index = 0
             while True:
-                stem = name[:-4] + (f' ({index})' if index else '')
+                stem = name + (f' ({index})' if index else '')
                 target = stem + '.mp4'
                 candidates = [directory / value for value in
                               (target, stem, target + '.part', target + '.part.mp4')]
@@ -56,10 +193,10 @@ class TaskService:
                 task = build(directory, stem, target)
                 try:
                     if isinstance(task, M3U8Task):
-                        work = directory / stem
+                        work = directory / task.name
                         work.mkdir(exist_ok=False)
                         created_dirs.append(work)
-                        playlist = directory / task.details.playlist_path
+                        playlist = playlist_path(task)
                         created_files.append(playlist)
                         playlist.write_text(self.local_playlist(task), encoding='utf-8')
                     else:
@@ -85,10 +222,10 @@ class TaskService:
     def create_mp4(self, save_dir, source_url, *, filename=None, request_headers=None):
         """直链保存在所选目录；正式名称和 .part 名称在创建时确定。"""
         def build(directory, stem, target):
-            return MP4Task(name=target, save_dir=directory, source_url=source_url.strip(),
-                           details=MP4Details(target_path=target, temporary_path=target + '.part',
+            return MP4Task(name=stem, save_dir=directory, source_url=source_url.strip(),
+                           details=MP4Details(temporary_path=target + '.part',
                                               request_headers=request_headers or {}),
-                           outputs=[TaskOutput(relative_path=target, kind='download')])
+                           outputs=[TaskOutput(output_path=target, kind='download')])
         return self._create_named(save_dir, filename, source_url, build)
 
     def create_m3u8(self, save_dir, source_url, content, base_path='', *, filename=None,
@@ -126,7 +263,7 @@ class TaskService:
                     key_sequence = sequence
                     key_number += 1
                     segments.append(TaskSegment(
-                        sequence=sequence, entry_type='key', relative_path=f'keys/key-{key_number:04d}.key',
+                        sequence=sequence, entry_type='key', segment_path=f'keys/key-{key_number:04d}.key',
                         source_url=key_uri, encryption={'method': method, 'key_format': key_format,
                                                        'key_format_versions': getattr(key, 'keyformatversions', None)}))
                     sequence += 1
@@ -140,20 +277,18 @@ class TaskService:
                 key_sequence = None
                 if parsed.key and parsed.key.method == 'NONE':
                     encryption = {'method': 'NONE'}
-            segments.append(TaskSegment(sequence=sequence, relative_path=f'segments/{index:06d}.ts',
+            segments.append(TaskSegment(sequence=sequence, segment_path=f'segments/{index:06d}.ts',
                                         source_url=resolved.absUri, encryption=encryption,
                                         duration=parsed.duration))
             sequence += 1
         def build(directory, stem, target):
-            children = [segment.model_copy(update={'relative_path': f'{stem}/{segment.relative_path}'})
-                        for segment in segments]
-            return M3U8Task(name=target, save_dir=directory, source_type=source_type,
+            return M3U8Task(name=stem, save_dir=directory, source_type=source_type,
                            source_url=source_url or None,
-                           details=M3U8Details(playlist_path=f'{stem}/download.m3u8', ts_pattern=ts_pattern,
+                           details=M3U8Details(playlist_path='download.m3u8', ts_pattern=ts_pattern,
                                                detect_duration=detect_duration,
-                                               request_headers=request_headers or {}, segments=children),
-                           progress=TaskProgress(total_segments=sum(item.entry_type == 'segment' for item in children)),
-                           outputs=[TaskOutput(relative_path=target, kind='merged')])
+                                               request_headers=request_headers or {}, segments=segments),
+                           progress=TaskProgress(total_segments=sum(item.entry_type == 'segment' for item in segments)),
+                           outputs=[TaskOutput(output_path=target, kind='merged')])
         return self._create_named(save_dir, filename, source_url, build)
 
     @staticmethod
@@ -163,8 +298,7 @@ class TaskService:
         lines = ['#EXTM3U', '#EXT-X-VERSION:3', f'#EXT-X-TARGETDURATION:{max(1, math.ceil(maximum))}',
                  '#EXT-X-MEDIA-SEQUENCE:0', '#EXT-X-PLAYLIST-TYPE:VOD']
         for segment in sorted(segments, key=lambda segment: segment.sequence):
-            relative = os.path.relpath(task.save_dir / segment.relative_path,
-                                       (task.save_dir / task.details.playlist_path).parent)
+            relative = os.path.relpath(segment_path(task, segment), playlist_path(task).parent)
             lines.extend([f'#EXTINF:{segment.duration or 0},', Path(relative).as_posix()])
         return '\n'.join(lines + ['#EXT-X-ENDLIST', ''])
 
@@ -185,22 +319,27 @@ class TaskService:
                     entry.status in (SegmentStatus.WAITING_KEY, SegmentStatus.DOWNLOADING,
                                      SegmentStatus.DECRYPTING)
                     for entry in task.details.segments)
+            def needs_detection_recovery(task):
+                return isinstance(task, M3U8Task) and task.details.detecting
             def interrupt(task):
                 if task.status in active:
                     task.status, task.last_error = TaskStatus.INTERRUPTED, '上次任务未正常结束，请手动继续。'
                 if isinstance(task, M3U8Task):
+                    task.details.detecting = False
                     for entry in task.details.segments:
                         if entry.status in (SegmentStatus.WAITING_KEY, SegmentStatus.DOWNLOADING,
                                             SegmentStatus.DECRYPTING):
                             entry.status, entry.last_error = SegmentStatus.PENDING, None
                 if isinstance(task, M3U8Task) and 'work_dir_missing' not in task.details.model_fields_set:
-                    task.details.work_dir_missing = bool(task.details.playlist_path and not (
-                        task.save_dir / task.details.playlist_path).parent.is_dir())
+                    task.details.work_dir_missing = not work_dir(task).is_dir()
                 elif isinstance(task, MP4Task) and 'file_missing' not in task.details.model_fields_set:
-                    task.details.file_missing = not any((task.save_dir / path).is_file() for path in (
-                        task.details.target_path, task.details.temporary_path))
+                    download = output_for(task, 'download')
+                    task.details.file_missing = not any(path.is_file() for path in (
+                        output_path(task, download) if download else None,
+                        task.save_dir / task.details.temporary_path) if path is not None)
             records = [self.repository.mutate(task.id, interrupt)
-                       if task.status in active or needs_file_state(task) or needs_pipeline_recovery(task) else task
+                       if task.status in active or needs_file_state(task) or needs_pipeline_recovery(task)
+                       or needs_detection_recovery(task) else task
                        for task in records]
             self._recovered = True
         return [task for task in records if task is not None]
@@ -250,7 +389,8 @@ class TaskService:
     def _reconcile(cls, task):
         """文件操作前核对已登记路径；不遍历目录，不在启动或刷新时调用。"""
         if not isinstance(task, M3U8Task):
-            target_size = cls._file_size(task.save_dir / task.details.target_path)
+            download = output_for(task, 'download')
+            target_size = cls._file_size(output_path(task, download)) if download else None
             if isinstance(task, MP4Task):
                 verified = task.details.verified_bytes
                 if verified is not None and target_size == verified:
@@ -280,15 +420,14 @@ class TaskService:
             return
         previous = task.status
         active = previous in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING, TaskStatus.MERGING)
-        if task.details.playlist_path:
-            directory = (task.save_dir / task.details.playlist_path).parent
-            if directory.is_dir():
-                task.details.work_dir_missing = False
-            elif not active:
-                task.details.work_dir_missing = True
+        directory = work_dir(task)
+        if directory.is_dir():
+            task.details.work_dir_missing = False
+        elif not active:
+            task.details.work_dir_missing = True
         missing = False
         for entry in task.details.segments:
-            path = task.save_dir / entry.relative_path
+            path = segment_path(task, entry)
             size = cls._file_size(path)
             if entry.entry_type == 'key':
                 if size == 16:
@@ -304,7 +443,7 @@ class TaskService:
                 entry.duration_status, entry.duration_error = 'pending', None
                 missing = True
         for output in task.outputs:
-            path = task.save_dir / output.relative_path
+            path = task.save_dir / output.output_path
             size = cls._file_size(path)
             if size and (output.size_bytes is None or output.size_bytes == size):
                 # 正式文件只在转换成功后发布，临时文件不能作为完成依据。
@@ -383,14 +522,20 @@ class TaskService:
             task.status = status
         return self.repository.mutate(task_id, change)
 
+    def set_duration_detection(self, task_id, running):
+        def change(task):
+            self._require_m3u8(task)
+            task.details.detecting = bool(running)
+        return self.repository.mutate(task_id, change)
+
     def finish_segment(self, task_id, sequence, filename, success, error=None, *, runtime_status=None):
         """回调身份是任务 UUID + 分片序号，并校验文件路径，绝不按旧行号定位。"""
         def change(task):
             self._require_m3u8(task)
             segment = next((segment for segment in task.details.media_segments if segment.sequence == sequence), None)
-            if segment is None or (task.save_dir / segment.relative_path).resolve() != Path(filename).resolve():
+            if segment is None or segment_path(task, segment).resolve() != Path(filename).resolve():
                 raise ValueError('分片回调身份或保存路径不匹配。')
-            path = task.save_dir / segment.relative_path
+            path = segment_path(task, segment)
             if success and path.is_file():
                 segment.status, segment.size_bytes, segment.last_error = SegmentStatus.COMPLETED, path.stat().st_size, None
             else:
@@ -449,7 +594,7 @@ class TaskService:
         def change(task):
             self._require_m3u8(task)
             output = next((output for output in task.outputs if output.kind == 'merged'
-                           and (task.save_dir / output.relative_path).resolve() == Path(filename).resolve()), None)
+                           and (task.save_dir / output.output_path).resolve() == Path(filename).resolve()), None)
             if output is None:
                 raise ValueError('合并回调的输出文件与任务不匹配。')
             if success and Path(filename).is_file():
@@ -470,7 +615,7 @@ class TaskService:
                 return None
             if segment.status != SegmentStatus.COMPLETED or (not force and segment.duration_status != 'pending'):
                 continue
-            path = task.save_dir / segment.relative_path
+            path = segment_path(task, segment)
             duration, error = None, None
             try:
                 before = path.stat()
@@ -483,7 +628,7 @@ class TaskService:
                 self._require_m3u8(current)
                 target = next((s for s in current.details.media_segments if s.sequence == segment.sequence), None)
                 if (target is None or target.status != SegmentStatus.COMPLETED
-                        or target.duration_status != segment.duration_status or target.relative_path != segment.relative_path):
+                        or target.duration_status != segment.duration_status or target.segment_path != segment.segment_path):
                     return
                 # 检测期间文件可能被删除或重新下载，不把旧结果写到新文件上。
                 if duration is not None:
@@ -517,7 +662,7 @@ class TaskService:
         task = self.repository.get(task_id)
         if not isinstance(task, M3U8Task):
             raise ValueError('任务不存在或不是分片任务。')
-        path = task.save_dir / (task.details.playlist_path or 'download.m3u8')
+        path = playlist_path(task)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
         try:

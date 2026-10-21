@@ -109,7 +109,7 @@ class TaskProgress(TaskModel):
 class TaskSegment(TaskModel):
     sequence: NonNegativeInt
     entry_type: Literal['segment', 'key'] = 'segment'
-    relative_path: RelativeFile
+    segment_path: RelativeFile
     source_url: HttpUrl = None
     encryption: dict[str, object] | None = None
     duration: NonNegativeFloat | None = None
@@ -122,7 +122,7 @@ class TaskSegment(TaskModel):
 
 class TaskOutput(TaskModel):
     id: UUID = Field(default_factory=uuid4, frozen=True)
-    relative_path: RelativeFile
+    output_path: RelativeFile
     kind: Literal['download', 'merged', 'recording']
     status: FileStatus = FileStatus.PENDING
     size_bytes: NonNegativeInt | None = None
@@ -132,6 +132,7 @@ class M3U8Details(TaskModel):
     request_headers: dict[str, str] = Field(default_factory=dict)
     detect_duration: bool = False
     playlist_path: RelativeFile | None = None
+    detecting: bool = False
     work_dir_missing: bool = False  # 文件核对后持久化；保留分片来源，但隐藏已删除的工作目录。
     ts_pattern: str | None = None
     segments: list[TaskSegment] = Field(default_factory=list)
@@ -162,7 +163,6 @@ class M3U8Details(TaskModel):
 
 class MP4Details(TaskModel):
     request_headers: dict[str, str] = Field(default_factory=dict)
-    target_path: RelativeFile
     temporary_path: RelativeFile
     file_missing: bool = False  # 正式文件与临时文件均已清理，文件树只显示任务。
     etag: str | None = None
@@ -176,13 +176,10 @@ class MP4Details(TaskModel):
             if name != 'Referer' or any(c in value for c in '\r\n\x00'):
                 raise ValueError('MP4 请求头仅支持 Referer，且不能包含换行')
             value.encode('latin-1')
-        if self.target_path.casefold() == self.temporary_path.casefold():
-            raise ValueError('目标文件和临时文件不能相同')
         return self
 
 
 class RTMPDetails(TaskModel):
-    target_path: RelativeFile
     recording_started_at: AwareDatetime | None = None
 
 

@@ -145,7 +145,7 @@ class MP4DownloadTests(unittest.TestCase):
     def assert_complete(self, task):
         record = self.repository.get(task.id)
         self.assertEqual(record.status, TaskStatus.COMPLETED, record.last_error)
-        self.assertEqual((task.save_dir / task.details.target_path).read_bytes(), DATA)
+        self.assertEqual((task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')).read_bytes(), DATA)
         self.assertFalse((task.save_dir / task.details.temporary_path).exists())
         self.assertEqual(record.progress.downloaded_bytes, len(DATA))
         self.assertEqual(record.percent, 100)
@@ -200,7 +200,7 @@ class MP4DownloadTests(unittest.TestCase):
         record = self.repository.get(task.id)
         self.assertEqual(record.status, TaskStatus.PAUSED)
         self.assertEqual(record.progress.downloaded_bytes, path.stat().st_size)
-        self.assertFalse((task.save_dir / task.details.target_path).exists())
+        self.assertFalse((task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')).exists())
         self.engine.shutdown()
         self.engine.shutdown(wait_for_jobs=True)
         self.engine = MP4Downloader(TaskRepository(self.repository.path))
@@ -214,7 +214,7 @@ class MP4DownloadTests(unittest.TestCase):
         record = self.run_task(task)
         self.assertEqual(record.status, TaskStatus.FAILED)
         self.assertGreater(record.progress.downloaded_bytes, 0)
-        self.assertFalse((task.save_dir / task.details.target_path).exists())
+        self.assertFalse((task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')).exists())
         self.server.mode = 'normal'
         self.run_task(task)
         self.assert_complete(task)
@@ -223,7 +223,7 @@ class MP4DownloadTests(unittest.TestCase):
         self.server.mode = 'html'
         task = self.create()
         self.assertEqual(self.run_task(task).status, TaskStatus.FAILED)
-        self.assertFalse((task.save_dir / task.details.target_path).exists())
+        self.assertFalse((task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')).exists())
 
     def test_retry_is_bounded(self):
         self.server.mode = 'fail'
@@ -241,7 +241,7 @@ class MP4DownloadTests(unittest.TestCase):
         self.engine.shutdown()
         self.wait(lambda: not self.engine.busy(task.id))
         self.assertEqual(self.repository.get(task.id).status, TaskStatus.INTERRUPTED)
-        target = task.save_dir / task.details.target_path
+        target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         target.write_bytes(DATA)
         self.repository.mutate(task.id, lambda r: setattr(r.details, 'verified_bytes', len(DATA)))
         service = TaskService(self.repository)
@@ -252,7 +252,7 @@ class MP4DownloadTests(unittest.TestCase):
 
     def test_existing_target_is_preserved(self):
         task = self.create()
-        target = task.save_dir / task.details.target_path
+        target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         target.write_bytes(b'existing')
         self.assertEqual(self.run_task(task).status, TaskStatus.FAILED)
         self.assertEqual(target.read_bytes(), b'existing')
