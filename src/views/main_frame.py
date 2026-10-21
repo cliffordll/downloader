@@ -17,6 +17,8 @@ from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 from src.views.dialogs.information_dialog import InformationDialog
 from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
 from src.views.dialogs.browser_connect_dialog import BrowserConnectDialog
+from src.views.dialogs.player_select_dialog import PlayerSelectDialog
+from src.views.dialogs.task_rename_dialog import TaskRenameDialog
 from src.core.task_runner import TaskRunner
 from src.core.browser_bridge import BrowserBridge
 from src.core.browser_pairing import pairing_path
@@ -757,17 +759,15 @@ class MainFrame(wx.Frame):
                                                       for _, candidate in players):
             players.insert(0, (f'已选播放器（{Path(current).name}）', current))
         labels = [f'{name} — {Path(candidate).name}' for name, candidate in players]
-        labels.append('浏览选择其他播放器…')
-        dialog = wx.SingleChoiceDialog(self, '选择用于打开视频的播放器', '选择播放器', labels)
-        dialog.SetSize(self.FromDIP((480, 320)))
-        dialog.SetMinSize(self.FromDIP((480, 320)))
+        dialog = PlayerSelectDialog(self, list(zip(labels, [candidate for _, candidate in players])), current)
         try:
             if dialog.ShowModal() != wx.ID_OK:
                 return
             selection = dialog.GetSelection()
+            browse_requested = dialog.browse_requested
         finally:
             dialog.Destroy()
-        if selection == len(players):
+        if browse_requested:
             if sys.platform == 'darwin':
                 browser = wx.DirDialog(self, '选择播放器应用（例如 VLC.app 或 IINA.app）',
                                        defaultPath=str(Path(current).parent) if current else '/Applications')
@@ -968,6 +968,8 @@ class MainFrame(wx.Frame):
 
         info = self.model.TaskInfo(index)
         parent_item = self.model.ObjectToItem(self.model._BuildKey((index,)))
+        add('重命名…', lambda: self._RenameTask(task.task_id, task.parent.displayName),
+            task.rename_allowed)
         add('打开文件夹', lambda: self._OpenLocalPath(directory))
         if task.outputs and (task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
             for output in task.outputs:
@@ -1006,6 +1008,22 @@ class MainFrame(wx.Frame):
             self.mcTree.PopupMenu(menu)
         finally:
             menu.Destroy()
+
+    def _RenameTask(self, task_id, current_name):
+        dialog = TaskRenameDialog(self, current_name)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            name = dialog.GetName().strip()
+            if not name:
+                return
+            self.runner.rename(task_id, name)
+            self.OnRefresh(None)
+            self._SyncDownloads()
+        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
+            wx.MessageBox(str(error), '重命名失败', parent=self)
+        finally:
+            dialog.Destroy()
 
 
     ###################################
@@ -1396,6 +1414,7 @@ class MainFrame(wx.Frame):
             '任务行固定显示“开始/暂停/继续、重试、删除、更多”，不可用的操作会置灰。'
             '“更多”或右键菜单提供转 MP4、播放视频、打开文件夹和另存为。'
             '已完成的视频可另存到其他目录，原文件和任务记录保持不变。删除默认同时将任务文件移入回收站，可取消勾选以保留文件。'
+            '播放视频会调用已选择的外部播放器；VLC 多窗口设置见“5. 播放器”。'
             '行内“暂停/继续”只控制当前任务，已发出的请求允许完成。进度按已完成分片数计算。\n'
             '双击任务行展开或折叠分片列表；下载请点击操作列中的开始、继续或下载。'
             '全部下载完成后，可从“更多”中选择“转 MP4”。\n\n'
@@ -1411,7 +1430,10 @@ class MainFrame(wx.Frame):
             '合并需要 FFmpeg，路径留空时先查找 scripts 目录，再查找系统 PATH。\n\n'
             '4. 界面显示\n'
             '通过“查看”菜单显示或隐藏状态栏；Windows 还可以显示或隐藏工具栏。'
-            '下载窗口内的“？”可查看对应输入框的说明。'
+            '下载窗口内的“？”可查看对应输入框的说明。\n\n'
+            '5. 播放器\n'
+            '视频通过“更多 → 播放视频”或右键菜单交给已选择的外部播放器打开。\n'
+            '若 VLC 每次打开视频都复用同一窗口，请在 VLC“工具 → 偏好设置 → 界面 → 播放列表和实例”中取消“仅允许一个实例”和“从文件管理器启动时，仅允许一个实例”，保存后重试。'
         ))
 
     def OnAbout(self, event):

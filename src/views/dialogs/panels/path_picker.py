@@ -7,7 +7,7 @@ def form_label_size(window, width):
     """Windows 保留原宽度；Mac 同列标签统一预留完整文字与留白。"""
     if wx.Platform != '__WXMAC__':
         return window.FromDIP((width, -1))
-    labels = ('列表网址：', '视频网址：', '路径改写：', '保存目录：', '文件名称：', '播放时长:', '段名规则:') if width == 60 else ('开始:', '结束:')
+    labels = ('列表网址：', '视频网址：', '路径改写：', '保存目录：', '输出文件：', '播放时长:', '段名规则:') if width == 60 else ('开始:', '结束:')
     measured = max(window.GetTextExtent(label).width for label in labels)
     return wx.Size(max(window.FromDIP(width), measured + window.FromDIP(4)), -1)
 
@@ -42,7 +42,7 @@ class DownloadPath(wx.Panel):
         sizer.Add(directory_row, flag=wx.EXPAND|wx.BOTTOM, border=self.FromDIP(5))
 
         filename_row = wx.BoxSizer(wx.HORIZONTAL)
-        label = wx.StaticText(self, label='文件名称：', size=form_label_size(self, 60))
+        label = wx.StaticText(self, label='输出文件：', size=form_label_size(self, 60))
         self.tcDown = wx.TextCtrl(self)
         self.tcDown.SetHint('自动从网址生成，可修改，例如 video.mp4')
         self.tcDown.SetToolTip('重名时自动追加序号；M3U8、TS 的分片保存在同名子目录。')
