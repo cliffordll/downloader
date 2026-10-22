@@ -11,6 +11,7 @@ from threading import Thread
 import wx 
 import wx.dataview as dv
 from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD, load_tree
+from src.views.ui_metrics import OUTER_MARGIN_DIP
 
 from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 from src.views.dialogs.ts_dialog import DownloadDialogTS
@@ -209,6 +210,7 @@ class MainFrame(wx.Frame):
             self.toolBar = None
             return
         self.toolBar = self.CreateToolBar(style=wx.TB_DEFAULT_STYLE)
+        self.toolBar.SetMargins(self.FromDIP(OUTER_MARGIN_DIP), 0)
         # 由 BitmapBundle 按 DPI 选择图标；显式设置尺寸会干扰 wxMSW 的尺寸选择。
         # self.toolBar.SetToolBitmapSize(self.toolBar.FromDIP(wx.Size(24, 24)))
 
@@ -268,9 +270,14 @@ class MainFrame(wx.Frame):
         self.statusBar = self.CreateStatusBar()
         self.statusBar.SetFieldsCount(2)
         self.statusBar.SetStatusWidths([-1, -3])
-        self.statusBar.SetStatusText('就绪', 0)
+        self._SetPrimaryStatusText('就绪')
         self.statusBar.SetStatusText('双击任务展开/折叠；下载请使用“操作”列', 1)
         self.showStatusItem.Check(self.statusBar.IsShown())
+
+    def _SetPrimaryStatusText(self, text):
+        # wx.StatusBar has no per-field text inset; an en space provides the
+        # visual left padding while keeping every primary status message aligned.
+        self.statusBar.SetStatusText(f'\u2002{text}', 0)
 
     def _createMainPanel(self, initial_tree):
         """创建主面板和布局"""
@@ -288,7 +295,7 @@ class MainFrame(wx.Frame):
         self.statusFilter.SetSelection(0)
         self.filterCount = wx.StaticText(panel, label='')
         self.filterCount.SetMinSize(self.FromDIP(wx.Size(140, -1)))
-        uriSizer.Add(self.searchCtrl, proportion=1, flag=wx.EXPAND|wx.TOP|wx.BOTTOM|wx.RIGHT, border=self.FromDIP(5))
+        uriSizer.Add(self.searchCtrl, proportion=1, flag=wx.EXPAND|wx.RIGHT, border=self.FromDIP(5))
         uriSizer.Add(self.statusFilter, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(10))
         uriSizer.Add(self.filterCount, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(5))
         self.searchCtrl.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnSearch)
@@ -392,7 +399,11 @@ class MainFrame(wx.Frame):
         sizer.Add(self.emptyPanel, flag=wx.EXPAND | wx.TOP | wx.BOTTOM, border=self.FromDIP(12))
         sizer.Add(listSizer, proportion=10, flag=wx.EXPAND|wx.ALL, border=0)
         # 设置面板的sizer
-        panel.SetSizer(sizer)
+        contentSizer = wx.BoxSizer(wx.VERTICAL)
+        contentSizer.Add(sizer, proportion=1,
+                         flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+                         border=self.FromDIP(OUTER_MARGIN_DIP))
+        panel.SetSizer(contentSizer)
         if wx.Platform == '__WXMAC__':
             frameSizer = wx.BoxSizer(wx.VERTICAL)
             frameSizer.Add(panel, proportion=1, flag=wx.EXPAND)
@@ -902,7 +913,7 @@ class MainFrame(wx.Frame):
     def OnSelectPlayer(self, event):
         player = self._ChoosePlayer()
         if player:
-            self.statusBar.SetStatusText(f'已选择播放器：{Path(player).name}', 0)
+            self._SetPrimaryStatusText(f'已选择播放器：{Path(player).name}')
 
     def _SaveFileAs(self, source):
         source = Path(source)
@@ -981,7 +992,7 @@ class MainFrame(wx.Frame):
         if not hasattr(self, '_manualDurationChecks'):
             self._manualDurationChecks = set()
         self._manualDurationChecks.add(task_id)
-        self.statusBar.SetStatusText('正在检测已下载分片的播放时长…', 0)
+        self._SetPrimaryStatusText('正在检测已下载分片的播放时长…')
         self.OnTaskProgress(None)
 
     def _CheckAndContinue(self, task_id):
@@ -1293,7 +1304,7 @@ class MainFrame(wx.Frame):
         self._ClosePlaybackServers()
         self._SyncLockEncryptedTasksEnabled()
         self._ApplyTaskFilter(force=True)
-        self.statusBar.SetStatusText('加密任务已隐藏。', 0)
+        self._SetPrimaryStatusText('加密任务已隐藏。')
 
     def OnEncryptedTasksTool(self, event):
         if self._encrypted_tasks_unlocked:
@@ -1537,10 +1548,10 @@ class MainFrame(wx.Frame):
             try:
                 self.browser_bridge.start()
             except (OSError, RuntimeError) as error:
-                self.statusBar.SetStatusText(f'本机接收服务未开启：{error}，请检查端口是否可用', 0)
+                self._SetPrimaryStatusText(f'本机接收服务未开启：{error}，请检查端口是否可用')
         if self.browser_bridge.port_changed:
-            self.statusBar.SetStatusText(
-                f'浏览器插件端口已自动调整为 {self.browser_bridge.port}，请同步更新扩展。', 0)
+            self._SetPrimaryStatusText(
+                f'浏览器插件端口已自动调整为 {self.browser_bridge.port}，请同步更新扩展。')
         dialog = BrowserConnectDialog(self, self.browser_bridge.token, reset_token=self.browser_bridge.reset_token,
                                       port=self.browser_bridge.port,
                                       listening=self.browser_bridge.server is not None,
@@ -1557,10 +1568,10 @@ class MainFrame(wx.Frame):
         try:
             self.browser_bridge = BrowserBridge(http_service=self._local_http_service)
             if self.browser_bridge.port_changed:
-                self.statusBar.SetStatusText(
-                    f'浏览器插件端口已自动调整为 {self.browser_bridge.port}，请同步更新扩展。', 0)
+                self._SetPrimaryStatusText(
+                    f'浏览器插件端口已自动调整为 {self.browser_bridge.port}，请同步更新扩展。')
         except (OSError, ValueError) as error:
-            self.statusBar.SetStatusText(f'浏览器连接未恢复：{error}', 0)
+            self._SetPrimaryStatusText(f'浏览器连接未恢复：{error}')
 
     def _CheckBrowserInbox(self):
         if self.browser_bridge is None or self._capture_dialog_open:
@@ -1678,7 +1689,7 @@ class MainFrame(wx.Frame):
                 elif record.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.PAUSED):
                     self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
             except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-                self.statusBar.SetStatusText(f'读取下载进度失败：{error}', 0)
+                self._SetPrimaryStatusText(f'读取下载进度失败：{error}')
         if structure_changed:
             # 合并完成会新增 MP4 子节点，保留展开状态后重建树，不能只重绘单元格。
             self._RefreshWithState()
@@ -1732,8 +1743,8 @@ class MainFrame(wx.Frame):
         event.Enable(can_pause or can_resume)
         self._UpdatePauseTool()
         snapshot = M3U8Downloader.Snapshot()
-        self.statusBar.SetStatusText(('暂停中' if snapshot['requesting'] else '已暂停') if paused
-                                     else ('正在下载' if busy else '就绪'), 0)
+        self._SetPrimaryStatusText(('暂停中' if snapshot['requesting'] else '已暂停') if paused
+                                   else ('正在下载' if busy else '就绪'))
 
     def _UpdatePauseTool(self):
         """菜单和工具栏共用下载状态；状态未变时不重复设置位图，避免工具栏闪动。"""
@@ -2199,9 +2210,9 @@ class MainFrame(wx.Frame):
         playlist_saved = self._CreateM3U8File(task.parent.fileName)
         failures = sum(s.duration_status == 'failed' for s in record.details.media_segments)
         if failures:
-            self.statusBar.SetStatusText(f'{task.parent.displayName}：{failures} 个分片时长检测失败，保留原时长。', 0)
+            self._SetPrimaryStatusText(f'{task.parent.displayName}：{failures} 个分片时长检测失败，保留原时长。')
         elif manual and playlist_saved:
-            self.statusBar.SetStatusText('分片时长检测完成，本地播放列表已更新。', 0)
+            self._SetPrimaryStatusText('分片时长检测完成，本地播放列表已更新。')
         if manual:
             self._completion_notified.add(task_id)
         pending = M3U8Downloader.Snapshot()['pending']
