@@ -5,13 +5,13 @@ from src.views.dialogs.panels.path_picker import DownloadPath
 import sqlite3
 from src.core.task_service import TaskService
 from src.storage.task_repository import TaskDataError
-from src.views.components.icons import app_icons
+from src.views.dialogs.base_dialog import AppDialog
 
-class DownloadDialogMU(wx.Dialog):
+
+class DownloadDialogMU(AppDialog):
     def __init__(self, parent, work_path, task_service: TaskService, *, title='下载 M3U8', capture=None):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
-        self.SetIcons(app_icons())
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
         self.request_headers = {'Referer': capture['referer']} if capture and capture.get('referer') else {}
         self.SetTitle(title)
@@ -29,9 +29,9 @@ class DownloadDialogMU(wx.Dialog):
 
         # sizer.Add(uriSizer, flag=wx.ALIGN_CENTER|wx.TOP|wx.BOTTOM, border=5)
         panel_flag = wx.EXPAND
-        sizer.Add(self.downEdit, proportion=100, flag=panel_flag|wx.ALL, border=self.FromDIP(5))
+        sizer.Add(self.downEdit, proportion=100, flag=panel_flag|wx.ALL, border=self.dialog_spacing)
         # sizer.Add(btnSizer, proportion=1, flag=wx.ALIGN_CENTER|wx.TOP|wx.BOTTOM, border=5)
-        sizer.Add(self.downPath, proportion=0, flag=panel_flag|wx.ALL, border=self.FromDIP(5))
+        sizer.Add(self.downPath, proportion=0, flag=panel_flag|wx.ALL, border=self.dialog_spacing)
  
         self.SetSizer(sizer)
         # self.SetSize(width=728, height=450)

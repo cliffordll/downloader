@@ -1,5 +1,5 @@
 import wx
-from src.views.components.icons import app_icons
+from src.views.dialogs.base_dialog import AppDialog
 
 from src.core.sys_setting import SysSetting
 
@@ -91,10 +91,10 @@ class TabSetting(wx.Panel):
             self.status.SetLabel('设置已保存。')
 
 
-class SettingsDialog(wx.Dialog):
+class SettingsDialog(AppDialog):
     def __init__(self, parent):
-        super().__init__(parent, title='设置', style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
-        self.SetIcons(app_icons())
+        super().__init__(parent, title='设置', style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
+                         spacing=12)
         layout = wx.BoxSizer(wx.VERTICAL)
         self.form = TabSetting(self)
         layout.Add(self.form, 1, wx.EXPAND)

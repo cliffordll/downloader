@@ -1,15 +1,14 @@
 """紧凑说明窗口：标题栏、左对齐正文与可滚动的阅读区域。"""
 import wx
 
-from src.views.components.icons import app_icons
+from src.views.dialogs.base_dialog import AppDialog
 from src.views.components.playlist_editor import PlaylistEditor
 
 
-class InformationDialog(wx.Dialog):
+class InformationDialog(AppDialog):
     def __init__(self, parent, title, text, *, usage=False, line_numbers=False):
         super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
-        self.SetIcons(app_icons())
-        spacing = self.FromDIP(5)
+        spacing = self.dialog_spacing
         layout = wx.BoxSizer(wx.VERTICAL)
         if line_numbers:
             self.body = PlaylistEditor(self)

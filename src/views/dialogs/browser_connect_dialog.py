@@ -1,18 +1,17 @@
 """浏览器配对窗口，沿用现有弹窗的间距、图标和按钮布局。"""
 import wx
 
-from src.views.components.icons import app_icons
+from src.views.dialogs.base_dialog import AppDialog
 from src.views.dialogs.panels.path_picker import form_action_size
 
 
-class BrowserConnectDialog(wx.Dialog):
+class BrowserConnectDialog(AppDialog):
     def __init__(self, parent, token, *, reset_token, port=17839, apply_port=None, listening=True):
         super().__init__(parent, title='浏览器扩展配对',
-                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
-        self.SetIcons(app_icons())
+                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER, spacing=12)
         self.reset_token = reset_token
         self.apply_port = apply_port
-        border = self.FromDIP(12)
+        border = self.dialog_spacing
         layout = wx.BoxSizer(wx.VERTICAL)
         self.description = wx.StaticText(self, label=(
             '本机接收服务已开启，可接收浏览器扩展发送的视频地址。' if listening else

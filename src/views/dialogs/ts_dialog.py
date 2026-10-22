@@ -7,13 +7,13 @@ from src.core.task_service import TaskService
 from src.storage.task_repository import TaskDataError
 from src.schemas.task import SourceType
 from src.core.sys_setting import SysSetting
-from src.views.components.icons import app_icons
+from src.views.dialogs.base_dialog import AppDialog
 
-class DownloadDialogTS(wx.Dialog):
+
+class DownloadDialogTS(AppDialog):
     def __init__(self, parent, work_path, task_service: TaskService, *, title='下载 TS'):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
-        self.SetIcons(app_icons())
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
         self.SetTitle(title)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -25,7 +25,7 @@ class DownloadDialogTS(wx.Dialog):
         self.downEdit.tcURI.Bind(wx.EVT_TEXT, self.downPath.OnSourceChanged)
 
         # 两块之间只保留保存目录行的顶部边距，避免多层底部边距叠加。
-        border = self.FromDIP(5)
+        border = self.dialog_spacing
         sizer.Add(self.downEdit, proportion=1, flag=wx.EXPAND|wx.TOP|wx.LEFT|wx.RIGHT, border=border)
         sizer.Add(self.downPath, proportion=0, flag=wx.EXPAND|wx.ALL, border=border)
  

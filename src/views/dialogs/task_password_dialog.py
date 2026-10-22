@@ -2,7 +2,7 @@
 
 import wx
 
-from src.views.components.icons import app_icons
+from src.views.dialogs.base_dialog import AppDialog
 from src.views.dialogs.panels.password_entry import PasswordEntry
 
 
@@ -17,7 +17,7 @@ def add_password_dialog_control(parent, layout, label, control):
             border=parent.FromDIP(10))
     row.Add(control, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL)
     layout.Add(row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
-               border=parent.FromDIP(5))
+               border=parent.dialog_spacing)
 
 
 def add_password_dialog_actions(parent, layout):
@@ -28,23 +28,22 @@ def add_password_dialog_actions(parent, layout):
     size = parent.FromDIP(wx.Size(75, -1))
     ok.SetMinSize(size)
     cancel.SetMinSize(size)
-    row.Add(ok, flag=wx.RIGHT, border=parent.FromDIP(5))
+    row.Add(ok, flag=wx.RIGHT, border=parent.dialog_spacing)
     row.Add(cancel)
     layout.Add(row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
-               border=parent.FromDIP(5))
+               border=parent.dialog_spacing)
     ok.SetDefault()
     parent.SetEscapeId(wx.ID_CANCEL)
     return ok, cancel
 
 
-class TaskPasswordDialog(wx.Dialog):
+class TaskPasswordDialog(AppDialog):
     def __init__(self, parent, *, has_existing=False):
         title = '修改加密任务密码' if has_existing else '设置加密任务密码'
         super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE)
-        self.SetIcons(app_icons())
         layout = wx.BoxSizer(wx.VERTICAL)
         layout.Add(wx.StaticText(self, label='所有加密任务共用此密码。'),
-                   flag=wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, border=self.FromDIP(5))
+                   flag=wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, border=self.dialog_spacing)
 
         self.current_password = None
         if has_existing:
@@ -60,7 +59,7 @@ class TaskPasswordDialog(wx.Dialog):
         error_row = wx.BoxSizer(wx.HORIZONTAL)
         error_row.AddSpacer(self.FromDIP(70))
         error_row.Add(self.error, proportion=1)
-        layout.Add(error_row, flag=wx.EXPAND | wx.BOTTOM, border=self.FromDIP(5))
+        layout.Add(error_row, flag=wx.EXPAND | wx.BOTTOM, border=self.dialog_spacing)
         self.ok, _cancel = add_password_dialog_actions(self, layout)
 
         self.SetSizer(layout)
