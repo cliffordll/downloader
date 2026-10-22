@@ -22,9 +22,12 @@ from src.views.dialogs.player_select_dialog import PlayerSelectDialog
 from src.views.dialogs.task_rename_dialog import TaskRenameDialog
 from src.views.dialogs.task_unlock_dialog import TaskUnlockDialog
 from src.views.dialogs.task_password_dialog import TaskPasswordDialog
+from src.views.dialogs.service_status_dialog import ServiceStatusDialog
 from src.core.task_runner import TaskRunner
-from src.core.browser_bridge import BrowserBridge
-from src.core.browser_pairing import pairing_path
+from src.core.services.browser_bridge import BrowserBridge
+from src.core.services.playback_http import PlaybackHTTPServer
+from src.core.http_service import LocalHTTPService
+from src.core.services.browser_pairing import load_or_create_pairing, pairing_path
 from src.core.file_export import save_file_as
 
 
@@ -35,6 +38,7 @@ from src.core.task_service import TaskService
 from src.core.task_encryption import TaskEncryption
 from src.core.task_paths import output_for, output_path
 from src.media.mp4.encrypted_file import decrypt_file, encrypt_file, encrypt_partial_file, is_encrypted_mp4
+from src.media.mp4.encrypted_file import EncryptedMP4Reader, context_from_password
 from src.models.file_base import TreeData
 from src.core.path_manager import PathManager
 from src.storage.task_repository import TaskDataError, TaskConflictError
@@ -53,6 +57,16 @@ class MainFrame(wx.Frame):
         self._capture_dialog_open = False
         self._encrypted_tasks_unlocked = False
         self._encryption_context = None
+        self._playback_service = None
+        self._playback_sessions = set()
+        preferred_service_port = SysSetting.GetAll()['playback_port']
+        if not preferred_service_port and pairing_path().is_file():
+            try:
+                preferred_service_port = load_or_create_pairing(pairing_path())[1]
+            except (OSError, ValueError):
+                pass
+        self._local_http_service = LocalHTTPService(
+            port=preferred_service_port, on_port_assigned=self._RememberPlaybackPort)
         # 窗口、下载器和添加任务弹窗共享入口创建的服务，列表模型不持有业务服务。
         self.tasks = task_service
         self.SetSize(self.FromDIP((1024, 700)))
@@ -76,6 +90,7 @@ class MainFrame(wx.Frame):
         self._task_display = {}
         self._completion_notified = set()
         self.runner = TaskRunner(self.tasks)
+        self.runner.set_encryption_context_provider(lambda: self._encryption_context)
         # 显示前完成布局、列宽和状态缓存，避免先画初始列宽再跳到适配后的宽度。
         self.Layout()
         self.mcTree.GetParent().Layout()
@@ -112,6 +127,7 @@ class MainFrame(wx.Frame):
         addMUItem   = fileMenu.Append(wx.ID_ANY, "&下载 M3U8\tCtrl-M")
         addTSItem   = fileMenu.Append(wx.ID_ANY, "&下载 TS\tCtrl-T")
         addMP4Item = fileMenu.Append(wx.ID_ANY, '下载 MP4\tCtrl-P')
+        openEncryptedItem = fileMenu.Append(wx.ID_ANY, '播放加密 MP4…')
         fileMenu.AppendSeparator()
         settingItem  = fileMenu.Append(wx.ID_ANY, "设置\tCtrl-,")
         playerItem = fileMenu.Append(wx.ID_ANY, '选择播放器')
@@ -124,6 +140,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnAddMU, addMUItem)
         self.Bind(wx.EVT_MENU, self.OnAddTS, addTSItem)
         self.Bind(wx.EVT_MENU, self.OnAddMP4, addMP4Item)
+        self.Bind(wx.EVT_MENU, self.OnOpenEncryptedMP4, openEncryptedItem)
         self.Bind(wx.EVT_MENU, self.OnSetting, settingItem)
         self.Bind(wx.EVT_MENU, self.OnExit, exitItem)
 		
@@ -168,6 +185,9 @@ class MainFrame(wx.Frame):
             self.Bind(wx.EVT_MENU, self.OnToggleToolBar, self.showToolItem)
         self.showStatusItem = viewMenu.Append(wx.ID_ANY, "显示状态栏", kind=wx.ITEM_CHECK)
         self.Bind(wx.EVT_MENU, self.OnToggleStatusBar, self.showStatusItem)
+        viewMenu.AppendSeparator()
+        serviceStatusItem = viewMenu.Append(wx.ID_ANY, '本机服务状态…')
+        self.Bind(wx.EVT_MENU, self.OnShowLocalServiceStatus, serviceStatusItem)
 
         # 创建关于菜单
         aboutMenu = wx.Menu()
@@ -202,7 +222,7 @@ class MainFrame(wx.Frame):
         tsButton = add_tool(wx.ID_ANY, "下载 TS", "segment")
         mp4Button = add_tool(wx.ID_ANY, '下载 MP4', 'mp4')
         browserButton = add_tool(wx.ID_ANY, '浏览器扩展配对', 'browser')
-        self.toolBar.SetToolShortHelp(browserButton.GetId(), '开启本机接收服务并管理浏览器扩展配对码')
+        self.toolBar.SetToolShortHelp(browserButton.GetId(), '获取浏览器扩展配对码')
         self.toolBar.AddSeparator()
         expandButton = add_tool(wx.ID_ANY, "全部展开", "expand")
         collapseButton = add_tool(wx.ID_ANY, "全部折叠", "collapse")
@@ -668,6 +688,7 @@ class MainFrame(wx.Frame):
         if self.browser_bridge is not None:
             self.browser_bridge.close()
             self.browser_bridge = None
+        self._ClosePlaybackServers()
         self.ClearTaskToolTip()
         # Cocoa 的销毁通知晚于部分原生控件清理，必须在开始销毁前停表。
         for name in ('_progressTimer', '_searchTimer'):
@@ -771,11 +792,64 @@ class MainFrame(wx.Frame):
             wx.MessageBox(f'无法启动播放器：{error}', '提示', parent=self)
 
     def _OpenVideo(self, path):
+        target = Path(path)
+        if is_encrypted_mp4(target):
+            self._PlayEncryptedMP4(target)
+            return
         player = SysSetting.GetAll()['player_path']
         if player and Path(player).exists():
             self._OpenWithPlayer(path, player)
         else:
             self._OpenLocalPath(path)
+
+    def _PlayEncryptedMP4(self, path, player=None):
+        path = Path(path)
+        context = self._encryption_context
+        if context is not None:
+            try:
+                EncryptedMP4Reader(path, context['wrapping_key'])
+            except (OSError, ValueError):
+                context = None
+        if context is None:
+            dialog = TaskUnlockDialog(self, title='播放加密 MP4')
+            try:
+                if dialog.ShowModal() != wx.ID_OK:
+                    return
+                context = context_from_password(path, dialog.password.GetValue())
+                EncryptedMP4Reader(path, context['wrapping_key'])
+            except (OSError, ValueError) as error:
+                wx.MessageBox(str(error), '无法解密 MP4', wx.OK | wx.ICON_ERROR, parent=self)
+                return
+            finally:
+                dialog.Destroy()
+        player = player or SysSetting.GetAll()['player_path']
+        if not player or not Path(player).exists():
+            player = self._ChoosePlayer()
+        if not player:
+            return
+        try:
+            if self._playback_service is None:
+                self._playback_service = PlaybackHTTPServer(
+                    port=SysSetting.GetAll()['playback_port'],
+                    on_port_assigned=self._RememberPlaybackPort,
+                    http_service=self._local_http_service)
+            token, url = self._playback_service.create_session(path, context['wrapping_key'])
+            self._playback_sessions.add(token)
+            if sys.platform == 'darwin':
+                subprocess.Popen(['open', '-a', player, '--', url])
+            else:
+                subprocess.Popen([player, url])
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            if 'token' in locals() and self._playback_service is not None:
+                self._playback_service.close_session(token)
+                self._playback_sessions.discard(token)
+            wx.MessageBox(f'无法播放加密 MP4：{error}', '播放失败', parent=self)
+
+    def _ClosePlaybackServers(self):
+        self._playback_sessions.clear()
+        if self._playback_service is not None:
+            self._playback_service.close()
+            self._playback_service = None
 
     def _ChoosePlayer(self):
         current = SysSetting.GetAll()['player_path']
@@ -820,7 +894,10 @@ class MainFrame(wx.Frame):
     def _ChoosePlayerAndOpen(self, path):
         player = self._ChoosePlayer()
         if player:
-            self._OpenWithPlayer(path, player)
+            if is_encrypted_mp4(path):
+                self._PlayEncryptedMP4(path, player)
+            else:
+                self._OpenWithPlayer(path, player)
 
     def OnSelectPlayer(self, event):
         player = self._ChoosePlayer()
@@ -1213,6 +1290,7 @@ class MainFrame(wx.Frame):
             return
         self._encrypted_tasks_unlocked = False
         self._encryption_context = None
+        self._ClosePlaybackServers()
         self._SyncLockEncryptedTasksEnabled()
         self._ApplyTaskFilter(force=True)
         self.statusBar.SetStatusText('加密任务已隐藏。', 0)
@@ -1369,6 +1447,75 @@ class MainFrame(wx.Frame):
     def OnOpen(self, event):
         """打开当前默认下载目录；单个任务的原目录由行内“更多”菜单打开。"""
         self._OpenLocalPath(SysSetting.GetWorkPath())
+
+    def OnOpenEncryptedMP4(self, _event):
+        dialog = wx.FileDialog(self, '选择加密 MP4 文件',
+                               wildcard='加密 MP4 文件 (*.mp4.enc)|*.mp4.enc|所有文件 (*.*)|*.*',
+                               style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            path = Path(dialog.GetPath())
+        finally:
+            dialog.Destroy()
+        if not is_encrypted_mp4(path):
+            wx.MessageBox('所选文件不是 AVDownloader 加密 MP4。', '无法播放',
+                          wx.OK | wx.ICON_WARNING, parent=self)
+            return
+        self._PlayEncryptedMP4(path)
+
+    def _ConfiguredBrowserPort(self):
+        if self.browser_bridge is not None:
+            return self.browser_bridge.port
+        path = pairing_path()
+        if path.is_file():
+            return load_or_create_pairing(path)[1]
+        return 0
+
+    def _PlaybackServiceStatus(self):
+        if self._playback_service is not None:
+            return self._playback_service.get_status()
+        return {'running': False, 'port': None,
+                'configured_port': SysSetting.GetAll()['playback_port'], 'sessions': 0}
+
+    def _RememberPlaybackPort(self, port):
+        values = SysSetting.GetAll()
+        if values['playback_port'] == port:
+            return
+        values['playback_port'] = port
+        SysSetting.Save(values)
+
+    def OnShowLocalServiceStatus(self, _event):
+        service = self._local_http_service.get_status()
+        playback = self._PlaybackServiceStatus()
+        bridge_status = self.browser_bridge.get_status() if self.browser_bridge is not None else None
+        try:
+            saved_browser_port = self._ConfiguredBrowserPort()
+        except (OSError, ValueError):
+            saved_browser_port = 0
+        port = service['port'] or playback['configured_port'] or saved_browser_port
+        endpoint_port = str(port) if port else '<自动分配端口>'
+        sessions = playback['sessions']
+        plugin_running = bridge_status is not None and bridge_status['running']
+        listener = {'running': service['running'], 'port': service['port'] or port}
+        features = [
+            {'name': '加密视频播放',
+             'state': f'{sessions} 个活动播放会话' if sessions else '当前没有活动播放会话',
+             'endpoint': f'http://127.0.0.1:{endpoint_port}/play/{{令牌}}/{{文件名}}',
+             'details': ('全部播放会话闲置 30 分钟后回收；若浏览器插件接收也未启用，'
+                         '共用的 HTTP 服务随之停止。')},
+            {'name': '浏览器插件接收',
+             'state': (f"运行中 · {bridge_status['pending_captures']} 个待处理地址"
+                       if plugin_running else '未启用'),
+             'endpoint': f'http://127.0.0.1:{endpoint_port}/capture',
+             'details': '配对配置保存后随程序启动；播放功能和插件接收共用上方监听端口。'},
+        ]
+
+        dialog = ServiceStatusDialog(self, listener, features)
+        try:
+            dialog.ShowModal()
+        finally:
+            dialog.Destroy()
     
     def OnAddMU(self, event):
         workPath = SysSetting.GetWorkPath()
@@ -1382,7 +1529,7 @@ class MainFrame(wx.Frame):
     def OnBrowserConnect(self, event):
         if self.browser_bridge is None:
             try:
-                self.browser_bridge = BrowserBridge(start=False)
+                self.browser_bridge = BrowserBridge(start=False, http_service=self._local_http_service)
             except (OSError, ValueError) as error:
                 wx.MessageBox(f'无法读取浏览器配对配置：{error}', '连接失败', parent=self)
                 return
@@ -1390,10 +1537,14 @@ class MainFrame(wx.Frame):
             try:
                 self.browser_bridge.start()
             except (OSError, RuntimeError) as error:
-                self.statusBar.SetStatusText(f'本机接收服务未开启：{error}，请在配对窗口修改端口', 0)
+                self.statusBar.SetStatusText(f'本机接收服务未开启：{error}，请检查端口是否可用', 0)
+        if self.browser_bridge.port_changed:
+            self.statusBar.SetStatusText(
+                f'浏览器插件端口已自动调整为 {self.browser_bridge.port}，请同步更新扩展。', 0)
         dialog = BrowserConnectDialog(self, self.browser_bridge.token, reset_token=self.browser_bridge.reset_token,
-                                      port=self.browser_bridge.port, apply_port=self.browser_bridge.set_port,
-                                      listening=self.browser_bridge.server is not None)
+                                      port=self.browser_bridge.port,
+                                      listening=self.browser_bridge.server is not None,
+                                      port_reassigned=self.browser_bridge.port_changed)
         try:
             dialog.ShowModal()
         finally:
@@ -1404,7 +1555,10 @@ class MainFrame(wx.Frame):
         if self.browser_bridge is not None or not pairing_path().is_file():
             return
         try:
-            self.browser_bridge = BrowserBridge()
+            self.browser_bridge = BrowserBridge(http_service=self._local_http_service)
+            if self.browser_bridge.port_changed:
+                self.statusBar.SetStatusText(
+                    f'浏览器插件端口已自动调整为 {self.browser_bridge.port}，请同步更新扩展。', 0)
         except (OSError, ValueError) as error:
             self.statusBar.SetStatusText(f'浏览器连接未恢复：{error}', 0)
 
@@ -1780,7 +1934,7 @@ class MainFrame(wx.Frame):
                 output = task.outputs[objs[1]]
                 if Path(output.fileName).suffix.lower() == '.mp4' and (
                         task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
-                    self._OpenLocalPath(output.fileName)
+                    self._OpenVideo(output.fileName)
 
     # 窗口把点击位置转换为稳定的任务 UUID；执行规则由 TaskRunner 重新核对。
     def _SetTaskExpanded(self, item, expanded=None):

@@ -55,6 +55,7 @@ class SettingsTests(unittest.TestCase):
                         {'max_workers': 0}, {'max_workers': 1.5}, {'max_workers': True},
                         {'request_interval': float('nan')}, {'request_interval': -1},
                         {'max_retries': 11}, {'connect_timeout': 0}, {'read_timeout': 601},
+                        {'playback_port': -1}, {'playback_port': 65536}, {'playback_port': True},
                         {'download_dir': 'relative'}, {'ffmpeg_path': str(self.root / 'missing.exe')},
                         {'auto_merge': 'true'}, {'default_expand_tasks': 'true'}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):

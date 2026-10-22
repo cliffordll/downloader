@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from queue import Queue, Full, Empty
 from threading import Thread, RLock
 from urllib.parse import urlsplit
-from src.core.browser_pairing import pairing_path, load_or_create_pairing, save_token, validate_port
+from src.core.services.browser_pairing import pairing_path, load_or_create_pairing, save_token, validate_port
 
 
 def validate_capture(data):
@@ -28,14 +28,18 @@ def validate_capture(data):
 
 
 class BrowserBridge:
-    def __init__(self, port=None, *, token_path=None, start=True):
+    def __init__(self, port=None, *, token_path=None, start=True, http_service=None):
         self.token_path = token_path if token_path is not None else pairing_path()
         self._pairing_lock = RLock()
         self.inbox = Queue(maxsize=10)
+        has_saved_config = self.token_path.is_file()
         self.token, saved_port = load_or_create_pairing(self.token_path)
-        self.port = saved_port if port is None else port
+        self._saved_port = saved_port
+        self.port = (saved_port if has_saved_config else 0) if port is None else port
+        self.port_changed = False
         self.server = None
         self.thread = None
+        self.http_service = http_service
         bridge = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -89,18 +93,42 @@ class BrowserBridge:
             self.start()
 
     def start(self):
+        if self.http_service is not None:
+            if self.server is not None:
+                return
+            self.http_service.register_browser(self)
+            try:
+                self.port = self.http_service.acquire('browser')
+                save_token(self.token_path, self.token, port=self.port)
+            except Exception:
+                self.http_service.release('browser')
+                self.http_service.unregister_browser(self)
+                raise
+            self.server, self.thread = self.http_service.server, self.http_service.thread
+            self.port_changed = self.port != self._saved_port
+            return
         if self.server is not None:
             return
-        server = ThreadingHTTPServer(('127.0.0.1', self.port), self._handler)
+        preferred_port = self.port
+        try:
+            server = ThreadingHTTPServer(('127.0.0.1', preferred_port), self._handler)
+        except OSError:
+            server = ThreadingHTTPServer(('127.0.0.1', 0), self._handler)
+        assigned_port = server.server_port
+        self.port_changed = assigned_port != preferred_port
         server.daemon_threads = True
         thread = Thread(target=server.serve_forever, name='browser-bridge', daemon=True)
         try:
+            if assigned_port != preferred_port:
+                save_token(self.token_path, self.token, port=assigned_port)
             thread.start()
-        except RuntimeError:
+        except (OSError, ValueError, RuntimeError):
+            if thread.ident is not None:
+                server.shutdown()
             server.server_close()
             raise
         self.server, self.thread = server, thread
-        self.port = server.server_port
+        self.port = assigned_port
 
     def set_port(self, port):
         """先绑定并保存新端口，成功后切换；失败时保持原监听与配置。"""
@@ -149,6 +177,12 @@ class BrowserBridge:
             return token
 
     def close(self):
+        if self.http_service is not None:
+            if self.server is not None:
+                self.http_service.release('browser')
+            self.http_service.unregister_browser(self)
+            self.server = self.thread = None
+            return
         if self.server is None:
             return
         self.server.shutdown()
@@ -156,3 +190,12 @@ class BrowserBridge:
         self.thread.join(timeout=2)
         self.server = None
         self.thread = None
+
+    def get_status(self):
+        """Return listener details without exposing the extension pairing token."""
+        return {
+            'running': self.server is not None,
+            'address': '127.0.0.1',
+            'port': self.server.server_port if self.server is not None else self.port,
+            'pending_captures': self.inbox.qsize(),
+        }

@@ -72,49 +72,38 @@ class BrowserCaptureUITests(unittest.TestCase):
 
     def test_startup_restores_connection_only_after_first_enable(self):
         config = self.root / 'browser-pairing.json'
-        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock())
+        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock(),
+                                _local_http_service=Mock())
         with patch('src.views.main_frame.pairing_path', return_value=config), \
              patch('src.views.main_frame.BrowserBridge') as bridge:
             MainFrame.RestoreBrowserConnection(frame)
             bridge.assert_not_called()
             config.write_text('{}')
             MainFrame.RestoreBrowserConnection(frame)
-            bridge.assert_called_once_with()
+            bridge.assert_called_once_with(http_service=frame._local_http_service)
             self.assertIs(frame.browser_bridge, bridge.return_value)
             MainFrame.RestoreBrowserConnection(frame)
-            bridge.assert_called_once_with()
+            bridge.assert_called_once_with(http_service=frame._local_http_service)
 
     def test_connection_restore_failure_keeps_app_usable(self):
         config = self.root / 'browser-pairing.json'
         config.write_text('{}')
-        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock())
+        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock(),
+                                _local_http_service=Mock())
         with patch('src.views.main_frame.pairing_path', return_value=config), \
              patch('src.views.main_frame.BrowserBridge', side_effect=OSError('port occupied')):
             MainFrame.RestoreBrowserConnection(frame)
         self.assertIsNone(frame.browser_bridge)
         frame.statusBar.SetStatusText.assert_called_once()
 
-    def test_port_form_validates_input_and_updates_status_only_after_success(self):
-        apply = Mock(return_value=17840)
+    def test_port_is_read_only_and_explains_automatic_allocation(self):
         dialog = BrowserConnectDialog(None, 'A' * 43, reset_token=Mock(), port=17839,
-                                      apply_port=apply, listening=False)
+                                      listening=False)
         try:
-            initial = dialog.description.GetLabel()
-            dialog.port.ChangeValue('0')
-            with patch('wx.MessageBox') as message:
-                dialog.OnApplyPort(None)
-                apply.assert_not_called()
-                message.assert_called_once()
-            dialog.port.ChangeValue('17840')
-            apply.side_effect = OSError('port occupied')
-            with patch('wx.MessageBox'):
-                dialog.OnApplyPort(None)
-            self.assertEqual(dialog.description.GetLabel(), initial)
-            apply.side_effect = None
-            dialog.OnApplyPort(None)
-            apply.assert_called_with(17840)
-            self.assertIn('17840', dialog.note.GetLabel())
-            self.assertIn('已开启', dialog.description.GetLabel())
+            self.assertFalse(dialog.port.IsEditable())
+            self.assertEqual(dialog.port.GetValue(), '17839')
+            self.assertIn('自动分配', dialog.note.GetLabel())
+            self.assertIn('端口', dialog.note.GetLabel())
             self.assertEqual(dialog.code.GetValue(), 'A' * 43)
             self.assertGreaterEqual(dialog.code.GetClientSize().width,
                                     dialog.code.GetTextExtent(dialog.code.GetValue()).width + 16)

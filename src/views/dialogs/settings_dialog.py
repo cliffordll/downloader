@@ -10,6 +10,7 @@ class TabSetting(wx.Panel):
     def __init__(self, parent):
         super().__init__(parent)
         layout = wx.BoxSizer(wx.VERTICAL)
+        margin = self.FromDIP(AppDialog.OUTER_MARGIN_DIP)
         grid = wx.FlexGridSizer(cols=2, vgap=self.FromDIP(10), hgap=self.FromDIP(12))
         grid.AddGrowableCol(1, 1)
         self.controls = {}
@@ -37,14 +38,14 @@ class TabSetting(wx.Panel):
         self.controls['ffmpeg_path'].GetPickerCtrl().SetLabel('选择文件')
         self.controls['ffmpeg_path'].SetToolTip('留空时优先使用项目 scripts 目录中的 FFmpeg，找不到再查找系统 PATH。')
         row('auto_merge', '下载完成后', wx.CheckBox(self, label='自动合并为 MP4'))
-        layout.Add(grid, 0, wx.EXPAND | wx.TOP | wx.LEFT | wx.RIGHT, self.FromDIP(12))
+        layout.Add(grid, 0, wx.EXPAND | wx.TOP | wx.LEFT | wx.RIGHT, margin)
         note = wx.StaticText(self, label=(
             '设置对后续请求生效，正在进行的请求正常完成。\n'
             '默认下载目录仅影响新任务，可在下载或合并期间修改。\n'
             '遇到 429 自动等待；403 不自动重试。自动合并默认关闭。'))
-        layout.Add(note, 0, wx.ALL, self.FromDIP(12))
+        layout.Add(note, 0, wx.ALL, margin)
         self.status = wx.StaticText(self)
-        layout.Add(self.status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, self.FromDIP(12))
+        layout.Add(self.status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, margin)
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         reset = wx.Button(self, label='恢复默认值')
         reset.Bind(wx.EVT_BUTTON, lambda event: self.LoadValues(SysSetting.Defaults()))
@@ -58,7 +59,7 @@ class TabSetting(wx.Panel):
             cancel.Bind(wx.EVT_BUTTON, lambda event: parent.EndModal(wx.ID_CANCEL))
             buttons.Add(cancel, 0, wx.LEFT, self.FromDIP(8))
             save.SetDefault()
-        layout.Add(buttons, 0, wx.EXPAND | wx.ALL, self.FromDIP(12))
+        layout.Add(buttons, 0, wx.EXPAND | wx.ALL, margin)
         self.SetSizer(layout)
         self.LoadValues(SysSetting.GetAll())
         self.status.SetLabel(SysSetting._load_error)
@@ -93,8 +94,7 @@ class TabSetting(wx.Panel):
 
 class SettingsDialog(AppDialog):
     def __init__(self, parent):
-        super().__init__(parent, title='设置', style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
-                         spacing=12)
+        super().__init__(parent, title='设置', style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         layout = wx.BoxSizer(wx.VERTICAL)
         self.form = TabSetting(self)
         layout.Add(self.form, 1, wx.EXPAND)

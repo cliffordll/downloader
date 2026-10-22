@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest.mock import patch
 import socket
 import json
-from src.core.browser_pairing import load_or_create_pairing
+from src.core.services.browser_pairing import load_or_create_pairing
 
-from src.core.browser_bridge import BrowserBridge, validate_capture
+from src.core.services.browser_bridge import BrowserBridge, validate_capture
 
 
 class BrowserBridgeTests(unittest.TestCase):
@@ -32,6 +32,14 @@ class BrowserBridgeTests(unittest.TestCase):
         response = self.post()
         self.assertEqual(response.status_code, 202)
         self.assertEqual(self.bridge.inbox.get_nowait(), self.capture)
+
+    def test_status_reports_listener_without_exposing_pairing_token(self):
+        status = self.bridge.get_status()
+        self.assertTrue(status['running'])
+        self.assertEqual(status['address'], '127.0.0.1')
+        self.assertEqual(status['port'], self.bridge.port)
+        self.assertEqual(status['pending_captures'], 0)
+        self.assertNotIn('token', status)
 
     def test_bad_token_origin_and_host_are_rejected(self):
         for override in ({'X-AVDownloader-Token': 'wrong'}, {'X-AVDownloader-Token': '\xe9'},
@@ -84,7 +92,7 @@ class BrowserBridgeTests(unittest.TestCase):
     def test_failed_reset_preserves_old_code_and_configuration(self):
         original = self.token_path.read_bytes()
         token = self.bridge.token
-        with patch('src.core.browser_pairing.os.replace', side_effect=OSError('write failed')):
+        with patch('src.core.services.browser_pairing.os.replace', side_effect=OSError('write failed')):
             with self.assertRaises(OSError):
                 self.bridge.reset_token()
         self.assertEqual(self.token_path.read_bytes(), original)
@@ -123,6 +131,21 @@ class BrowserBridgeTests(unittest.TestCase):
         finally:
             restarted.close()
 
+    def test_start_reassigns_unavailable_saved_port_and_remembers_it(self):
+        previous_port = self.bridge.port
+        token = self.bridge.token
+        self.bridge.close()
+        with socket.socket() as occupied:
+            occupied.bind(('127.0.0.1', previous_port))
+            occupied.listen()
+            restarted = BrowserBridge(token_path=self.token_path)
+            try:
+                self.assertTrue(restarted.port_changed)
+                self.assertNotEqual(restarted.port, previous_port)
+                self.assertEqual(load_or_create_pairing(self.token_path), (token, restarted.port))
+            finally:
+                restarted.close()
+
     def test_occupied_port_keeps_original_service_and_config(self):
         original = self.token_path.read_bytes()
         with socket.socket() as occupied:
@@ -135,7 +158,7 @@ class BrowserBridgeTests(unittest.TestCase):
 
     def test_failed_port_save_rolls_back_to_original_service(self):
         original = self.token_path.read_bytes()
-        with patch('src.core.browser_pairing.os.replace', side_effect=OSError('write failed')):
+        with patch('src.core.services.browser_pairing.os.replace', side_effect=OSError('write failed')):
             with self.assertRaises(OSError):
                 self.bridge.set_port(self.free_port())
         self.assertEqual(self.token_path.read_bytes(), original)
