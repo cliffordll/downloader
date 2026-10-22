@@ -1,6 +1,7 @@
 from src.models.tree_model import load_tree
 """混合类型任务的列表投影及事件分发；不请求网络、不修改用户任务库。"""
 from pathlib import Path
+import ctypes
 import os
 import subprocess
 import sys
@@ -117,6 +118,39 @@ class TaskTypesUITests(unittest.TestCase):
         finally:
             for dialog in dialogs:
                 dialog.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_password_eye_toggles_visibility_without_changing_value(self):
+        dialog = TaskPasswordDialog(None, has_existing=True)
+        try:
+            field = dialog.password
+            dialog.Show()
+            self.app.Yield()
+            field.Layout()
+            self.assertGreaterEqual(
+                field.eye.GetPosition().x,
+                field.text.GetPosition().x + field.text.GetSize().width)
+            self.assertLessEqual(field.eye.GetPosition().x + field.eye.GetSize().width,
+                                 field.GetClientSize().width)
+            self.assertTrue(field.eye.IsShownOnScreen())
+            field.text.ChangeValue('test-password')
+            self.assertTrue(field.text.GetWindowStyleFlag() & wx.TE_PASSWORD)
+            field.eye.GetEventHandler().ProcessEvent(wx.MouseEvent(wx.wxEVT_LEFT_UP))
+            self.assertTrue(field.visible)
+            self.assertFalse(field.text.GetWindowStyleFlag() & wx.TE_PASSWORD)
+            self.assertEqual(field.GetValue(), 'test-password')
+            if sys.platform == 'win32':
+                self.assertEqual(ctypes.windll.user32.SendMessageW(
+                    field.text.GetHandle(), 0x00D2, 0, 0), 0)
+            field.eye.GetEventHandler().ProcessEvent(wx.MouseEvent(wx.wxEVT_LEFT_UP))
+            self.assertFalse(field.visible)
+            self.assertTrue(field.text.GetWindowStyleFlag() & wx.TE_PASSWORD)
+            self.assertEqual(field.GetValue(), 'test-password')
+            if sys.platform == 'win32':
+                self.assertEqual(ctypes.windll.user32.SendMessageW(
+                    field.text.GetHandle(), 0x00D2, 0, 0), 0x25CF)
+        finally:
+            dialog.Destroy()
             self.app.ProcessPendingEvents()
 
     def test_deleted_work_directory_stays_hidden_after_reopen_and_can_be_recreated(self):

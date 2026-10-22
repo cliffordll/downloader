@@ -3,6 +3,7 @@
 import wx
 
 from src.views.components.icons import app_icons
+from src.views.dialogs.panels.password_entry import PasswordEntry
 from src.views.dialogs.task_password_dialog import (
     PASSWORD_DIALOG_WIDTH, add_password_dialog_actions, add_password_dialog_control,
 )
@@ -13,7 +14,7 @@ class TaskUnlockDialog(wx.Dialog):
         super().__init__(parent, title='解锁加密任务', style=wx.DEFAULT_DIALOG_STYLE)
         self.SetIcons(app_icons())
         layout = wx.BoxSizer(wx.VERTICAL)
-        self.password = wx.TextCtrl(self, style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
+        self.password = PasswordEntry(self)
         add_password_dialog_control(self, layout, '输入密码：', self.password)
         self.unlock, self.cancel = add_password_dialog_actions(self, layout)
         self.SetSizer(layout)

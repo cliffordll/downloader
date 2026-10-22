@@ -3,10 +3,10 @@
 import wx
 
 from src.views.components.icons import app_icons
+from src.views.dialogs.panels.password_entry import PasswordEntry
 
 
 PASSWORD_DIALOG_WIDTH = 440
-
 
 def add_password_dialog_control(parent, layout, label, control):
     row = wx.BoxSizer(wx.HORIZONTAL)
@@ -48,11 +48,11 @@ class TaskPasswordDialog(wx.Dialog):
 
         self.current_password = None
         if has_existing:
-            self.current_password = wx.TextCtrl(self, style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
+            self.current_password = PasswordEntry(self)
             add_password_dialog_control(self, layout, '当前密码：', self.current_password)
-        self.password = wx.TextCtrl(self, style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
+        self.password = PasswordEntry(self)
         add_password_dialog_control(self, layout, '新密码：', self.password)
-        self.confirm_password = wx.TextCtrl(self, style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
+        self.confirm_password = PasswordEntry(self)
         add_password_dialog_control(self, layout, '再次输入：', self.confirm_password)
         self.error = wx.StaticText(self, label='')
         self.error.SetForegroundColour(wx.Colour(190, 35, 35))
