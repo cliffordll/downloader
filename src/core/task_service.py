@@ -10,6 +10,7 @@ from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 
 from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.media.m3u8.aes128 import parse_iv, sequence_iv
+from src.media.mp4.encrypted_file import is_encrypted_mp4, read_metadata
 from src.core.path_manager import PathManager
 from src.core.task_paths import output_for, output_path, playlist_path, segment_path, work_dir
 from src.core.task_rules import can_rename
@@ -159,16 +160,60 @@ class TaskService:
             raise
 
     def set_task_encrypted(self, task_id, encrypted):
-        """Change the task's list-visibility lock marker without touching its files."""
-        def change(task):
-            if not can_rename(task):
-                raise ValueError('任务正在下载、检测或合并，暂时不能加密或解密。')
-            task.encrypted = bool(encrypted)
-
-        task = self.repository.mutate(task_id, change)
-        if task is None:
+        """Persist encryption state and use .mp4.enc for encrypted MP4 artifacts."""
+        current = self.repository.get(task_id)
+        if current is None:
             raise ValueError('任务不存在，请刷新后重试。')
-        return task
+        if not can_rename(current):
+            raise ValueError('任务正在下载、检测或合并，暂时不能加密或解密。')
+        encrypted = bool(encrypted)
+        if current.encrypted == encrypted:
+            return current
+
+        updated = current.model_copy(deep=True)
+        moves = []
+        if isinstance(updated, MP4Task):
+            download = output_for(updated, 'download')
+            if download is None:
+                raise ValueError('MP4 任务缺少下载产物记录。')
+            old_output = output_path(current, output_for(current, 'download'))
+            if encrypted:
+                new_relative = download.output_path + '.enc'
+            else:
+                # Older local encrypted-task records kept the .mp4 name; leave those paths intact.
+                new_relative = (download.output_path[:-4]
+                                if download.output_path.lower().endswith('.mp4.enc')
+                                else download.output_path)
+            download.output_path = new_relative
+            updated.details.temporary_path = new_relative + '.part'
+            new_output = output_path(updated, download)
+            old_temporary = current.save_dir / current.details.temporary_path
+            new_temporary = updated.save_dir / updated.details.temporary_path
+
+            candidates = [(old_output, new_output), (old_temporary, new_temporary)]
+            for source, destination in candidates:
+                if source == destination:
+                    continue
+                if source.exists() and source.is_symlink():
+                    raise ValueError(f'检测到符号链接，不能安全更改文件名：{source}')
+                if destination.exists() or destination.is_symlink():
+                    raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
+            for source, destination in candidates:
+                if source != destination and source.exists():
+                    source.rename(destination)
+                    moves.append((destination, source))
+
+        updated.encrypted = encrypted
+        try:
+            return self.repository.update(updated)
+        except Exception:
+            for destination, source in reversed(moves):
+                try:
+                    if destination.exists() and not source.exists():
+                        destination.rename(source)
+                except OSError:
+                    pass
+            raise
 
     def _create_named(self, save_dir, filename, source_url, build):
         """文件、同名工作目录及数据库记录共同参与重名检查。"""
@@ -392,6 +437,10 @@ class TaskService:
     @staticmethod
     def _file_size(path):
         try:
+            if is_encrypted_mp4(path):
+                header = read_metadata(path)
+                return int(header.get('plaintext_size') if header.get('complete')
+                           else header.get('written_size', 0))
             info = path.stat()
         except FileNotFoundError:
             return None

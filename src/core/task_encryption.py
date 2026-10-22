@@ -32,7 +32,10 @@ class TaskEncryption:
             if current_password is None or not self.verify(current_password):
                 raise ValueError('当前密码不正确。')
 
-        salt = os.urandom(16)
+        # Keep the KDF salt stable for an existing password vault: MP4 file
+        # headers contain it so the derived wrapping key is reproducible.
+        salt = (base64.b64decode(existing['salt'], validate=True)
+                if existing is not None else os.urandom(16))
         derived = self._derive(password, salt)
         verifier = hmac.digest(derived, self.VERIFIER_CONTEXT, 'sha256')
         data = {
@@ -55,6 +58,23 @@ class TaskEncryption:
             return False
         actual = hmac.digest(derived, self.VERIFIER_CONTEXT, 'sha256')
         return hmac.compare_digest(actual, expected)
+
+    def unlock(self, password):
+        """Return the in-memory wrapping context after checking the shared password."""
+        record = self._read()
+        if record is None or not isinstance(password, str):
+            return None
+        try:
+            salt = base64.b64decode(record['salt'], validate=True)
+            expected = base64.b64decode(record['verifier'], validate=True)
+            iterations = record['iterations']
+            derived = self._derive(password, salt, iterations)
+        except (KeyError, TypeError, ValueError):
+            return None
+        actual = hmac.digest(derived, self.VERIFIER_CONTEXT, 'sha256')
+        if not hmac.compare_digest(actual, expected):
+            return None
+        return {'wrapping_key': derived, 'salt': salt, 'iterations': iterations}
 
     def _read(self):
         try:

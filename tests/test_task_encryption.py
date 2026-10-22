@@ -25,6 +25,10 @@ class TaskEncryptionTests(unittest.TestCase):
         self.assertTrue(TaskEncryption(self.path).is_configured())
         self.assertTrue(TaskEncryption(self.path).verify('shared password'))
         self.assertFalse(TaskEncryption(self.path).verify('wrong password'))
+        context = TaskEncryption(self.path).unlock('shared password')
+        self.assertIsNotNone(context)
+        self.assertEqual(context['iterations'], TaskEncryption.ITERATIONS)
+        self.assertIsNone(TaskEncryption(self.path).unlock('wrong password'))
 
     def test_changing_password_requires_the_current_password(self):
         self.password.set_password('first password')
@@ -35,6 +39,14 @@ class TaskEncryptionTests(unittest.TestCase):
         self.password.set_password('second password', current_password='first password')
         self.assertFalse(self.password.verify('first password'))
         self.assertTrue(self.password.verify('second password'))
+
+    def test_setting_same_password_preserves_file_wrapping_key(self):
+        self.password.set_password('same password')
+        before = self.password.unlock('same password')
+        self.password.set_password('same password', current_password='same password')
+        after = self.password.unlock('same password')
+        self.assertEqual(before['salt'], after['salt'])
+        self.assertEqual(before['wrapping_key'], after['wrapping_key'])
 
     def test_empty_password_is_rejected(self):
         with self.assertRaisesRegex(ValueError, '不能为空'):

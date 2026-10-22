@@ -60,6 +60,28 @@ class TaskServiceTests(unittest.TestCase):
         unlocked = self.service.set_task_encrypted(task.id, False)
         self.assertFalse(unlocked.encrypted)
 
+    def test_encrypted_mp4_updates_persisted_paths_and_renames_artifacts(self):
+        task = self.service.create_mp4(self.root, 'https://example.com/movie.mp4')
+        output = self.root / task.outputs[0].output_path
+        partial = self.root / task.details.temporary_path
+        output.write_bytes(b'container')
+        partial.write_bytes(b'partial container')
+
+        locked = self.service.set_task_encrypted(task.id, True)
+
+        self.assertEqual(locked.outputs[0].output_path, 'movie.mp4.enc')
+        self.assertEqual(locked.details.temporary_path, 'movie.mp4.enc.part')
+        self.assertFalse(output.exists())
+        self.assertFalse(partial.exists())
+        self.assertEqual((self.root / 'movie.mp4.enc').read_bytes(), b'container')
+        self.assertEqual((self.root / 'movie.mp4.enc.part').read_bytes(), b'partial container')
+
+        unlocked = self.service.set_task_encrypted(task.id, False)
+        self.assertEqual(unlocked.outputs[0].output_path, 'movie.mp4')
+        self.assertEqual(unlocked.details.temporary_path, 'movie.mp4.part')
+        self.assertEqual(output.read_bytes(), b'container')
+        self.assertEqual(partial.read_bytes(), b'partial container')
+
     def test_task_lock_marker_rejects_active_tasks(self):
         task = self.create()
         self.service.begin_download(task.id, [0])
