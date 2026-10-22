@@ -10,8 +10,8 @@ from src.views.dialogs.task_password_dialog import (
 
 
 class TaskUnlockDialog(AppDialog):
-    def __init__(self, parent):
-        super().__init__(parent, title='解锁加密任务', style=wx.DEFAULT_DIALOG_STYLE)
+    def __init__(self, parent, *, title='显示加密任务'):
+        super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE)
         layout = wx.BoxSizer(wx.VERTICAL)
         layout.AddSpacer(self.dialog_spacing)
         self.password = PasswordEntry(self)

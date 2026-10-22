@@ -137,9 +137,9 @@ class MainFrame(wx.Frame):
         taskMenu.AppendSeparator()
         self.setEncryptedPasswordItem = taskMenu.Append(wx.ID_ANY, '设置加密密码…')
         self.Bind(wx.EVT_MENU, self.OnSetEncryptedPassword, self.setEncryptedPasswordItem)
-        self.encryptedTasksItem = taskMenu.Append(wx.ID_ANY, '解锁加密任务…')
+        self.encryptedTasksItem = taskMenu.Append(wx.ID_ANY, '显示加密任务…')
         self.Bind(wx.EVT_MENU, self.OnUnlockEncryptedTasks, self.encryptedTasksItem)
-        self.lockEncryptedTasksItem = taskMenu.Append(wx.ID_ANY, '锁定加密任务')
+        self.lockEncryptedTasksItem = taskMenu.Append(wx.ID_ANY, '隐藏加密任务')
         self.lockEncryptedTasksItem.Enable(self._encrypted_tasks_unlocked)
         self.Bind(wx.EVT_MENU, self.OnLockEncryptedTasks, self.lockEncryptedTasksItem)
 
@@ -209,7 +209,7 @@ class MainFrame(wx.Frame):
         self._pauseToolState = None
         refreshButton = add_tool(wx.ID_REFRESH, "刷新", "refresh")
         self.toolBar.AddSeparator()
-        self._encryptedTasksTool = add_tool(wx.ID_ANY, "解锁加密任务", "unlock")
+        self._encryptedTasksTool = add_tool(wx.ID_ANY, "显示加密任务", "unlock")
         settingButton = add_tool(wx.ID_ANY, "设置", "settings")
         playerButton = add_tool(wx.ID_ANY, '选择播放器', 'player')
         self.toolBar.AddSeparator()
@@ -991,7 +991,7 @@ class MainFrame(wx.Frame):
         parent_item = self.model.ObjectToItem(self.model._BuildKey((index,)))
         add('重命名…', lambda: self._RenameTask(task.task_id, task.parent.displayName),
             task.rename_allowed)
-        add('取消加锁' if task.encrypted else '加锁任务',
+        add('解密任务' if task.encrypted else '加密任务',
             lambda: self._SetTaskEncrypted(task.task_id, not task.encrypted),
             task.rename_allowed, new_group=True)
         add('打开文件夹', lambda: self._OpenLocalPath(directory))
@@ -1063,7 +1063,7 @@ class MainFrame(wx.Frame):
             self.runner.set_task_encrypted(task_id, encrypted)
             self.OnRefresh(None)
         except (ValueError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
-            wx.MessageBox(str(error), '任务加锁失败' if encrypted else '取消加锁失败',
+            wx.MessageBox(str(error), '任务加密失败' if encrypted else '任务解密失败',
                           wx.OK | wx.ICON_ERROR, parent=self)
 
 
@@ -1122,7 +1122,7 @@ class MainFrame(wx.Frame):
         self._encrypted_tasks_unlocked = False
         self._SyncLockEncryptedTasksEnabled()
         self._ApplyTaskFilter(force=True)
-        self.statusBar.SetStatusText('加密任务已锁定并隐藏。', 0)
+        self.statusBar.SetStatusText('加密任务已隐藏。', 0)
 
     def OnEncryptedTasksTool(self, event):
         if self._encrypted_tasks_unlocked:
@@ -1135,7 +1135,7 @@ class MainFrame(wx.Frame):
         self.lockEncryptedTasksItem.Enable(unlocked)
         if self.toolBar is not None:
             tool_id = self._encryptedTasksTool.GetId()
-            label = '锁定加密任务' if unlocked else '解锁加密任务'
+            label = '隐藏加密任务' if unlocked else '显示加密任务'
             icon = 'lock' if unlocked else 'unlock'
             self.toolBar.SetToolNormalBitmap(tool_id, toolbar_icon(icon))
             self._encryptedTasksTool.SetLabel(label)

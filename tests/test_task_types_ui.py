@@ -593,7 +593,7 @@ class TaskTypesUITests(unittest.TestCase):
         opened = Mock()
         def inspect_menu(menu):
             labels = ['|' if entry.IsSeparator() else entry.GetItemLabelText() for entry in menu.GetMenuItems()]
-            self.assertEqual(labels, ['重命名…', '|', '加锁任务', '打开文件夹', '播放视频', '|', '查看下载地址', '|', '另存为…'])
+            self.assertEqual(labels, ['重命名…', '|', '加密任务', '打开文件夹', '播放视频', '|', '查看下载地址', '|', '另存为…'])
             entry = menu.GetMenuItems()[3]
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=inspect_menu),

@@ -233,7 +233,7 @@ class TaskRunner:
         with self._lock:
             task = self._task(task_id)
             if not can_rename(task):
-                raise ValueError('任务正在下载、检测或合并，暂时不能加锁或取消加锁。')
+                raise ValueError('任务正在下载、检测或合并，暂时不能加密或解密。')
             return self.tasks.set_task_encrypted(task_id, encrypted)
 
     def delete(self, task_id, *, delete_files=False, scope='task'):
