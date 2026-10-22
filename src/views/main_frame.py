@@ -95,6 +95,7 @@ class MainFrame(wx.Frame):
         # 显示前完成布局、列宽和状态缓存，避免先画初始列宽再跳到适配后的宽度。
         self.Layout()
         self.mcTree.GetParent().Layout()
+        self._defaultTaskViewportWidth = self.mcTree.GetMainWindow().GetClientSize().width
         self._FitTaskColumns()
         self.OnTaskProgress(None, notify=False)
         self._UpdatePauseTool()
@@ -363,6 +364,7 @@ class MainFrame(wx.Frame):
         self.mcTree.AppendColumn(actionColumn)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_EXPANDED, self._QueueRowNumbers)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_COLLAPSED, self._QueueRowNumbers)
+        self.mcTree.GetMainWindow().Bind(wx.EVT_SIZE, self.OnTaskListSize)
         for index in range(self.mcTree.GetColumnCount()):
             column = self.mcTree.GetColumn(index)
             column.GetRenderer().EnableEllipsize(wx.ELLIPSIZE_END)
@@ -560,7 +562,11 @@ class MainFrame(wx.Frame):
 
     def OnFrameShown(self, event):
         event.Skip()
-        if event.GetEventObject() is self and event.IsShown():
+        # Cocoa may revise native DataView column widths on first show; Windows
+        # and GTK already use the pre-show fit, so refitting there causes a
+        # visible one-frame jump in the action column.
+        if (wx.Platform == '__WXMAC__'
+                and event.GetEventObject() is self and event.IsShown()):
             wx.CallAfter(self._FitShownTaskColumns)
 
     def _FitShownTaskColumns(self):
@@ -619,19 +625,17 @@ class MainFrame(wx.Frame):
                 f'{digit * 4}-{digit * 2}-{digit * 2} {digit * 2}:{digit * 2}')[0]
                 for digit in '0123456789')
             date_width = max(date_width, text_width + self.FromDIP(12))
-        size_key = (self.mcTree.GetSize().width, self.FromDIP(100), sequence_width,
+        main_view_width = self.mcTree.GetMainWindow().GetClientSize().width
+        # Clamp against the outer control for synthetic size changes before wx lays out its child.
+        view_width = min(main_view_width, self.mcTree.GetClientSize().width)
+        size_key = (self.mcTree.GetSize().width, view_width, self.FromDIP(100), sequence_width,
                     action_width, date_width, progress_width)
         if getattr(self, '_columnSizeKey', None) == size_key:
             return
-        # 预留垂直滚动条和边框空间，避免滚动条出现后把最后一列挤出可视区域。
-        # 使用控件整体宽度，避免滚动条改变客户区宽度后触发列宽来回调整。
-        # Cocoa 原生表格在列宽之外为每列增加 17 DIP 的单元格间距。
-        # GetWidth 不包含这些间距，必须一起预留，否则末列仍会越过可视区域。
+        # 使用原生列表视口宽度；它已按实际滚动条显隐扣除空间。
         column_spacing = (self.FromDIP(17) * self.mcTree.GetColumnCount()
                           if wx.Platform == '__WXMAC__' else 0)
-        available = (self.mcTree.GetSize().width
-                     - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
-                     - self.FromDIP(4) - column_spacing)
+        available = view_width - column_spacing
         if available <= 0:
             return
         self._columnSizeKey = size_key
@@ -645,9 +649,7 @@ class MainFrame(wx.Frame):
         widths[5] = date_width
         widths[-1] = action_width
         # 默认窗口的可用宽度是比例分配的基准，不随最大化/还原反复改变。
-        baseline = (self._defaultTaskWidth
-                    - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, self.mcTree)
-                    - self.FromDIP(4) - column_spacing)
+        baseline = self._defaultTaskViewportWidth - column_spacing
         # 不超过默认宽度时，其他列保持基准值，剩余空间交给文件名列。
         widths[1] = max(self.FromDIP(80), min(available, baseline) - sum(widths))
         if wx.Platform == '__WXMAC__' and available > baseline > 0:
@@ -1176,10 +1178,11 @@ class MainFrame(wx.Frame):
                                   '目标文件已存在', wx.OK | wx.ICON_WARNING, parent=self)
                     return
         needs_key = (encrypted and mp4_media) or any(is_encrypted_mp4(path) for path, _ in media_paths)
-        if needs_key and self._encryption_context is None:
-            wx.MessageBox('请先显示并解锁加密任务，再加密 MP4 文件。',
-                          '需要解锁', wx.OK | wx.ICON_INFORMATION, parent=self)
-            return
+        context = self._encryption_context
+        if needs_key and context is None:
+            context = self._GetEncryptionContextForOperation()
+            if context is None:
+                return
         if encrypted:
             try:
                 if not TaskEncryption().is_configured():
@@ -1191,7 +1194,6 @@ class MainFrame(wx.Frame):
                 return
         try:
             if mp4_media:
-                context = self._encryption_context
                 failures = []
 
                 def convert_media():
@@ -1243,6 +1245,29 @@ class MainFrame(wx.Frame):
         except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
             wx.MessageBox(str(error), '任务加密失败' if encrypted else '任务解密失败',
                           wx.OK | wx.ICON_ERROR, parent=self)
+
+    def _GetEncryptionContextForOperation(self):
+        """Validate the shared password without changing encrypted-task visibility."""
+        try:
+            password_store = TaskEncryption()
+            if not password_store.is_configured():
+                wx.MessageBox('请先从“任务”菜单设置加密任务密码。',
+                              '尚未设置密码', wx.OK | wx.ICON_INFORMATION, parent=self)
+                return None
+        except ValueError as error:
+            wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
+            return None
+
+        dialog = TaskUnlockDialog(self, title='验证加密任务密码')
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return None
+            context = password_store.unlock(dialog.password.GetValue())
+            if context is None:
+                wx.MessageBox('密码不正确。', '验证失败', wx.OK | wx.ICON_ERROR, parent=self)
+            return context
+        finally:
+            dialog.Destroy()
 
 
     ###################################
@@ -1604,8 +1629,6 @@ class MainFrame(wx.Frame):
                                             title='从浏览器添加 MP4', capture=capture)
             if dialog.ShowModal() == wx.OK:
                 self.OnRefresh(None)
-                if capture['type'] == 'mp4':
-                    self._StartMP4(dialog.task_id)
         finally:
             if dialog is not None:
                 dialog.Destroy()
@@ -1625,7 +1648,6 @@ class MainFrame(wx.Frame):
         try:
             if dialog.ShowModal() == wx.OK:
                 self.OnRefresh(None)
-                self._StartMP4(dialog.task_id)
         finally:
             dialog.Destroy()
 

@@ -148,6 +148,17 @@ class TaskRunnerTests(unittest.TestCase):
         self.assertFalse(partial.exists())
         self.assertEqual(self.repo.get(task.id), renamed)
 
+    def test_encrypted_mp4_start_receives_current_encryption_context(self):
+        task = self.mp4(name='encrypted-direct')
+        self.repo.mutate(task.id, lambda record: setattr(record, 'encrypted', True))
+        encrypted_task = self.repo.get(task.id)
+        context = {'wrapping_key': b'key', 'salt': b'salt', 'iterations': 1}
+        self.runner.set_encryption_context_provider(lambda: context)
+        with patch.object(self.runner, 'check_files', return_value=encrypted_task), \
+             patch.object(self.runner.mp4, 'start', return_value=True) as start:
+            self.assertTrue(self.runner.start(task.id))
+        start.assert_called_once_with(task.id, encryption_context=context)
+
     def test_rename_avoids_other_task_names_and_rejects_active_records(self):
         task = self.service.create_m3u8(self.root, 'https://example.com/index.m3u8',
                                         '#EXTM3U\n#EXTINF:4,\na.ts\n', filename='first')

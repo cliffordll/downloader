@@ -699,9 +699,9 @@ class TaskProgressTests(unittest.TestCase):
             view_labels = ['全部展开', '全部折叠', '刷新', '查找', '默认展开任务']
             if wx.Platform != '__WXMAC__':
                 view_labels.append('显示工具栏')
-            view_labels.append('显示状态栏')
+            view_labels.extend(('显示状态栏', '本机服务状态…'))
             for index, expected in enumerate((
-                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
+                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '播放加密 MP4…', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
                 ['全部暂停', '全部继续', '设置加密密码…', '显示加密任务…', '隐藏加密任务'],
                 view_labels,
                 ['使用说明', '关于'],
@@ -1064,6 +1064,7 @@ class TaskProgressTests(unittest.TestCase):
             layouts = {}
             for width in (780, 1024, 1400, 850, 1024):
                 frame.mcTree.SetSize(frame.FromDIP(wx.Size(width, 400)))
+                frame.mcTree.GetMainWindow().SetSize(frame.mcTree.GetClientSize())
                 frame._FitTaskColumns()
                 columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(7)]
                 self.assertLessEqual(sum(columns), frame.mcTree.GetClientSize().width)
@@ -1175,6 +1176,43 @@ class TaskProgressTests(unittest.TestCase):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             self.assertEqual(shown, [frame])
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_action_column_width_is_stable_after_native_first_show(self):
+        width_before_show = []
+
+        def show_after_measuring(frame):
+            width_before_show.append(frame.mcTree.GetColumn(6).GetWidth())
+            return wx.Frame.Show(frame)
+
+        with patch.object(MainFrame, 'Show', new=show_after_measuring):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            wx.YieldIfNeeded()
+            wx.YieldIfNeeded()
+            self.assertEqual(frame.mcTree.GetColumn(6).GetWidth(), width_before_show[0])
+            self.assertEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(7)),
+                             frame.mcTree.GetMainWindow().GetClientSize().width)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_column_fit_uses_viewport_width_when_vertical_scrollbar_appears(self):
+        import copy
+        items = []
+        for index in range(100):
+            item = copy.deepcopy(self.task)
+            item.parent.fileName = f'task/{index}.m3u8'
+            items.append(item)
+        frame = MainFrame(None, 'test', self.service, TreeData(items=items))
+        try:
+            wx.YieldIfNeeded()
+            wx.YieldIfNeeded()
+            viewport_width = frame.mcTree.GetMainWindow().GetClientSize().width
+            self.assertEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(7)),
+                             viewport_width)
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()

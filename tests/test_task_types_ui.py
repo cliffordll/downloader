@@ -120,6 +120,24 @@ class TaskTypesUITests(unittest.TestCase):
                 dialog.Destroy()
             self.app.ProcessPendingEvents()
 
+    def test_encryption_operation_validates_password_without_revealing_other_tasks(self):
+        context = {'wrapping_key': b'key', 'salt': b'salt', 'iterations': 1}
+        password_store = Mock(is_configured=Mock(return_value=True),
+                              unlock=Mock(return_value=context))
+        dialog = Mock()
+        dialog.ShowModal.return_value = wx.ID_OK
+        dialog.password.GetValue.return_value = 'secret'
+        frame = SimpleNamespace(_encryption_context=None, _encrypted_tasks_unlocked=False)
+        with patch('src.views.main_frame.TaskEncryption', return_value=password_store), \
+             patch('src.views.main_frame.TaskUnlockDialog', return_value=dialog) as prompt:
+            result = MainFrame._GetEncryptionContextForOperation(frame)
+        self.assertEqual(result, context)
+        prompt.assert_called_once_with(frame, title='验证加密任务密码')
+        password_store.unlock.assert_called_once_with('secret')
+        self.assertIsNone(frame._encryption_context)
+        self.assertFalse(frame._encrypted_tasks_unlocked)
+        dialog.Destroy.assert_called_once()
+
     def test_password_eye_toggles_visibility_without_changing_value(self):
         dialog = TaskPasswordDialog(None, has_existing=True)
         try:

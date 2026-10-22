@@ -10,7 +10,7 @@ from src.views.dialogs.base_dialog import AppDialog
 
 class DownloadDialogMP4(AppDialog):
     """MP4 直链只需网址、保存目录和文件名，不显示分片编辑器。"""
-    def __init__(self, parent, work_path, task_service: TaskService, *, title='下载 MP4', capture=None):
+    def __init__(self, parent, work_path, task_service: TaskService, *, title='新建 MP4 下载任务', capture=None):
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
         self.task_id = None
