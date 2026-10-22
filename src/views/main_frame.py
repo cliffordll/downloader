@@ -560,7 +560,11 @@ class MainFrame(wx.Frame):
 
     def OnFrameShown(self, event):
         event.Skip()
-        if event.GetEventObject() is self and event.IsShown():
+        # Cocoa may revise native DataView column widths on first show; Windows
+        # and GTK already use the pre-show fit, so refitting there causes a
+        # visible one-frame jump in the action column.
+        if (wx.Platform == '__WXMAC__'
+                and event.GetEventObject() is self and event.IsShown()):
             wx.CallAfter(self._FitShownTaskColumns)
 
     def _FitShownTaskColumns(self):
@@ -1176,10 +1180,11 @@ class MainFrame(wx.Frame):
                                   '目标文件已存在', wx.OK | wx.ICON_WARNING, parent=self)
                     return
         needs_key = (encrypted and mp4_media) or any(is_encrypted_mp4(path) for path, _ in media_paths)
-        if needs_key and self._encryption_context is None:
-            wx.MessageBox('请先显示并解锁加密任务，再加密 MP4 文件。',
-                          '需要解锁', wx.OK | wx.ICON_INFORMATION, parent=self)
-            return
+        context = self._encryption_context
+        if needs_key and context is None:
+            context = self._GetEncryptionContextForOperation()
+            if context is None:
+                return
         if encrypted:
             try:
                 if not TaskEncryption().is_configured():
@@ -1191,7 +1196,6 @@ class MainFrame(wx.Frame):
                 return
         try:
             if mp4_media:
-                context = self._encryption_context
                 failures = []
 
                 def convert_media():
@@ -1243,6 +1247,29 @@ class MainFrame(wx.Frame):
         except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
             wx.MessageBox(str(error), '任务加密失败' if encrypted else '任务解密失败',
                           wx.OK | wx.ICON_ERROR, parent=self)
+
+    def _GetEncryptionContextForOperation(self):
+        """Validate the shared password without changing encrypted-task visibility."""
+        try:
+            password_store = TaskEncryption()
+            if not password_store.is_configured():
+                wx.MessageBox('请先从“任务”菜单设置加密任务密码。',
+                              '尚未设置密码', wx.OK | wx.ICON_INFORMATION, parent=self)
+                return None
+        except ValueError as error:
+            wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
+            return None
+
+        dialog = TaskUnlockDialog(self, title='验证加密任务密码')
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return None
+            context = password_store.unlock(dialog.password.GetValue())
+            if context is None:
+                wx.MessageBox('密码不正确。', '验证失败', wx.OK | wx.ICON_ERROR, parent=self)
+            return context
+        finally:
+            dialog.Destroy()
 
 
     ###################################
@@ -1604,8 +1631,6 @@ class MainFrame(wx.Frame):
                                             title='从浏览器添加 MP4', capture=capture)
             if dialog.ShowModal() == wx.OK:
                 self.OnRefresh(None)
-                if capture['type'] == 'mp4':
-                    self._StartMP4(dialog.task_id)
         finally:
             if dialog is not None:
                 dialog.Destroy()
@@ -1625,7 +1650,6 @@ class MainFrame(wx.Frame):
         try:
             if dialog.ShowModal() == wx.OK:
                 self.OnRefresh(None)
-                self._StartMP4(dialog.task_id)
         finally:
             dialog.Destroy()
 

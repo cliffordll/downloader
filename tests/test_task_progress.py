@@ -699,9 +699,9 @@ class TaskProgressTests(unittest.TestCase):
             view_labels = ['全部展开', '全部折叠', '刷新', '查找', '默认展开任务']
             if wx.Platform != '__WXMAC__':
                 view_labels.append('显示工具栏')
-            view_labels.append('显示状态栏')
+            view_labels.extend(('显示状态栏', '本机服务状态…'))
             for index, expected in enumerate((
-                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
+                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '播放加密 MP4…', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
                 ['全部暂停', '全部继续', '设置加密密码…', '显示加密任务…', '隐藏加密任务'],
                 view_labels,
                 ['使用说明', '关于'],

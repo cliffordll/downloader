@@ -112,7 +112,10 @@ class TaskServiceTests(unittest.TestCase):
                    DownloadDialogMU(None, str(self.root), self.service),
                    DownloadDialogTS(None, str(self.root), self.service)]
         try:
-            for dialog in dialogs:
+            for dialog, title in zip(dialogs, ('新建 MP4 下载任务', '新建 M3U8 下载任务', '新建 TS 下载任务')):
+                self.assertEqual(dialog.GetTitle(), title)
+                self.assertEqual(dialog.downPath.createButton.GetLabel(), '创建任务')
+                self.assertEqual(dialog.downPath.browseButton.GetLabel(), '选择目录')
                 dialog.Layout()
                 dialog.downPath.Layout()
                 dialog.downEdit.tcURI.SetValue('https://example.com/movie.mp4?token=123')

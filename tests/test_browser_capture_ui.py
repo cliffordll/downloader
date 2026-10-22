@@ -70,9 +70,32 @@ class BrowserCaptureUITests(unittest.TestCase):
             dispatch.assert_called_once_with(frame._OpenBrowserCapture, capture)
             self.assertEqual(inbox.qsize(), 1)
 
+    def test_creating_mp4_tasks_does_not_start_download(self):
+        dialog = Mock()
+        dialog.ShowModal.return_value = wx.OK
+        with patch('src.views.main_frame.DownloadDialogMP4', return_value=dialog):
+            frame = SimpleNamespace(tasks=Mock(), OnRefresh=Mock(), _StartMP4=Mock())
+            MainFrame.OnAddMP4(frame, None)
+        frame.OnRefresh.assert_called_once_with(None)
+        frame._StartMP4.assert_not_called()
+        dialog.Destroy.assert_called_once()
+
+    def test_browser_captured_mp4_is_created_without_starting_download(self):
+        dialog = Mock()
+        dialog.ShowModal.return_value = wx.OK
+        frame = SimpleNamespace(_closing=False, IsBeingDeleted=Mock(return_value=False),
+                                Iconize=Mock(), Raise=Mock(), OnRefresh=Mock(),
+                                _StartMP4=Mock(), _capture_dialog_open=True, tasks=Mock())
+        with patch('src.views.main_frame.DownloadDialogMP4', return_value=dialog):
+            MainFrame._OpenBrowserCapture(frame, {'type': 'mp4', 'url': 'https://cdn/video.mp4'})
+        frame.OnRefresh.assert_called_once_with(None)
+        frame._StartMP4.assert_not_called()
+        self.assertFalse(frame._capture_dialog_open)
+        dialog.Destroy.assert_called_once()
+
     def test_startup_restores_connection_only_after_first_enable(self):
         config = self.root / 'browser-pairing.json'
-        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock(),
+        frame = SimpleNamespace(browser_bridge=None, _SetPrimaryStatusText=Mock(),
                                 _local_http_service=Mock())
         with patch('src.views.main_frame.pairing_path', return_value=config), \
              patch('src.views.main_frame.BrowserBridge') as bridge:
@@ -88,13 +111,13 @@ class BrowserCaptureUITests(unittest.TestCase):
     def test_connection_restore_failure_keeps_app_usable(self):
         config = self.root / 'browser-pairing.json'
         config.write_text('{}')
-        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock(),
+        frame = SimpleNamespace(browser_bridge=None, _SetPrimaryStatusText=Mock(),
                                 _local_http_service=Mock())
         with patch('src.views.main_frame.pairing_path', return_value=config), \
              patch('src.views.main_frame.BrowserBridge', side_effect=OSError('port occupied')):
             MainFrame.RestoreBrowserConnection(frame)
         self.assertIsNone(frame.browser_bridge)
-        frame.statusBar.SetStatusText.assert_called_once()
+        frame._SetPrimaryStatusText.assert_called_once()
 
     def test_port_is_read_only_and_explains_automatic_allocation(self):
         dialog = BrowserConnectDialog(None, 'A' * 43, reset_token=Mock(), port=17839,

@@ -2,6 +2,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import os
 import threading
 import time
 import unittest
@@ -11,6 +12,7 @@ from unittest.mock import patch
 from src.core.sys_setting import SysSetting
 from src.media.downloader import Downloader
 from src.media.mp4.mp4_downloader import MP4Downloader
+from src.media.mp4.encrypted_file import CHUNK_SIZE, EncryptedMP4Reader, EncryptedMP4Writer, is_encrypted_mp4
 from src.core.task_service import TaskService
 from src.schemas.task import TaskStatus, TaskProgress
 from src.storage.task_repository import TaskRepository
@@ -279,3 +281,34 @@ class MP4DownloadTests(unittest.TestCase):
             future.result(timeout=3)
         self.run_task(task)
         self.assert_complete(task)
+
+    def test_encrypted_mp4_download_persists_only_ciphertext(self):
+        task = self.create('encrypted')
+        self.service.set_task_encrypted(task.id, True)
+        context = {'wrapping_key': os.urandom(32), 'salt': os.urandom(16), 'iterations': 1000}
+        self.assertTrue(self.engine.start(task.id, encryption_context=context))
+        self.wait(lambda: not self.engine.busy(task.id))
+        task = self.repository.get(task.id)
+        target = task.save_dir / task.outputs[0].output_path
+        self.assertTrue(is_encrypted_mp4(target))
+        self.assertNotIn(DATA[:128], target.read_bytes())
+        reader = EncryptedMP4Reader(target, context['wrapping_key'])
+        self.assertEqual(reader.read_range(0, len(DATA)), DATA)
+        self.assertEqual(task.progress.downloaded_bytes, len(DATA))
+        self.assertEqual(task.outputs[0].size_bytes, len(DATA))
+
+    def test_encrypted_mp4_resume_uses_plaintext_range_and_keeps_chunk_integrity(self):
+        task = self.create('encrypted-resume')
+        task = self.service.set_task_encrypted(task.id, True)
+        context = {'wrapping_key': os.urandom(32), 'salt': os.urandom(16), 'iterations': 1000}
+        partial = task.save_dir / task.details.temporary_path
+        writer = EncryptedMP4Writer(partial, context['wrapping_key'], context['salt'], 1000)
+        writer.append(DATA[:CHUNK_SIZE])
+        writer.close()
+        self.repository.mutate(task.id, lambda record: setattr(record.details, 'etag', '"v1"'))
+        self.assertTrue(self.engine.start(task.id, encryption_context=context))
+        self.wait(lambda: not self.engine.busy(task.id))
+        task = self.repository.get(task.id)
+        target = task.save_dir / task.outputs[0].output_path
+        self.assertEqual(self.server.received[-1].get('Range'), f'bytes={CHUNK_SIZE}-')
+        self.assertEqual(EncryptedMP4Reader(target, context['wrapping_key']).read_range(0, len(DATA)), DATA)

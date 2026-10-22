@@ -34,6 +34,11 @@ class TaskRunner:
         self._duration_jobs = set()
         self._duration_blocked = set()
         self._merging = set()
+        self._encryption_context_provider = None
+
+    def set_encryption_context_provider(self, provider):
+        """Supply the unlocked password-derived key only to explicitly encrypted MP4 jobs."""
+        self._encryption_context_provider = provider
 
     def _task(self, task_id):
         task = self.tasks.repository.get(task_id)
@@ -61,7 +66,10 @@ class TaskRunner:
             task = self.check_files(task_id)
             if task.status == TaskStatus.COMPLETED:
                 return False
-            return self.mp4.start(task_id)
+            if not task.encrypted:
+                return self.mp4.start(task_id)
+            context = self._encryption_context_provider() if self._encryption_context_provider else None
+            return self.mp4.start(task_id, encryption_context=context)
         if not isinstance(task, M3U8Task):
             raise ValueError('此任务类型尚不支持下载。')
         with self._lock:
