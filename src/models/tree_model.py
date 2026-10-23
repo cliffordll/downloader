@@ -319,7 +319,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             active = task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING)
             finished = task.task_status == TaskStatus.COMPLETED
             label = '暂停' if active else ('继续' if task.progress.downloaded_bytes or
-                task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) else '开始')
+                task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) else '下载')
             return [
                 dict(id='start', label=label, enabled=not finished and task.task_status != TaskStatus.PAUSING),
                 dict(id='retry', label='重试', enabled=task.task_status == TaskStatus.FAILED),
@@ -332,7 +332,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             active = task.task_status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING,
                 TaskStatus.PAUSING, TaskStatus.RECORDING, TaskStatus.STOPPING)
             return [
-                dict(id='start', label='录制' if live else '开始', enabled=False),
+                dict(id='start', label='录制' if live else '下载', enabled=False),
                 dict(id='stop' if live else 'retry', label='停止' if live else '重试', enabled=False),
                 dict(id='delete', label='删除', enabled=not active),
                 dict(id='more', label='更多', enabled=True),
@@ -341,13 +341,13 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         # 已暂停的任务仍留在待下载队列中；只有存在在途请求时才不能删除。
         idle = (not info['pending'] or (info['paused'] and not info['requesting'])) \
             and not info['merging']
-        # 主动开始/重试由 TaskRunner 恢复当前任务，不受其他任务暂停状态阻挡。
+        # 主动下载/重试由 TaskRunner 恢复当前任务，不受其他任务暂停状态阻挡。
         downloadable = idle and not task.outputs
 
         # 第一项在排队/下载期间可暂停；暂停后恢复当前任务，不重新提交分片。
         running = bool(info['pending']) and not info['merging']
         label = ('继续' if info['paused'] else '暂停') if running else (
-            '继续' if info['done'] or task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) else '开始')
+            '继续' if info['done'] or task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) else '下载')
         return [
             dict(id='start', label=label,
                  enabled=bool(running or (downloadable and (info['done'] < info['total'] or task.duration_pending)))),

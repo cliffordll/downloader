@@ -281,7 +281,7 @@ class TaskActionsController:
                 return
             self.frame._CreateMP4File(task.parent.fileName, item)
         else:
-            # 按稳定的操作 id 匹配，不依赖“开始”“继续”等会随状态变化的显示文字。
+            # 按稳定的操作 id 匹配，不依赖“下载”“继续”等会随状态变化的显示文字。
             # 再检查 enabled，防止过期的界面状态触发已不可用的操作。
             action = next((entry for entry in self.frame.model.TaskActions(index) if entry['id'] == action_id), None)
             if action is None or not action['enabled']:

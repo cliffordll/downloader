@@ -95,6 +95,17 @@ class TaskTypesUITests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
+    def test_unstarted_download_actions_are_labeled_download(self):
+        mp4 = self.mp4()
+        playlist = self.service.create_m3u8(
+            self.root / 'hls', 'https://example.com/index.m3u8', '#EXTM3U\n#EXTINF:4,\na.ts\n')
+        model = self.model()
+        for task_id in (mp4.id, playlist.id):
+            index = next(i for i, task in enumerate(model.fileTree.items) if task.task_id == task_id)
+            action = next(item for item in model.TaskActions(index) if item['id'] == 'start')
+            self.assertEqual(action['label'], '下载')
+            self.assertTrue(action['enabled'])
+
     def test_files_are_projected_from_records_not_directory_contents(self):
         task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/mixed.m3u8',
                                        '#EXTM3U\n#EXTINF:4,\na.ts\n')

@@ -175,7 +175,7 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
 
     def MinimumWidth(self, dc):
         """按四项操作的最长文字预留间距，以及原生单元格的左右留白。"""
-        labels = ('开始', '暂停', '继续', '重试', '删除', '更多', '录制', '停止')
+        labels = ('下载', '暂停', '继续', '重试', '删除', '更多', '录制', '停止')
         text_width = max(dc.GetTextExtent(label)[0] for label in labels)
         if wx.Platform == '__WXMAC__':
             return max(self.frame.FromDIP(160),

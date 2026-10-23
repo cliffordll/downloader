@@ -1111,7 +1111,7 @@ class TaskProgressTests(unittest.TestCase):
                                         dc.GetTextExtent(frame.model.TaskInfo(0)['progress'])[0]
                                         + frame.FromDIP(20))
                 buttons = frame._actionRenderer._ActionRects(wx.Rect(0, 0, layouts[1024][7], 24))
-                for label in ('开始', '暂停', '继续', '重试', '删除', '更多', '录制', '停止'):
+                for label in ('下载', '暂停', '继续', '重试', '删除', '更多', '录制', '停止'):
                     self.assertGreaterEqual(min(rect.width for rect in buttons),
                                             dc.GetTextExtent(label)[0] + frame.FromDIP(8))
             with patch.object(frame.mcTree, 'GetColumn') as get_column:
