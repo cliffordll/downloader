@@ -119,6 +119,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         super().__init__()
         # 首次读取和恢复由启动入口完成；构造模型仅接收展示数据，不访问任务库。
         self.fileTree = tree
+        self.selected_task_ids = set()
         # None 表示全部；筛选只改变根节点可见性，不删任务、不改变下载回调使用的索引。
         self.visible_tasks = None
         # 因为 ObjectToItem(obj) 在库内部维护一张map，key 为 id(obj)，所以 obj 对象不能变
@@ -453,17 +454,17 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     def GetColumnCount(self):
         """重写：wx 查询模型列数，模型列编号与界面显示顺序不一定相同。
 
-        0 序列、1 文件名、2 文件大小、3 修改时间、4 操作、5 下载进度、6 状态。
+        0 序列、1 文件名、2 文件大小、3 修改时间、4 操作、5 下载进度、6 状态、7 批量选择。
         界面通过 DataViewColumn 的 model_column 参数绑定这些编号。
         """
-        return 7  # 原有列、进度、状态
+        return 8  # 原有列、进度、状态和任务选择
     
     def GetColumnType(self, col):
-        """重写：wx 查询指定模型列的数据类型；此处所有列都按 string 传递。
+        """重写：wx 查询指定模型列的数据类型；选择列为 bool，其余列为 string。
 
         操作列虽然包含多个操作，也以 JSON 字符串传给自定义渲染器。
         """
-        return "string"
+        return "bool" if col == 7 else "string"
     
     # 父类函数
     def IsContainer(self, item):
@@ -576,6 +577,11 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         # print("GetValue keys:", keys)
+        if col == 7:
+            if len(objs) != 1:
+                return None
+            task = self.fileTree.items[objs[0]]
+            return (task.task_id or task.parent.fileName) in self.selected_task_ids
         if col == 0:
             return self.row_numbers.get(keys, '')
         if len(objs) == 2 and objs[1] < 0:
@@ -688,6 +694,19 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         """
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
+        if col == 7:
+            if len(objs) != 1:
+                return False
+            task = self.fileTree.items[objs[0]]
+            key = task.task_id or task.parent.fileName
+            if bool(variant):
+                self.selected_task_ids.add(key)
+            else:
+                self.selected_task_ids.discard(key)
+            self.ValueChanged(item, col)
+            if self.parent and hasattr(self.parent, '_UpdateFilterCount'):
+                self.parent._UpdateFilterCount()
+            return True
         # print(f"MultiColumnTreeModel.SetValue", keys, col)
         if len(objs) == 1:
             idxi = objs[0]
@@ -727,6 +746,12 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 self._SendEvent(payload={"fileName": self.fileTree.items[idxi].parent.fileName})
             return True
         return False
+
+    def IsEnabled(self, item, col):
+        """选择复选框只对根任务启用；文件和目录行不参与批量任务选择。"""
+        if col == 7:
+            return len(self.ParseKey(self.ItemToObject(item))) == 1
+        return True
 
     # 动态插入数据的方法
     def InsertChildData(self, parent, newFile):

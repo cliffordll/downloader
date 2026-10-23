@@ -26,7 +26,10 @@ class TaskListController:
     def _UpdateFilterCount(self):
         total = len(self.frame.model.fileTree.items)
         visible = total if self.frame.model.visible_tasks is None else len(self.frame.model.visible_tasks)
-        label = f'显示 {visible} / {total} 个任务'
+        selected = sum(1 for task in self.frame.model.fileTree.items
+                       if (task.task_id or task.parent.fileName) in self.frame.model.selected_task_ids)
+        prefix = f'已选 {selected} · ' if selected else ''
+        label = f'{prefix}显示 {visible}/{total}'
         if self.frame.filterCount.GetLabel() != label:
             self.frame.filterCount.SetLabel(label)
         filtered = bool(self.frame._filterText) or self.frame.statusFilter.GetSelection() > 0

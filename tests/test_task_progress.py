@@ -348,7 +348,7 @@ class TaskProgressTests(unittest.TestCase):
         try:
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
             self.assertEqual(frame.model.GetValue(item, 5), '50% · 1/2')
-            renderer = frame.mcTree.GetColumn(6).GetRenderer()
+            renderer = frame.mcTree.GetColumn(7).GetRenderer()
             size = frame.FromDIP(wx.Size(200, 24))
             cell = wx.Rect(0, 0, size.width, size.height)
 
@@ -407,7 +407,7 @@ class TaskProgressTests(unittest.TestCase):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-            self.assertEqual(frame.mcTree.GetColumnCount(), 7)
+            self.assertEqual(frame.mcTree.GetColumnCount(), 8)
 
             def inspect_menu(menu):
                 entries = {entry.GetItemLabelText(): entry for entry in menu.GetMenuItems()
@@ -879,7 +879,7 @@ class TaskProgressTests(unittest.TestCase):
                 event.GetItem = lambda: child
                 frame.OnActivatedChanged(event)
                 download.assert_not_called()
-                renderer = frame.mcTree.GetColumn(6).GetRenderer()
+                renderer = frame.mcTree.GetColumn(7).GetRenderer()
                 renderer.ActivateCell(wx.Rect(0, 0, 200, 24), frame.model, child, 4, None)
                 download.assert_called_once_with(self.task.parent.fileName, [(1, child)])
         finally:
@@ -1003,12 +1003,12 @@ class TaskProgressTests(unittest.TestCase):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
-            initial = frame.mcTree.GetColumn(0).GetWidth()
+            initial = frame.mcTree.GetColumn(1).GetWidth()
             self.task.childs = [FileItem(fileName=f'task/{i}.ts') for i in range(1000)]
             frame._RefreshWithState()
-            width = frame.mcTree.GetColumn(0).GetWidth()
+            width = frame.mcTree.GetColumn(1).GetWidth()
             self.assertEqual(width, initial)
-            self.assertLessEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(7)),
+            self.assertLessEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(8)),
                                  frame.mcTree.GetClientSize().width)
         finally:
             frame.Destroy()
@@ -1086,12 +1086,12 @@ class TaskProgressTests(unittest.TestCase):
                 frame.mcTree.SetSize(frame.FromDIP(wx.Size(width, 400)))
                 frame.mcTree.GetMainWindow().SetSize(frame.mcTree.GetClientSize())
                 frame._FitTaskColumns()
-                columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(7)]
+                columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(8)]
                 self.assertLessEqual(sum(columns), frame.mcTree.GetClientSize().width)
                 dc = wx.ClientDC(frame.mcTree)
                 dc.SetFont(frame.mcTree.GetFont())
-                self.assertGreaterEqual(columns[6], frame._actionRenderer.MinimumWidth(dc))
-                self.assertGreater(columns[1], 0)
+                self.assertGreaterEqual(columns[7], frame._actionRenderer.MinimumWidth(dc))
+                self.assertGreater(columns[2], 0)
                 if width in layouts:
                     self.assertEqual(columns, layouts[width])
                 layouts[width] = columns
@@ -1101,16 +1101,16 @@ class TaskProgressTests(unittest.TestCase):
                 else:
                     self.assertGreater(expanded, normal)
             if wx.Platform == '__WXMAC__':
-                self.assertLessEqual(layouts[1024][0], frame.FromDIP(50))
-                self.assertGreaterEqual(layouts[1024][1], frame.FromDIP(180))
-                self.assertLess(layouts[1024][6], frame.FromDIP(240))
+                self.assertLessEqual(layouts[1024][1], frame.FromDIP(50))
+                self.assertGreaterEqual(layouts[1024][2], frame.FromDIP(180))
+                self.assertLess(layouts[1024][7], frame.FromDIP(240))
                 dc = wx.ClientDC(frame.mcTree)
                 dc.SetFont(frame.mcTree.GetFont())
-                self.assertGreaterEqual(layouts[1024][2], frame.FromDIP(180))
-                self.assertGreaterEqual(layouts[1024][2],
+                self.assertGreaterEqual(layouts[1024][3], frame.FromDIP(180))
+                self.assertGreaterEqual(layouts[1024][3],
                                         dc.GetTextExtent(frame.model.TaskInfo(0)['progress'])[0]
                                         + frame.FromDIP(20))
-                buttons = frame._actionRenderer._ActionRects(wx.Rect(0, 0, layouts[1024][6], 24))
+                buttons = frame._actionRenderer._ActionRects(wx.Rect(0, 0, layouts[1024][7], 24))
                 for label in ('开始', '暂停', '继续', '重试', '删除', '更多', '录制', '停止'):
                     self.assertGreaterEqual(min(rect.width for rect in buttons),
                                             dc.GetTextExtent(label)[0] + frame.FromDIP(8))
@@ -1140,10 +1140,10 @@ class TaskProgressTests(unittest.TestCase):
                 dc.SetFont(frame.mcTree.GetFont())
                 for digit in '0123456789':
                     date = f'{digit * 4}-{digit * 2}-{digit * 2} {digit * 2}:{digit * 2}'
-                    self.assertGreaterEqual(frame.mcTree.GetColumn(5).GetWidth(),
+                    self.assertGreaterEqual(frame.mcTree.GetColumn(6).GetWidth(),
                                             dc.GetTextExtent(date)[0] + frame.FromDIP(12))
                 item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-                rect = frame.mcTree.GetItemRect(item, frame.mcTree.GetColumn(6))
+                rect = frame.mcTree.GetItemRect(item, frame.mcTree.GetColumn(7))
                 self.assertGreater(rect.width, 0)
                 self.assertLessEqual(rect.x + rect.width, frame.mcTree.GetClientSize().width)
         finally:
@@ -1183,9 +1183,9 @@ class TaskProgressTests(unittest.TestCase):
         shown = []
         def inspect_before_show(frame):
             shown.append(frame)
-            columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(7)]
+            columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(8)]
             self.assertLessEqual(sum(columns), frame.mcTree.GetClientSize().width)
-            self.assertGreater(columns[6], 0)
+            self.assertGreater(columns[7], 0)
             self.assertIn(self.task.parent.fileName, frame._task_display)
             # 初次定时刷新不应把已经显示的相同状态再次通知整行重绘。
             with patch.object(frame.model, 'ItemChanged') as changed:
@@ -1204,7 +1204,7 @@ class TaskProgressTests(unittest.TestCase):
         width_before_show = []
 
         def show_after_measuring(frame):
-            width_before_show.append(frame.mcTree.GetColumn(6).GetWidth())
+            width_before_show.append(frame.mcTree.GetColumn(7).GetWidth())
             return wx.Frame.Show(frame)
 
         with patch.object(MainFrame, 'Show', new=show_after_measuring):
@@ -1212,8 +1212,8 @@ class TaskProgressTests(unittest.TestCase):
         try:
             wx.YieldIfNeeded()
             wx.YieldIfNeeded()
-            self.assertEqual(frame.mcTree.GetColumn(6).GetWidth(), width_before_show[0])
-            self.assertEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(7)),
+            self.assertEqual(frame.mcTree.GetColumn(7).GetWidth(), width_before_show[0])
+            self.assertEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(8)),
                              frame.mcTree.GetMainWindow().GetClientSize().width)
         finally:
             frame.Destroy()
@@ -1231,7 +1231,7 @@ class TaskProgressTests(unittest.TestCase):
             wx.YieldIfNeeded()
             wx.YieldIfNeeded()
             viewport_width = frame.mcTree.GetMainWindow().GetClientSize().width
-            self.assertEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(7)),
+            self.assertEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(8)),
                              viewport_width)
         finally:
             frame.Destroy()

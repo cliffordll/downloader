@@ -5,7 +5,11 @@ from pathlib import Path
 import wx 
 import wx.dataview as dv
 from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD
-from src.views.ui_metrics import OUTER_MARGIN_DIP
+from src.views.ui_metrics import (
+    MAIN_WINDOW_CONTENT_MARGIN_DIP,
+    MAIN_WINDOW_TOOLBAR_MARGIN_DIP,
+    OUTER_MARGIN_DIP,
+)
 
 from src.views.dialogs.information_dialog import InformationDialog
 from src.core.task_runner import TaskRunner
@@ -201,7 +205,7 @@ class MainFrame(wx.Frame):
             self.toolBar = None
             return
         self.toolBar = self.CreateToolBar(style=wx.TB_DEFAULT_STYLE)
-        self.toolBar.SetMargins(self.FromDIP(OUTER_MARGIN_DIP), 0)
+        self.toolBar.SetMargins(self.FromDIP(MAIN_WINDOW_TOOLBAR_MARGIN_DIP), 0)
         # 由 BitmapBundle 按 DPI 选择图标；显式设置尺寸会干扰 wxMSW 的尺寸选择。
         # self.toolBar.SetToolBitmapSize(self.toolBar.FromDIP(wx.Size(24, 24)))
 
@@ -266,9 +270,8 @@ class MainFrame(wx.Frame):
         self.showStatusItem.Check(self.statusBar.IsShown())
 
     def _SetPrimaryStatusText(self, text):
-        # wx.StatusBar has no per-field text inset; an en space provides the
-        # visual left padding while keeping every primary status message aligned.
-        self.statusBar.SetStatusText(f'\u2002{text}', 0)
+        # wx.StatusBar 第一字段没有左侧留白，用两个窄空格对齐主区域边缘。
+        self.statusBar.SetStatusText(f'\u2009\u2009{text}', 0)
 
     def _createMainPanel(self, initial_tree):
         """创建主面板和布局"""
@@ -331,6 +334,8 @@ class MainFrame(wx.Frame):
         self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
         self._UpdateFilterCount()
         # 添加多列
+        self.mcTree.AppendToggleColumn('选择', 7, mode=dv.DATAVIEW_CELL_ACTIVATABLE,
+                                       width=self.FromDIP(42), align=wx.ALIGN_CENTER)
         self.mcTree.AppendTextColumn("序列", 0, width=self.FromDIP(60))
         # # 自定义列
         # renderer = dv.DataViewTextRenderer()
@@ -394,7 +399,7 @@ class MainFrame(wx.Frame):
         contentSizer = wx.BoxSizer(wx.VERTICAL)
         contentSizer.Add(sizer, proportion=1,
                          flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
-                         border=self.FromDIP(OUTER_MARGIN_DIP))
+                         border=self.FromDIP(MAIN_WINDOW_CONTENT_MARGIN_DIP))
         panel.SetSizer(contentSizer)
         if wx.Platform == '__WXMAC__':
             frameSizer = wx.BoxSizer(wx.VERTICAL)
@@ -629,21 +634,21 @@ class MainFrame(wx.Frame):
         if available <= 0:
             return
         self._columnSizeKey = size_key
-        # 按界面显示顺序：序列、文件名、下载进度、状态、文件大小、修改时间、操作。
+        # 按界面显示顺序：选择、序列、文件名、下载进度、状态、文件大小、修改时间、操作。
         # 数字是 DIP，由 FromDIP 按系统缩放换算；文件名的 0 是占位，下面补入剩余宽度。
-        widths = [self.FromDIP(value) for value in (50, 0, 180, 80, 85, 125, 200)]
+        widths = [self.FromDIP(value) for value in (42, 50, 0, 180, 80, 85, 125, 200)]
         if wx.Platform == '__WXMAC__':
             # 辅助信息列保持紧凑，把可用空间优先留给文件名。
-            widths[2:5] = [progress_width, self.FromDIP(65), self.FromDIP(70)]
-        widths[0] = sequence_width
-        widths[5] = date_width
+            widths[3:6] = [progress_width, self.FromDIP(65), self.FromDIP(70)]
+        widths[1] = sequence_width
+        widths[6] = date_width
         widths[-1] = action_width
         # 默认窗口的可用宽度是比例分配的基准，不随最大化/还原反复改变。
         baseline = self._defaultTaskViewportWidth - column_spacing
         # 不超过默认宽度时，其他列保持基准值，剩余空间交给文件名列。
-        widths[1] = max(self.FromDIP(80), min(available, baseline) - sum(widths))
+        widths[2] = max(self.FromDIP(80), min(available, baseline) - sum(widths))
         if wx.Platform == '__WXMAC__' and available > baseline > 0:
-            widths[1] += available - baseline
+            widths[2] += available - baseline
         elif available > baseline > 0:
             # 以默认布局为基准按比例分配，不把额外空间全部留给文件名。
             # 相邻边界取差，避免整数取整后列宽之和超出窗口。
@@ -657,15 +662,15 @@ class MainFrame(wx.Frame):
             widths = scaled
         if sum(widths) > available:
             # 窄窗口先缩短进度/状态/体积/日期，保留编号、文件名和操作的可读宽度。
-            remaining = available - widths[0] - widths[1] - widths[-1]
-            flexible_end = 5 if wx.Platform == '__WXMAC__' else 6
-            if flexible_end == 5:
+            remaining = available - widths[0] - widths[1] - widths[2] - widths[-1]
+            flexible_end = 6 if wx.Platform == '__WXMAC__' else 7
+            if wx.Platform == '__WXMAC__':
                 # Mac 日期列保留完整时间所需宽度，压缩其余信息列。
-                remaining -= widths[5]
+                remaining -= widths[6]
             if remaining >= flexible_end - 2:
-                total = sum(widths[2:flexible_end])
-                widths[2:flexible_end] = [max(1, value * remaining // total)
-                                          for value in widths[2:flexible_end]]
+                total = sum(widths[3:flexible_end])
+                widths[3:flexible_end] = [max(1, value * remaining // total)
+                                          for value in widths[3:flexible_end]]
             else:
                 # 初始化时控件可能暂时小于窗口最小尺寸，待布局完成后重新适配。
                 self._columnSizeKey = None
@@ -673,7 +678,7 @@ class MainFrame(wx.Frame):
         # 批量调整时暂停重绘，完成后统一恢复。
         self.mcTree.Freeze()  # wx 方法：暂停该控件的屏幕重绘，期间仍可修改列宽。
         try:
-            self.mcTree.GetColumn(6).SetMinWidth(action_width)
+            self.mcTree.GetColumn(7).SetMinWidth(action_width)
             for index, width in enumerate(widths):
                 column = self.mcTree.GetColumn(index)
                 # 只写入真正变化的列宽，减少原生控件的布局和重绘开销。

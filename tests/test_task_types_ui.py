@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import wx
+import wx.dataview as dv
 
 from src.storage.task_repository import TaskRepository
 from src.core.task_service import TaskService
@@ -64,6 +65,35 @@ class TaskTypesUITests(unittest.TestCase):
         self.assertEqual(model.TaskInfo(1)['progress'], '50% · 1.0 KB / 2.0 KB')
         self.assertEqual(model.TaskInfo(2)['progress'], '01:01:01 · 1.0 KB')
         self.assertIsNone(model.TaskInfo(2)['percent'])
+
+    def test_task_list_checkbox_marks_only_selected_task_rows(self):
+        first = self.mp4()
+        second = self.live()
+        frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        try:
+            self.assertEqual(frame.mcTree.GetColumn(0).GetModelColumn(), 7)
+            self.assertEqual(frame.mcTree.GetColumn(0).GetRenderer().GetMode(),
+                             dv.DATAVIEW_CELL_ACTIVATABLE)
+            self.assertEqual(frame.model.GetColumnType(7), 'bool')
+            first_index = next(index for index, task in enumerate(frame.model.fileTree.items)
+                               if task.task_id == first.id)
+            second_index = next(index for index, task in enumerate(frame.model.fileTree.items)
+                                if task.task_id == second.id)
+            first_item = frame.model.ObjectToItem(frame.model._BuildKey((first_index,)))
+            second_item = frame.model.ObjectToItem(frame.model._BuildKey((second_index,)))
+            self.assertTrue(frame.model.SetValue(True, first_item, 7))
+            self.assertTrue(frame.model.GetValue(first_item, 7))
+            self.assertFalse(frame.model.GetValue(second_item, 7))
+            self.assertIn('已选 1', frame.filterCount.GetLabel())
+            self.assertLessEqual(frame.filterCount.GetTextExtent(frame.filterCount.GetLabel()).width,
+                                 frame.FromDIP(140))
+            children = []
+            if frame.model.GetChildren(first_item, children):
+                self.assertIsNone(frame.model.GetValue(children[0], 7))
+                self.assertFalse(frame.model.IsEnabled(children[0], 7))
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
 
     def test_files_are_projected_from_records_not_directory_contents(self):
         task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/mixed.m3u8',
@@ -408,7 +438,7 @@ class TaskTypesUITests(unittest.TestCase):
         frame = MainFrame(None, 'test', self.service, load_tree(self.service))
         try:
             tree = frame.mcTree
-            column = tree.GetColumn(6)
+            column = tree.GetColumn(7)
             window = tree.GetMainWindow()
             renderer = frame._actionRenderer
             wx.YieldIfNeeded()
@@ -460,7 +490,7 @@ class TaskTypesUITests(unittest.TestCase):
             window = tree.GetMainWindow()
             wx.YieldIfNeeded()
             item = frame.model.ObjectToItem(frame.model._BuildKey((0,)))
-            cell = tree.GetItemRect(item, tree.GetColumn(6))
+            cell = tree.GetItemRect(item, tree.GetColumn(7))
             actions = frame.model.TaskActions(0)
 
             def release(action_id):
@@ -527,8 +557,8 @@ class TaskTypesUITests(unittest.TestCase):
             initial_size = frame.GetSize()
 
             def measure():
-                widths = [tree.GetColumn(i).GetWidth() for i in range(7)]
-                measurements.append((widths, tree.GetItemRect(item, tree.GetColumn(6)).width,
+                widths = [tree.GetColumn(i).GetWidth() for i in range(8)]
+                measurements.append((widths, tree.GetItemRect(item, tree.GetColumn(7)).width,
                                      tree.GetClientSize().width, frame.GetSize()))
 
             measure()
@@ -537,10 +567,10 @@ class TaskTypesUITests(unittest.TestCase):
                       wx.CallLater(200, self.app.ExitMainLoop)]
             self.app.MainLoop()
             self.assertEqual(len(measurements), 3)
-            self.assertGreaterEqual(tree.GetColumn(6).GetMinWidth(), required)
+            self.assertGreaterEqual(tree.GetColumn(7).GetMinWidth(), required)
             for widths, visible_width, available, size in measurements:
                 self.assertEqual(size, initial_size)
-                self.assertGreaterEqual(widths[6], required)
+                self.assertGreaterEqual(widths[7], required)
                 self.assertGreaterEqual(visible_width, required)
                 self.assertLessEqual(sum(widths), available)
         finally:
