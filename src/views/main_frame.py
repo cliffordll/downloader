@@ -41,8 +41,8 @@ from src.core.task_encryption import (
     TaskEncryption,
     plan_task_artifacts, prepare_task_artifacts, publish_task_artifacts,
 )
-from src.media.mp4.encrypted_file import is_encrypted_mp4
-from src.media.mp4.encrypted_file import EncryptedMP4Reader, context_from_password
+from src.media.encrypted_file import is_encrypted_mp4
+from src.media.encrypted_file import EncryptedMP4Reader, context_from_password
 from src.models.file_base import TreeData
 from src.core.path_manager import PathManager
 from src.storage.task_repository import TaskDataError, TaskConflictError
@@ -1110,7 +1110,7 @@ class MainFrame(wx.Frame):
                 bool(info['done']) and not info['pending'] and not info['merging'], new_group=True)
             add('转 MP4', lambda: self.OnTaskAction(parent_item, 'merge'),
                 bool(info['total']) and info['done'] == info['total'] and not task.outputs
-                and not info['pending'] and not info['merging'])
+                and not task.encrypted and not info['pending'] and not info['merging'])
         if task.task_type in (TaskType.M3U8, TaskType.MP4) and task.task_status in (TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):
             add('检查并继续下载', lambda: self._CheckAndContinue(task.task_id),
                 new_group=task.task_type != TaskType.M3U8)
@@ -1164,10 +1164,6 @@ class MainFrame(wx.Frame):
             return
         if task.type not in (TaskType.MP4, TaskType.M3U8):
             wx.MessageBox('当前任务类型不支持加密或解密文件。',
-                          '暂时无法操作', wx.OK | wx.ICON_INFORMATION, parent=self)
-            return
-        if task.type == TaskType.M3U8 and task.status != TaskStatus.COMPLETED:
-            wx.MessageBox('M3U8 任务需要先完成下载和合并，才能加密或解密。',
                           '暂时无法操作', wx.OK | wx.ICON_INFORMATION, parent=self)
             return
         media_paths = plan_task_artifacts(task, encrypted)

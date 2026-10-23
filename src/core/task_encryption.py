@@ -11,7 +11,7 @@ import shutil
 import sys
 
 from src.core.task_files import output_path, playlist_path, segment_path
-from src.media.mp4.encrypted_file import (
+from src.media.encrypted_file import (
     decrypt_file, encrypt_file, encrypt_partial_file, is_encrypted_mp4, read_metadata,
 )
 from src.schemas.task import M3U8Task, MP4Task

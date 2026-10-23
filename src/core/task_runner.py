@@ -72,6 +72,11 @@ class TaskRunner:
             return self.mp4.start(task_id, encryption_context=context)
         if not isinstance(task, M3U8Task):
             raise ValueError('此任务类型尚不支持下载。')
+        context = None
+        if task.encrypted:
+            context = self._encryption_context_provider() if self._encryption_context_provider else None
+            if context is None:
+                raise ValueError('请先解锁加密任务，再开始或继续下载。')
         with self._lock:
             merging = task_id in self._merging
         merged = output_for(task, 'merged')
@@ -96,7 +101,8 @@ class TaskRunner:
                 self.complete(task_id)
             return 0
         try:
-            count = M3U8Downloader.StartTask(self.tasks, task_id, wanted)
+            count = M3U8Downloader.StartTask(
+                self.tasks, task_id, wanted, encryption_context=context)
             if count:
                 # 用户主动开始/重试只恢复本次选择，其他全局暂停的任务保持暂停。
                 M3U8Downloader.ResumeFiles({M3U8Downloader.FileKey(segment_path(task, s))
@@ -364,6 +370,8 @@ class TaskRunner:
             task = self._task(task_id)
             if not isinstance(task, M3U8Task):
                 raise ValueError('只有 M3U8 分片任务可以合并。')
+            if task.encrypted:
+                raise ValueError('加密的 M3U8 任务不能合并，请先解密任务。')
             if self.busy(task_id):
                 raise ValueError('任务仍在下载、检测或合并中，请稍后操作。')
             merged = output_for(task, 'merged')
@@ -412,7 +420,8 @@ class TaskRunner:
     def complete(self, task_id):
         """分片齐备后的处理顺序：检测实际时长、重建播放列表、按设置自动合并。"""
         task = self._task(task_id)
-        if not isinstance(task, M3U8Task) or task.status != TaskStatus.WAITING_MERGE:
+        if (not isinstance(task, M3U8Task) or task.encrypted
+                or task.status != TaskStatus.WAITING_MERGE):
             return  # 忽略已进入合并或合并失败后的迟到完成事件，不能自动重试合并。
         if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.media_segments):
             self.queue_duration(task_id)

@@ -8,7 +8,7 @@ import requests
 from src.core.services.browser_bridge import BrowserBridge
 from src.core.http_service import LocalHTTPService
 from src.core.services.playback_http import PlaybackHTTPServer
-from src.media.mp4.encrypted_file import encrypt_file
+from src.media.encrypted_file import encrypt_file
 
 
 class SharedHTTPServiceTests(unittest.TestCase):

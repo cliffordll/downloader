@@ -10,7 +10,7 @@ from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 
 from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.media.m3u8.aes128 import parse_iv, sequence_iv
-from src.media.mp4.encrypted_file import is_encrypted_mp4, read_metadata
+from src.media.encrypted_file import is_encrypted_mp4, read_metadata
 from src.core.task_encryption import encrypted_artifact_name
 from src.core.path_manager import PathManager
 from src.core.task_files import output_for, output_path, playlist_path, segment_path, work_dir
@@ -175,9 +175,6 @@ class TaskService:
         encrypted = bool(encrypted)
         if current.encrypted == encrypted:
             return current
-        if isinstance(current, M3U8Task) and current.status != TaskStatus.COMPLETED:
-            raise ValueError('M3U8 任务需要先完成下载和合并，才能加密或解密。')
-
         updated = current.model_copy(deep=True)
         moves = []
         candidates = []
@@ -587,6 +584,8 @@ class TaskService:
                 raise ValueError('播放时长必须是大于 0 的秒数，支持小数。')
         def change(task):
             self._require_m3u8(task)
+            if task.encrypted:
+                raise ValueError('加密的 M3U8 任务不能修改分片信息，请先解密任务。')
             segment = next((s for s in task.details.media_segments if s.sequence == sequence), None)
             if segment is None:
                 raise ValueError('分片不存在，请刷新后重试。')
@@ -626,7 +625,8 @@ class TaskService:
                 raise ValueError('分片回调身份或保存路径不匹配。')
             path = segment_path(task, segment)
             if success and path.is_file():
-                segment.status, segment.size_bytes, segment.last_error = SegmentStatus.COMPLETED, path.stat().st_size, None
+                segment.status, segment.size_bytes, segment.last_error = (
+                    SegmentStatus.COMPLETED, self._file_size(path), None)
             else:
                 segment.status, segment.size_bytes = SegmentStatus.FAILED, None
                 segment.last_error = error or '分片下载失败或文件未保存。'
@@ -667,6 +667,8 @@ class TaskService:
         self.check_files(task_id)
         def change(task):
             self._require_m3u8(task)
+            if task.encrypted:
+                raise ValueError('加密的 M3U8 任务不能合并，请先解密任务。')
             if not task.details.media_segments or task.progress.completed_segments != task.progress.total_segments:
                 raise ValueError('分片尚未全部下载，不能合并。')
             if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.media_segments):
@@ -751,6 +753,8 @@ class TaskService:
         task = self.repository.get(task_id)
         if not isinstance(task, M3U8Task):
             raise ValueError('任务不存在或不是分片任务。')
+        if task.encrypted:
+            raise ValueError('加密的 M3U8 任务不能重建明文播放列表，请先解密任务。')
         path = playlist_path(task)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None

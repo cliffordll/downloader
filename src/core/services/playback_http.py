@@ -7,7 +7,7 @@ from threading import Event, Lock, Thread
 import time
 from urllib.parse import quote, urlsplit
 
-from src.media.mp4.encrypted_file import EncryptedMP4Reader
+from src.media.encrypted_file import EncryptedMP4Reader
 
 
 class PlaybackHTTPServer:

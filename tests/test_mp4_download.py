@@ -12,7 +12,7 @@ from unittest.mock import patch
 from src.core.sys_setting import SysSetting
 from src.media.downloader import Downloader
 from src.media.mp4.mp4_downloader import MP4Downloader
-from src.media.mp4.encrypted_file import CHUNK_SIZE, EncryptedMP4Reader, EncryptedMP4Writer, is_encrypted_mp4
+from src.media.encrypted_file import CHUNK_SIZE, EncryptedMP4Reader, EncryptedMP4Writer, is_encrypted_mp4
 from src.core.task_service import TaskService
 from src.schemas.task import TaskStatus, TaskProgress
 from src.storage.task_repository import TaskRepository

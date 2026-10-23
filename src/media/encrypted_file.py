@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import tempfile
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -278,6 +279,26 @@ class EncryptedMP4Reader:
                 right = min(end - plain_start, plain_length)
                 result.extend(chunk[left:right])
         return bytes(result)
+
+
+def encrypt_bytes(data, wrapping_key, salt, iterations):
+    """Encrypt a small in-memory payload (such as an HLS AES key) in container format."""
+    with tempfile.TemporaryDirectory(prefix='avd-encrypted-bytes-') as directory:
+        path = Path(directory) / 'payload.enc'
+        writer = EncryptedMP4Writer(path, wrapping_key, salt, iterations,
+                                    plaintext_size=len(data))
+        writer.append(data)
+        writer.finalize(len(data))
+        return path.read_bytes()
+
+
+def decrypt_bytes(data, wrapping_key):
+    """Decrypt a small encrypted payload without persisting its plaintext."""
+    with tempfile.TemporaryDirectory(prefix='avd-encrypted-bytes-') as directory:
+        path = Path(directory) / 'payload.enc'
+        path.write_bytes(data)
+        reader = EncryptedMP4Reader(path, wrapping_key)
+        return reader.read_range(0, reader.size)
 
 
 def encrypt_file(source, destination, wrapping_key, salt, iterations):

@@ -159,6 +159,22 @@ class TaskRunnerTests(unittest.TestCase):
             self.assertTrue(self.runner.start(task.id))
         start.assert_called_once_with(task.id, encryption_context=context)
 
+    def test_encrypted_m3u8_start_receives_current_encryption_context(self):
+        task = self.m3u8(name='encrypted-hls', count=1)
+        task = self.service.set_task_encrypted(task.id, True)
+        context = {'wrapping_key': b'k' * 32, 'salt': b's' * 16, 'iterations': 1000}
+        self.runner.set_encryption_context_provider(lambda: context)
+        with patch.object(self.runner, 'check_files', return_value=task), \
+             patch.object(Engine, 'StartTask', return_value=1) as start:
+            self.assertEqual(self.runner.start(task.id), 1)
+        start.assert_called_once_with(self.service, task.id, [0], encryption_context=context)
+
+    def test_encrypted_m3u8_start_requires_unlocked_context(self):
+        task = self.m3u8(name='encrypted-hls', count=1)
+        self.service.set_task_encrypted(task.id, True)
+        with self.assertRaisesRegex(ValueError, '先解锁加密任务'):
+            self.runner.start(task.id)
+
     def test_rename_avoids_other_task_names_and_rejects_active_records(self):
         task = self.service.create_m3u8(self.root, 'https://example.com/index.m3u8',
                                         '#EXTM3U\n#EXTINF:4,\na.ts\n', filename='first')

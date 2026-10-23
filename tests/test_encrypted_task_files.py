@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from src.core.task_encryption import prepare_task_artifacts
-from src.media.mp4.encrypted_file import (
+from src.media.encrypted_file import (
     CHUNK_SIZE, decrypt_file, encrypt_file, encrypt_partial_file, is_encrypted_mp4,
 )
 

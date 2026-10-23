@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.parse import unquote, urlsplit
 
-from src.media.mp4.encrypted_file import (
+from src.media.encrypted_file import (
     CHUNK_SIZE, EncryptedMP4Reader, EncryptedMP4Writer, context_from_password,
     decrypt_file, encrypt_file, encrypt_partial_file, is_encrypted_mp4,
 )

@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 import wx
 
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
-from src.media.mp4.encrypted_file import is_encrypted_mp4
+from src.media.encrypted_file import is_encrypted_mp4
 from src.core.sys_setting import SysSetting
 from src.core.task_encryption import (
     plan_task_artifacts, prepare_task_artifacts, publish_task_artifacts,
@@ -19,6 +19,7 @@ from src.core.task_encryption import (
 from src.storage.task_repository import TaskRepository
 from src.core.task_service import TaskService
 from src.schemas.task import SourceType, TaskStatus
+from src.core.task_files import segment_path
 from src.views.main_frame import MainFrame
 from src.views.dialogs.m3u8_dialog import DownloadDialogMU
 from src.views.dialogs.ts_dialog import DownloadDialogTS
@@ -56,12 +57,18 @@ class TaskServiceTests(unittest.TestCase):
         task = self.create()
         task.status = TaskStatus.COMPLETED
         task = self.repository.update(task)
+        for segment in task.details.media_segments:
+            path = segment_path(task, segment)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'ts segment')
         self.assertEqual(task.details.segments[0].segment_path, 'segments/000000.ts')
 
         locked = self.service.set_task_encrypted(task.id, True)
         self.assertTrue(locked.encrypted)
+        self.assertEqual(locked.status, TaskStatus.COMPLETED)
         self.assertEqual(locked.details.segments[0].segment_path, 'segments/000000.ts.enc')
         self.assertEqual(locked.outputs[0].output_path, 'video.mp4.enc')
+        self.assertFalse((locked.save_dir / locked.outputs[0].output_path).exists())
         self.assertTrue(self.repository.get(task.id).encrypted)
 
         unlocked = self.service.set_task_encrypted(task.id, False)
@@ -69,10 +76,96 @@ class TaskServiceTests(unittest.TestCase):
         self.assertEqual(unlocked.details.segments[0].segment_path, 'segments/000000.ts')
         self.assertEqual(unlocked.outputs[0].output_path, 'video.mp4')
 
-    def test_m3u8_encryption_rejects_unfinished_task(self):
+    def test_m3u8_can_be_marked_encrypted_before_segments_exist(self):
         task = self.create()
-        with self.assertRaisesRegex(ValueError, '先完成下载和合并'):
-            self.service.set_task_encrypted(task.id, True)
+        locked = self.service.set_task_encrypted(task.id, True)
+        self.assertTrue(locked.encrypted)
+        self.assertEqual(locked.details.segments[0].segment_path, 'segments/000000.ts.enc')
+
+    def test_new_m3u8_task_can_be_marked_encrypted_before_download(self):
+        task = self.create()
+        task = self.service.set_task_encrypted(task.id, True)
+        self.assertTrue(task.encrypted)
+
+        downloading = self.service.begin_download(
+            task.id, [task.details.media_segments[0].sequence])
+        self.assertEqual(downloading.status, TaskStatus.QUEUED)
+        with self.assertRaisesRegex(ValueError, '不能合并'):
+            self.service.begin_merge(task.id)
+
+    def test_m3u8_download_encrypts_segment_at_rest(self):
+        from src.media.encrypted_file import EncryptedMP4Reader
+
+        payload = b'private m3u8 segment bytes'
+        context = {'wrapping_key': b'k' * 32, 'salt': b's' * 16, 'iterations': 1000}
+
+        class Response:
+            headers = {'Content-Length': str(len(payload))}
+
+            @staticmethod
+            def iter_content(chunk_size):
+                yield payload[:8]
+                yield payload[8:]
+
+        def download(_url, **kwargs):
+            return True, kwargs['consume'](Response())
+
+        with patch.object(M3U8Downloader, 'DownloadContent', side_effect=download):
+            path = self.root / 'segment.ts.enc'
+            success, _ = M3U8Downloader._SaveFile(
+                'https://example.com/segment.ts', str(path), storage_encrypt=context)
+
+        self.assertTrue(success)
+        self.assertNotIn(payload, path.read_bytes())
+        reader = EncryptedMP4Reader(path, context['wrapping_key'])
+        self.assertEqual(reader.read_range(0, reader.size), payload)
+
+    def test_m3u8_source_aes_transform_encrypts_clear_segment_at_rest(self):
+        from src.media.encrypted_file import EncryptedMP4Reader
+
+        source_payload = b'upstream ciphertext'
+        clear_payload = b'decrypted source bytes'
+        context = {'wrapping_key': b'k' * 32, 'salt': b's' * 16, 'iterations': 1000}
+
+        class Response:
+            headers = {'Content-Length': str(len(source_payload))}
+
+            @staticmethod
+            def iter_content(chunk_size):
+                yield source_payload
+
+        def download(_url, **kwargs):
+            return True, kwargs['consume'](Response())
+
+        with patch.object(M3U8Downloader, 'DownloadContent', side_effect=download):
+            path = self.root / 'aes-segment.ts.enc'
+            success, _ = M3U8Downloader._SaveFile(
+                'https://example.com/segment.ts', str(path),
+                transform=lambda _ciphertext: clear_payload, storage_encrypt=context)
+
+        self.assertTrue(success)
+        self.assertNotIn(clear_payload, path.read_bytes())
+        reader = EncryptedMP4Reader(path, context['wrapping_key'])
+        self.assertEqual(reader.read_range(0, reader.size), clear_payload)
+
+    def test_m3u8_aes_key_download_is_encrypted_at_rest(self):
+        task = self.service.create_m3u8(
+            self.directory, 'https://example.com/media/index.m3u8',
+            '#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n'
+            '#EXTINF:4,\na.ts\n#EXT-X-ENDLIST\n', filename='encrypted-key')
+        task = self.service.set_task_encrypted(task.id, True)
+        entry = task.details.key_entries[0]
+        key_bytes = b'0123456789abcdef'
+        context = {'wrapping_key': b'k' * 32, 'salt': b's' * 16, 'iterations': 1000}
+        with patch.object(M3U8Downloader, 'DownloadContent', return_value=(True, key_bytes)):
+            self.assertEqual(M3U8Downloader._EnsureKey(
+                self.service, task.id, entry, {}, context), key_bytes)
+
+        current = self.repository.get(task.id)
+        key_path = segment_path(current, current.details.key_entries[0])
+        self.assertTrue(is_encrypted_mp4(key_path))
+        from src.media.encrypted_file import decrypt_bytes
+        self.assertEqual(decrypt_bytes(key_path.read_bytes(), context['wrapping_key']), key_bytes)
 
     def test_m3u8_encrypt_decrypt_converts_playlist_keys_segments_and_output(self):
         content = ('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n'
