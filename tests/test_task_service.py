@@ -82,6 +82,44 @@ class TaskServiceTests(unittest.TestCase):
         self.assertEqual(output.read_bytes(), b'container')
         self.assertEqual(partial.read_bytes(), b'partial container')
 
+    def test_prepared_encrypted_mp4_updates_paths_without_removing_sources(self):
+        task = self.service.create_mp4(self.root, 'https://example.com/movie.mp4')
+        output = self.root / task.outputs[0].output_path
+        partial = self.root / task.details.temporary_path
+        encrypted = self.root / 'movie.mp4.enc'
+        encrypted_partial = self.root / 'movie.mp4.enc.part'
+        output.write_bytes(b'plain video')
+        partial.write_bytes(b'plain partial')
+        encrypted.write_bytes(b'encrypted video')
+        encrypted_partial.write_bytes(b'encrypted partial')
+
+        updated = self.service.set_task_encrypted(task.id, True, artifacts_prepared=True)
+
+        self.assertTrue(updated.encrypted)
+        self.assertEqual(updated.outputs[0].output_path, 'movie.mp4.enc')
+        self.assertEqual(updated.details.temporary_path, 'movie.mp4.enc.part')
+        self.assertEqual(output.read_bytes(), b'plain video')
+        self.assertEqual(partial.read_bytes(), b'plain partial')
+        self.assertEqual(encrypted.read_bytes(), b'encrypted video')
+        self.assertEqual(encrypted_partial.read_bytes(), b'encrypted partial')
+
+    def test_prepared_encryption_database_failure_leaves_original_files(self):
+        task = self.service.create_mp4(self.root, 'https://example.com/movie.mp4')
+        output = self.root / task.outputs[0].output_path
+        partial = self.root / task.details.temporary_path
+        output.write_bytes(b'plain video')
+        partial.write_bytes(b'plain partial')
+        (self.root / 'movie.mp4.enc').write_bytes(b'encrypted video')
+        (self.root / 'movie.mp4.enc.part').write_bytes(b'encrypted partial')
+
+        with patch.object(self.repository, 'update', side_effect=RuntimeError('database unavailable')):
+            with self.assertRaisesRegex(RuntimeError, 'database unavailable'):
+                self.service.set_task_encrypted(task.id, True, artifacts_prepared=True)
+
+        self.assertFalse(self.repository.get(task.id).encrypted)
+        self.assertEqual(output.read_bytes(), b'plain video')
+        self.assertEqual(partial.read_bytes(), b'plain partial')
+
     def test_task_lock_marker_rejects_active_tasks(self):
         task = self.create()
         self.service.begin_download(task.id, [0])

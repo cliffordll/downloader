@@ -159,8 +159,13 @@ class TaskService:
                     pass
             raise
 
-    def set_task_encrypted(self, task_id, encrypted):
-        """Persist encryption state and use .mp4.enc for encrypted MP4 artifacts."""
+    def set_task_encrypted(self, task_id, encrypted, *, artifacts_prepared=False):
+        """Persist encryption state and use .mp4.enc for encrypted MP4 artifacts.
+
+        When artifacts_prepared is true, the caller has written converted files at
+        their destination paths while retaining the original files. Only metadata
+        is updated here; the caller removes originals after this update succeeds.
+        """
         current = self.repository.get(task_id)
         if current is None:
             raise ValueError('任务不存在，请刷新后重试。')
@@ -196,12 +201,21 @@ class TaskService:
                     continue
                 if source.exists() and source.is_symlink():
                     raise ValueError(f'检测到符号链接，不能安全更改文件名：{source}')
-                if destination.exists() or destination.is_symlink():
-                    raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
-            for source, destination in candidates:
-                if source != destination and source.exists():
-                    source.rename(destination)
-                    moves.append((destination, source))
+                if artifacts_prepared:
+                    if destination.is_symlink():
+                        raise ValueError(f'检测到符号链接，不能安全更改文件名：{destination}')
+                    if source.exists() and not destination.is_file():
+                        raise FileNotFoundError(f'转换后的文件不存在，未更改任务加密状态：{destination}')
+                    if not source.exists() and destination.exists():
+                        raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
+                else:
+                    if destination.exists() or destination.is_symlink():
+                        raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
+            if not artifacts_prepared:
+                for source, destination in candidates:
+                    if source != destination and source.exists():
+                        source.rename(destination)
+                        moves.append((destination, source))
 
         updated.encrypted = encrypted
         try:

@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
+from src.views.main_frame import _prepare_mp4_artifacts
 from src.media.mp4.encrypted_file import (
     CHUNK_SIZE, decrypt_file, encrypt_file, encrypt_partial_file, is_encrypted_mp4,
 )
@@ -53,6 +55,58 @@ class EncryptedTaskFileTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, '密码不正确'):
                 decrypt_file(encrypted, restored, os.urandom(32), allow_partial=False)
+
+    def test_failure_converting_second_artifact_keeps_sources_and_removes_first_output(self):
+        key, salt = os.urandom(32), os.urandom(16)
+        context = {'wrapping_key': key, 'salt': salt, 'iterations': 1000}
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video, partial = root / 'video.mp4', root / 'video.mp4.part'
+            encrypted, encrypted_partial = root / 'video.mp4.enc', root / 'video.mp4.enc.part'
+            video.write_bytes(b'complete video')
+            partial.write_bytes(b'partial video')
+
+            with patch('src.views.main_frame.encrypt_partial_file',
+                       side_effect=OSError('disk full')):
+                with self.assertRaisesRegex(OSError, 'disk full'):
+                    _prepare_mp4_artifacts(
+                        [(video, encrypted, True), (partial, encrypted_partial, False)],
+                        True, context)
+
+            self.assertEqual(video.read_bytes(), b'complete video')
+            self.assertEqual(partial.read_bytes(), b'partial video')
+            self.assertFalse(encrypted.exists())
+            self.assertFalse(encrypted_partial.exists())
+
+    def test_prepares_all_outputs_while_preserving_sources_until_commit(self):
+        key, salt = os.urandom(32), os.urandom(16)
+        context = {'wrapping_key': key, 'salt': salt, 'iterations': 1000}
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video, partial = root / 'video.mp4', root / 'video.mp4.part'
+            encrypted, encrypted_partial = root / 'video.mp4.enc', root / 'video.mp4.enc.part'
+            plain_video, plain_partial = b'complete video', os.urandom(CHUNK_SIZE)
+            video.write_bytes(plain_video)
+            partial.write_bytes(plain_partial)
+
+            prepared = _prepare_mp4_artifacts(
+                [(video, encrypted, True), (partial, encrypted_partial, False)], True, context)
+
+            self.assertEqual(len(prepared), 2)
+            self.assertEqual(video.read_bytes(), plain_video)
+            self.assertEqual(partial.read_bytes(), plain_partial)
+            self.assertTrue(is_encrypted_mp4(encrypted))
+            self.assertTrue(is_encrypted_mp4(encrypted_partial))
+
+            restored, restored_partial = root / 'restored.mp4', root / 'restored.mp4.part'
+            restored_files = _prepare_mp4_artifacts(
+                [(encrypted, restored, True), (encrypted_partial, restored_partial, False)],
+                False, context)
+            self.assertEqual(len(restored_files), 2)
+            self.assertEqual(restored.read_bytes(), plain_video)
+            self.assertEqual(restored_partial.read_bytes(), plain_partial)
+            self.assertTrue(encrypted.exists())
+            self.assertTrue(encrypted_partial.exists())
 
 
 if __name__ == '__main__':

@@ -236,13 +236,14 @@ class TaskRunner:
                 raise ValueError('任务正在下载、检测或合并，暂时不能重命名。')
             return self.tasks.rename_task(task_id, name)
 
-    def set_task_encrypted(self, task_id, encrypted):
+    def set_task_encrypted(self, task_id, encrypted, *, artifacts_prepared=False):
         """Serialize task locking against starts, detection and merge operations."""
         with self._lock:
             task = self._task(task_id)
             if not can_rename(task):
                 raise ValueError('任务正在下载、检测或合并，暂时不能加密或解密。')
-            return self.tasks.set_task_encrypted(task_id, encrypted)
+            return self.tasks.set_task_encrypted(
+                task_id, encrypted, artifacts_prepared=artifacts_prepared)
 
     def delete(self, task_id, *, delete_files=False, scope='task'):
         """统一处理任务、工作文件和 MP4 删除；单删文件保留记录并核对状态。"""
