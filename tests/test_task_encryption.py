@@ -3,7 +3,9 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import json
+import sys
 import unittest
+from unittest.mock import patch
 
 from src.core.task_encryption import TaskEncryption
 from src.media.encrypted_file import decrypt_file, encrypt_file, HEADER_SIZE
@@ -17,6 +19,14 @@ class TaskEncryptionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / 'encryption.json'
         self.password = TaskEncryption(self.path)
+        if sys.platform == 'darwin':
+            # Never read or overwrite a real user's application Keychain item in tests.
+            store = patch('src.core.task_encryption._keychain_store_password')
+            read = patch('src.core.task_encryption._keychain_read_password', return_value=None)
+            store.start()
+            read.start()
+            self.addCleanup(read.stop)
+            self.addCleanup(store.stop)
 
     def test_password_is_persisted_as_a_salted_verifier(self):
         self.assertFalse(self.password.is_configured())
@@ -32,6 +42,7 @@ class TaskEncryptionTests(unittest.TestCase):
         self.assertEqual(context['iterations'], TaskEncryption.ITERATIONS)
         self.assertIsNone(TaskEncryption(self.path).unlock('wrong password'))
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows DPAPI integration test')
     def test_password_can_be_reused_from_current_windows_account(self):
         self.password.set_password('shared password')
         if self.password.unlock_local() is None:
@@ -39,6 +50,20 @@ class TaskEncryptionTests(unittest.TestCase):
         context = self.password.unlock_local()
         self.assertEqual(context, self.password.unlock('shared password'))
 
+    def test_password_can_be_reused_from_macos_keychain(self):
+        with patch('src.core.task_encryption.sys.platform', 'darwin'), \
+             patch('src.core.task_encryption._keychain_store_password') as store, \
+             patch('src.core.task_encryption._keychain_read_password',
+                   return_value=b'shared password') as read:
+            self.assertTrue(self.password.set_password('shared password'))
+            saved = json.loads(self.path.read_text(encoding='utf-8'))
+            self.assertNotIn('local_password', saved)
+            self.assertNotIn('shared password', self.path.read_text(encoding='utf-8'))
+            self.assertEqual(self.password.unlock_local(), self.password.unlock('shared password'))
+        store.assert_called_once_with(b'shared password')
+        read.assert_called_once_with()
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows DPAPI migration test')
     def test_old_password_record_can_be_migrated_after_verification(self):
         self.password.set_password('shared password')
         data = json.loads(self.path.read_text(encoding='utf-8'))

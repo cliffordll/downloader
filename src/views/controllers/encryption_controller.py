@@ -126,7 +126,10 @@ class EncryptionController:
                     if dialog.ShowModal() != wx.ID_OK:
                         return None
                     password = dialog.GetPassword()
-                    password_store.set_password(password)
+                    local_credential_saved = password_store.set_password(password)
+                    if not local_credential_saved:
+                        wx.MessageBox('密码已创建，但本机凭据未能保存；后续加密或解密操作仍需输入密码。',
+                                      '本机凭据不可用', wx.OK | wx.ICON_WARNING, parent=self.frame)
                     return password_store.unlock(password)
                 finally:
                     dialog.Destroy()
@@ -247,14 +250,17 @@ class EncryptionController:
                         if not is_encrypted_mp4(path):
                             raise ValueError(f'任务标记为已加密，但文件并非有效加密容器：{path.name}')
                         encrypted_files.append(path)
-            password_store.set_password(dialog.GetPassword(),
-                                        current_password=dialog.GetCurrentPassword(),
-                                        encrypted_files=encrypted_files)
+            local_credential_saved = password_store.set_password(
+                dialog.GetPassword(), current_password=dialog.GetCurrentPassword(),
+                encrypted_files=encrypted_files)
             self.frame._encryption_context = password_store.unlock(dialog.GetPassword())
             self.frame._encrypted_tasks_unlocked = True
             self.frame._ClosePlaybackServers()  # 密码变更后立即撤销旧播放 URL 和内存会话。
             self.frame._SyncLockEncryptedTasksEnabled()
-            wx.MessageBox('加密任务密码已保存。', '设置完成',
+            message = '加密任务密码已保存。'
+            if not local_credential_saved:
+                message += '\n本机凭据未能保存，后续加密或解密操作仍需输入密码。'
+            wx.MessageBox(message, '设置完成',
                           wx.OK | wx.ICON_INFORMATION, parent=self.frame)
         except (OSError, ValueError) as error:
             wx.MessageBox(str(error), '设置密码失败', wx.OK | wx.ICON_ERROR, parent=self.frame)
