@@ -11,8 +11,9 @@ from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.media.m3u8.aes128 import parse_iv, sequence_iv
 from src.media.mp4.encrypted_file import is_encrypted_mp4, read_metadata
+from src.core.task_encryption import encrypted_artifact_name
 from src.core.path_manager import PathManager
-from src.core.task_paths import output_for, output_path, playlist_path, segment_path, work_dir
+from src.core.task_files import output_for, output_path, playlist_path, segment_path, work_dir
 from src.core.task_rules import can_rename
 from src.storage.task_repository import TaskRepository
 from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus, SegmentStatus
@@ -160,7 +161,7 @@ class TaskService:
             raise
 
     def set_task_encrypted(self, task_id, encrypted, *, artifacts_prepared=False):
-        """Persist encryption state and use .mp4.enc for encrypted MP4 artifacts.
+        """Persist encryption state and relative paths for prepared task artifacts.
 
         When artifacts_prepared is true, the caller has written converted files at
         their destination paths while retaining the original files. Only metadata
@@ -174,48 +175,61 @@ class TaskService:
         encrypted = bool(encrypted)
         if current.encrypted == encrypted:
             return current
+        if isinstance(current, M3U8Task) and current.status != TaskStatus.COMPLETED:
+            raise ValueError('M3U8 任务需要先完成下载和合并，才能加密或解密。')
 
         updated = current.model_copy(deep=True)
         moves = []
+        candidates = []
         if isinstance(updated, MP4Task):
             download = output_for(updated, 'download')
             if download is None:
                 raise ValueError('MP4 任务缺少下载产物记录。')
-            old_output = output_path(current, output_for(current, 'download'))
-            if encrypted:
-                new_relative = download.output_path + '.enc'
-            else:
-                # Older local encrypted-task records kept the .mp4 name; leave those paths intact.
-                new_relative = (download.output_path[:-4]
-                                if download.output_path.lower().endswith('.mp4.enc')
-                                else download.output_path)
+            new_relative = encrypted_artifact_name(download.output_path, encrypted)
             download.output_path = new_relative
-            updated.details.temporary_path = new_relative + '.part'
-            new_output = output_path(updated, download)
-            old_temporary = current.save_dir / current.details.temporary_path
-            new_temporary = updated.save_dir / updated.details.temporary_path
+            updated.details.temporary_path = encrypted_artifact_name(
+                current.details.temporary_path, encrypted, partial=True)
+            candidates.extend([
+                (output_path(current, output_for(current, 'download')),
+                 output_path(updated, download)),
+                (current.save_dir / current.details.temporary_path,
+                 updated.save_dir / updated.details.temporary_path),
+            ])
+        elif isinstance(updated, M3U8Task):
+            for old_segment, new_segment in zip(current.details.segments, updated.details.segments):
+                old_path = old_segment.segment_path
+                new_segment.segment_path = encrypted_artifact_name(old_path, encrypted)
+                candidates.append((segment_path(current, old_segment),
+                                   updated.save_dir / updated.name / new_segment.segment_path))
+            for old_output, new_output in zip(current.outputs, updated.outputs):
+                old_path = old_output.output_path
+                new_output.output_path = encrypted_artifact_name(old_path, encrypted)
+                candidates.append((output_path(current, old_output), output_path(updated, new_output)))
+            if current.details.playlist_path:
+                old_path = current.details.playlist_path
+                updated.details.playlist_path = encrypted_artifact_name(old_path, encrypted)
+                candidates.append((playlist_path(current), playlist_path(updated)))
 
-            candidates = [(old_output, new_output), (old_temporary, new_temporary)]
+        for source, destination in candidates:
+            if source == destination:
+                continue
+            if source.exists() and source.is_symlink():
+                raise ValueError(f'检测到符号链接，不能安全更改文件名：{source}')
+            if artifacts_prepared:
+                if destination.is_symlink():
+                    raise ValueError(f'检测到符号链接，不能安全更改文件名：{destination}')
+                if source.exists() and not destination.is_file():
+                    raise FileNotFoundError(f'转换后的文件不存在，未更改任务加密状态：{destination}')
+                if not source.exists() and destination.exists():
+                    raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
+            elif destination.exists() or destination.is_symlink():
+                raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
+        if not artifacts_prepared:
             for source, destination in candidates:
-                if source == destination:
-                    continue
-                if source.exists() and source.is_symlink():
-                    raise ValueError(f'检测到符号链接，不能安全更改文件名：{source}')
-                if artifacts_prepared:
-                    if destination.is_symlink():
-                        raise ValueError(f'检测到符号链接，不能安全更改文件名：{destination}')
-                    if source.exists() and not destination.is_file():
-                        raise FileNotFoundError(f'转换后的文件不存在，未更改任务加密状态：{destination}')
-                    if not source.exists() and destination.exists():
-                        raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
-                else:
-                    if destination.exists() or destination.is_symlink():
-                        raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
-            if not artifacts_prepared:
-                for source, destination in candidates:
-                    if source != destination and source.exists():
-                        source.rename(destination)
-                        moves.append((destination, source))
+                if source != destination and source.exists():
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    source.rename(destination)
+                    moves.append((destination, source))
 
         updated.encrypted = encrypted
         try:

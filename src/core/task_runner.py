@@ -7,7 +7,7 @@ from threading import Event, RLock
 from src.core.sys_setting import SysSetting
 from src.core.task_service import TaskService
 from src.core.task_files import trash_task_files
-from src.core.task_paths import output_for, output_path, segment_path
+from src.core.task_files import output_for, output_path, segment_path
 from src.core.task_rules import can_rename
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.media.m3u8.m3u8_downloader import M3U8Downloader

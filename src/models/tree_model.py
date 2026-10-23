@@ -3,7 +3,7 @@ import json
 # import wx.gizmos as gizmos
 import wx.dataview as dv
 from src.core.path_manager import PathManager
-from src.core.task_paths import output_path, playlist_path, segment_path, work_dir
+from src.core.task_files import output_path, playlist_path, segment_path, work_dir
 from src.core.task_rules import can_rename
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter

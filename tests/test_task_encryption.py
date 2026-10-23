@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import json
 import unittest
 
 from src.core.task_encryption import TaskEncryption
@@ -29,6 +30,23 @@ class TaskEncryptionTests(unittest.TestCase):
         self.assertIsNotNone(context)
         self.assertEqual(context['iterations'], TaskEncryption.ITERATIONS)
         self.assertIsNone(TaskEncryption(self.path).unlock('wrong password'))
+
+    def test_password_can_be_reused_from_current_windows_account(self):
+        self.password.set_password('shared password')
+        if self.password.unlock_local() is None:
+            self.skipTest('This platform has no supported local secret store.')
+        context = self.password.unlock_local()
+        self.assertEqual(context, self.password.unlock('shared password'))
+
+    def test_old_password_record_can_be_migrated_after_verification(self):
+        self.password.set_password('shared password')
+        data = json.loads(self.path.read_text(encoding='utf-8'))
+        data.pop('local_password', None)
+        self.path.write_text(json.dumps(data), encoding='utf-8')
+        self.assertIsNone(self.password.unlock_local())
+        if not self.password.remember_password('shared password'):
+            self.skipTest('This platform has no supported local secret store.')
+        self.assertEqual(self.password.unlock_local(), self.password.unlock('shared password'))
 
     def test_changing_password_requires_the_current_password(self):
         self.password.set_password('first password')

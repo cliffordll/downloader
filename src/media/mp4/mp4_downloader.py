@@ -10,7 +10,7 @@ import requests
 
 from src.core.sys_setting import SysSetting
 from src.core.path_manager import PathManager
-from src.core.task_paths import output_for, output_path
+from src.core.task_files import output_for, output_path
 from src.media.downloader import Downloader
 from src.media.mp4.encrypted_file import EncryptedMP4Writer, is_encrypted_mp4, read_metadata
 from src.schemas.task import MP4Task, TaskProgress, TaskStatus, FileStatus

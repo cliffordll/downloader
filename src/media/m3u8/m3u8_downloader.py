@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 import requests
 
 from src.core.sys_setting import SysSetting
-from src.core.task_paths import segment_path
+from src.core.task_files import segment_path
 from src.media.downloader import Downloader, DownloadRemoved
 from src.schemas.task import FileStatus, SegmentStatus, TaskStatus
 

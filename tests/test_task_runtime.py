@@ -18,7 +18,7 @@ from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.core.sys_setting import SysSetting
 from src.storage.task_repository import TaskRepository
 from src.core.task_service import TaskService
-from src.core.task_paths import segment_path
+from src.core.task_files import segment_path
 from src.schemas.task import FileStatus, TaskStatus
 from src.views.main_frame import MainFrame
 from src.views.dialogs.settings_dialog import SettingsDialog

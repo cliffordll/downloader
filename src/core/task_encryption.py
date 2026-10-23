@@ -1,4 +1,4 @@
-"""Secure storage and verification for the shared encrypted-task password."""
+"""Password management and file operations for encrypted tasks."""
 
 import base64
 import hashlib
@@ -7,6 +7,14 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import shutil
+import sys
+
+from src.core.task_files import output_path, playlist_path, segment_path
+from src.media.mp4.encrypted_file import (
+    decrypt_file, encrypt_file, encrypt_partial_file, is_encrypted_mp4, read_metadata,
+)
+from src.schemas.task import M3U8Task, MP4Task
 
 from src.core.app_paths import data_dir
 
@@ -44,6 +52,9 @@ class TaskEncryption:
             'salt': base64.b64encode(salt).decode('ascii'),
             'verifier': base64.b64encode(verifier).decode('ascii'),
         }
+        protected_password = _protect_local_secret(password.encode('utf-8'))
+        if protected_password is not None:
+            data['local_password'] = base64.b64encode(protected_password).decode('ascii')
         self._write(data)
 
     def verify(self, password):
@@ -76,6 +87,30 @@ class TaskEncryption:
             return None
         return {'wrapping_key': derived, 'salt': salt, 'iterations': iterations}
 
+    def unlock_local(self):
+        """Use the current OS user's protected local credential, if available."""
+        record = self._read()
+        if record is None or not record.get('local_password'):
+            return None
+        try:
+            protected = base64.b64decode(record['local_password'], validate=True)
+            password = _unprotect_local_secret(protected).decode('utf-8')
+        except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
+            return None
+        return self.unlock(password)
+
+    def remember_password(self, password):
+        """Protect a verified password for convenient use by this OS account."""
+        if not self.verify(password):
+            raise ValueError('当前密码不正确。')
+        protected = _protect_local_secret(password.encode('utf-8'))
+        if protected is None:
+            return False
+        record = self._read()
+        record['local_password'] = base64.b64encode(protected).decode('ascii')
+        self._write(record)
+        return True
+
     def _read(self):
         try:
             data = json.loads(self.path.read_text(encoding='utf-8'))
@@ -85,6 +120,8 @@ class TaskEncryption:
                     or not isinstance(data.get('salt'), str)
                     or not isinstance(data.get('verifier'), str)):
                 raise ValueError('加密密码配置格式无效。')
+            if ('local_password' in data and not isinstance(data['local_password'], str)):
+                raise ValueError('本地加密密码格式无效。')
             return data
         except FileNotFoundError:
             return None
@@ -110,5 +147,158 @@ class TaskEncryption:
     def _derive(password, salt, iterations=ITERATIONS):
         return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt,
                                    iterations, dklen=32)
+
+
+def _protect_local_secret(secret):
+    """Protect a local secret with Windows DPAPI; other platforms use manual unlock."""
+    if sys.platform != 'win32':
+        return None
+    return _dpapi(secret, protect=True)
+
+
+def _unprotect_local_secret(secret):
+    if sys.platform != 'win32':
+        raise OSError('当前系统不支持本地凭据自动解锁。')
+    return _dpapi(secret, protect=False)
+
+
+def _dpapi(value, *, protect):
+    """Call CryptProtectData/CryptUnprotectData without a pywin32 dependency."""
+    import ctypes
+    from ctypes import wintypes
+
+    class DataBlob(ctypes.Structure):
+        _fields_ = [('size', wintypes.DWORD), ('data', ctypes.c_void_p)]
+
+    source_buffer = ctypes.create_string_buffer(value)
+    source = DataBlob(len(value), ctypes.cast(source_buffer, ctypes.c_void_p))
+    result = DataBlob()
+    crypt32 = ctypes.WinDLL('crypt32', use_last_error=True)
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    if protect:
+        function = crypt32.CryptProtectData
+        function.argtypes = [ctypes.POINTER(DataBlob), wintypes.LPCWSTR,
+                             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                             wintypes.DWORD, ctypes.POINTER(DataBlob)]
+        ok = function(ctypes.byref(source), 'AVDownloader task password', None,
+                      None, None, 0x1, ctypes.byref(result))
+        description = None
+    else:
+        function = crypt32.CryptUnprotectData
+        function.argtypes = [ctypes.POINTER(DataBlob), ctypes.POINTER(wintypes.LPWSTR),
+                             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                             wintypes.DWORD, ctypes.POINTER(DataBlob)]
+        description = wintypes.LPWSTR()
+        ok = function(ctypes.byref(source), ctypes.byref(description), None,
+                      None, None, 0x1, ctypes.byref(result))
+    if not ok:
+        error = ctypes.WinError(ctypes.get_last_error())
+        raise OSError(f'本地凭据保护失败：{error}')
+    try:
+        return ctypes.string_at(result.data, result.size)
+    finally:
+        kernel32.LocalFree(result.data)
+        if description:
+            kernel32.LocalFree(ctypes.cast(description, ctypes.c_void_p))
+
+
+def encrypted_artifact_name(name: str, encrypted: bool, *, partial: bool = False) -> str:
+    """Return a task artifact name with its encrypted suffix added or removed."""
+    lower = name.lower()
+    if encrypted:
+        if partial and lower.endswith('.part'):
+            return name[:-5] + '.enc.part'
+        return name if lower.endswith('.enc') else name + '.enc'
+    if partial and lower.endswith('.enc.part'):
+        return name[:-9] + '.part'
+    return name[:-4] if lower.endswith('.enc') else name
+
+
+def plan_task_artifacts(task, encrypted: bool):
+    """Return (source, destination, complete) entries for task-owned media."""
+    planned = []
+    if isinstance(task, MP4Task):
+        for output in task.outputs:
+            source = output_path(task, output)
+            destination_name = encrypted_artifact_name(source.name, encrypted)
+            planned.append((source, source.with_name(destination_name), True))
+        source = task.save_dir / task.details.temporary_path
+        planned.append((source, source.with_name(encrypted_artifact_name(
+            source.name, encrypted, partial=True)), False))
+    elif isinstance(task, M3U8Task):
+        for segment in task.details.segments:
+            source = segment_path(task, segment)
+            planned.append((source, source.with_name(encrypted_artifact_name(source.name, encrypted)), True))
+        for output in task.outputs:
+            source = output_path(task, output)
+            planned.append((source, source.with_name(encrypted_artifact_name(source.name, encrypted)), True))
+        if task.details.playlist_path:
+            source = playlist_path(task)
+            planned.append((source, source.with_name(encrypted_artifact_name(source.name, encrypted)), True))
+    else:
+        raise ValueError('此任务类型不支持文件加密。')
+    return planned
+
+
+def prepare_task_artifacts(media_paths, encrypted, context):
+    """Convert and verify all present artifacts while retaining every source."""
+    prepared = []
+    created = []
+    try:
+        for source, destination, complete in media_paths:
+            if not source.exists():
+                continue
+            if source.is_symlink() or not source.is_file():
+                raise ValueError(f'无法安全处理任务文件：{source}')
+            working = (destination if destination != source else
+                       source.with_name(source.name + '.tmp'))
+            if working.exists() or working.is_symlink():
+                raise FileExistsError(f'临时或目标文件已存在，未修改原文件：{working}')
+            created.append(working)
+
+            already_encrypted = is_encrypted_mp4(source)
+            if encrypted and not already_encrypted:
+                convert = encrypt_file if complete else encrypt_partial_file
+                convert(source, working, context['wrapping_key'],
+                        context['salt'], context['iterations'])
+            elif not encrypted and already_encrypted:
+                decrypt_file(source, working, context['wrapping_key'],
+                             allow_partial=not complete)
+            else:
+                shutil.copyfile(source, working)
+
+            if encrypted:
+                if not is_encrypted_mp4(working):
+                    raise OSError(f'加密文件校验失败：{working.name}')
+                header = read_metadata(working)
+                if bool(header.get('complete')) != complete:
+                    raise OSError(f'加密文件状态校验失败：{working.name}')
+            elif is_encrypted_mp4(working):
+                raise OSError(f'解密文件校验失败：{working.name}')
+            prepared.append((source, destination, working, complete))
+        return prepared
+    except Exception:
+        for path in created:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
+
+def publish_task_artifacts(prepared):
+    """Publish converted artifacts and remove the original source files."""
+    errors = []
+    for source, destination, working, _complete in prepared:
+        try:
+            if working != destination:
+                os.replace(working, destination)
+            if source != destination:
+                source.unlink(missing_ok=True)
+        except OSError as error:
+            errors.append(error)
+    return errors
 
 

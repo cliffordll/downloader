@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from src.views.main_frame import _prepare_mp4_artifacts
+from src.core.task_encryption import prepare_task_artifacts
 from src.media.mp4.encrypted_file import (
     CHUNK_SIZE, decrypt_file, encrypt_file, encrypt_partial_file, is_encrypted_mp4,
 )
@@ -66,10 +66,10 @@ class EncryptedTaskFileTests(unittest.TestCase):
             video.write_bytes(b'complete video')
             partial.write_bytes(b'partial video')
 
-            with patch('src.views.main_frame.encrypt_partial_file',
+            with patch('src.core.task_encryption.encrypt_partial_file',
                        side_effect=OSError('disk full')):
                 with self.assertRaisesRegex(OSError, 'disk full'):
-                    _prepare_mp4_artifacts(
+                    prepare_task_artifacts(
                         [(video, encrypted, True), (partial, encrypted_partial, False)],
                         True, context)
 
@@ -89,7 +89,7 @@ class EncryptedTaskFileTests(unittest.TestCase):
             video.write_bytes(plain_video)
             partial.write_bytes(plain_partial)
 
-            prepared = _prepare_mp4_artifacts(
+            prepared = prepare_task_artifacts(
                 [(video, encrypted, True), (partial, encrypted_partial, False)], True, context)
 
             self.assertEqual(len(prepared), 2)
@@ -99,7 +99,7 @@ class EncryptedTaskFileTests(unittest.TestCase):
             self.assertTrue(is_encrypted_mp4(encrypted_partial))
 
             restored, restored_partial = root / 'restored.mp4', root / 'restored.mp4.part'
-            restored_files = _prepare_mp4_artifacts(
+            restored_files = prepare_task_artifacts(
                 [(encrypted, restored, True), (encrypted_partial, restored_partial, False)],
                 False, context)
             self.assertEqual(len(restored_files), 2)

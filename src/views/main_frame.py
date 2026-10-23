@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -37,10 +36,12 @@ from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.core.sys_setting import SysSetting
 from src.core.media_players import discover_media_players
 from src.core.task_service import TaskService
-from src.core.task_encryption import TaskEncryption
-from src.core.task_paths import output_for, output_path
-from src.media.mp4.encrypted_file import decrypt_file, encrypt_file, encrypt_partial_file, is_encrypted_mp4
-from src.media.mp4.encrypted_file import read_metadata
+from src.core.task_files import output_for, output_path
+from src.core.task_encryption import (
+    TaskEncryption,
+    plan_task_artifacts, prepare_task_artifacts, publish_task_artifacts,
+)
+from src.media.mp4.encrypted_file import is_encrypted_mp4
 from src.media.mp4.encrypted_file import EncryptedMP4Reader, context_from_password
 from src.models.file_base import TreeData
 from src.core.path_manager import PathManager
@@ -49,52 +50,6 @@ from src.schemas.task import FileStatus, TaskStatus, TaskType
 
 from src.views.components.icons import app_icons, icon_image, toolbar_icon, set_titlebar_icon
 from src.views.components.renderers import TaskProgressRenderer, TaskActionRenderer
-
-
-def _prepare_mp4_artifacts(media_paths, encrypted, context):
-    """Write and validate every converted artifact without touching its source."""
-    prepared = []
-    created = []
-    try:
-        for source, destination, complete in media_paths:
-            if not source.exists():
-                continue
-            if source.is_symlink() or not source.is_file():
-                raise ValueError(f'无法安全处理 MP4 文件：{source}')
-            working = (destination if destination != source else
-                       source.with_name(source.name + '.tmp'))
-            if working.exists() or working.is_symlink():
-                raise FileExistsError(f'临时或目标文件已存在，未修改原文件：{working}')
-            created.append(working)
-
-            already_encrypted = is_encrypted_mp4(source)
-            if encrypted and not already_encrypted:
-                convert = encrypt_file if complete else encrypt_partial_file
-                convert(source, working, context['wrapping_key'],
-                        context['salt'], context['iterations'])
-            elif not encrypted and already_encrypted:
-                decrypt_file(source, working, context['wrapping_key'],
-                             allow_partial=not complete)
-            else:
-                shutil.copyfile(source, working)
-
-            if encrypted:
-                if not is_encrypted_mp4(working):
-                    raise OSError(f'加密文件校验失败：{working.name}')
-                header = read_metadata(working)
-                if bool(header.get('complete')) != complete:
-                    raise OSError(f'加密文件状态校验失败：{working.name}')
-            elif is_encrypted_mp4(working):
-                raise OSError(f'解密文件校验失败：{working.name}')
-            prepared.append((source, destination, working, complete))
-        return prepared
-    except Exception:
-        for path in created:
-            try:
-                path.unlink(missing_ok=True)
-            except OSError:
-                pass
-        raise
 
 
 class MainFrame(wx.Frame):
@@ -1203,32 +1158,25 @@ class MainFrame(wx.Frame):
                           '暂时无法操作', wx.OK | wx.ICON_INFORMATION, parent=self)
             return
         task = self.tasks.repository.get(task_id)
-        mp4_media = task is not None and task.type == TaskType.MP4
-        media_paths = []
-        if mp4_media:
-            download = output_for(task, 'download')
-            if download is not None:
-                media_paths.append((output_path(task, download), True))
-            media_paths.append((task.save_dir / task.details.temporary_path, False))
-            planned_paths = []
-            for media_path, complete in media_paths:
-                if encrypted:
-                    target_name = (media_path.name + '.enc' if complete else
-                                   media_path.name.removesuffix('.part') + '.enc.part')
-                elif complete and media_path.name.lower().endswith('.mp4.enc'):
-                    target_name = media_path.name[:-4]
-                elif not complete and media_path.name.lower().endswith('.mp4.enc.part'):
-                    target_name = media_path.name[:-9] + '.part'
-                else:
-                    target_name = media_path.name
-                destination = media_path.with_name(target_name)
-                if destination != media_path and (destination.exists() or destination.is_symlink()):
-                    wx.MessageBox(f'目标文件已存在，未修改原文件：{destination.name}',
-                                  '目标文件已存在', wx.OK | wx.ICON_WARNING, parent=self)
-                    return
-                planned_paths.append((media_path, destination, complete))
-            media_paths = planned_paths
-        needs_key = (encrypted and mp4_media) or any(
+        if task is None:
+            wx.MessageBox('任务不存在，请刷新后重试。', '任务加密失败' if encrypted else '任务解密失败',
+                          wx.OK | wx.ICON_ERROR, parent=self)
+            return
+        if task.type not in (TaskType.MP4, TaskType.M3U8):
+            wx.MessageBox('当前任务类型不支持加密或解密文件。',
+                          '暂时无法操作', wx.OK | wx.ICON_INFORMATION, parent=self)
+            return
+        if task.type == TaskType.M3U8 and task.status != TaskStatus.COMPLETED:
+            wx.MessageBox('M3U8 任务需要先完成下载和合并，才能加密或解密。',
+                          '暂时无法操作', wx.OK | wx.ICON_INFORMATION, parent=self)
+            return
+        media_paths = plan_task_artifacts(task, encrypted)
+        for media_path, destination, _complete in media_paths:
+            if destination != media_path and (destination.exists() or destination.is_symlink()):
+                wx.MessageBox(f'目标文件已存在，未修改原文件：{destination.name}',
+                              '目标文件已存在', wx.OK | wx.ICON_WARNING, parent=self)
+                return
+        needs_key = encrypted or task.encrypted or any(
             is_encrypted_mp4(path) for path, _destination, _complete in media_paths)
         context = self._encryption_context
         if needs_key and context is None:
@@ -1247,18 +1195,18 @@ class MainFrame(wx.Frame):
         try:
             prepared = []
             metadata_updated = False
-            if mp4_media:
+            if media_paths:
                 failures = []
 
                 def convert_media():
                     try:
-                        prepared.extend(_prepare_mp4_artifacts(media_paths, encrypted, context))
+                        prepared.extend(prepare_task_artifacts(media_paths, encrypted, context))
                     except Exception as error:
                         failures.append(error)
 
-                worker = Thread(target=convert_media, name='mp4-encryption')
+                worker = Thread(target=convert_media, name='task-encryption')
                 action = '加密' if encrypted else '解密'
-                progress = wx.ProgressDialog(f'MP4 {action}', '正在转换本地 MP4 文件…', parent=self,
+                progress = wx.ProgressDialog(f'任务{action}', '正在转换本地任务文件…', parent=self,
                                              style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME)
                 try:
                     worker.start()
@@ -1269,17 +1217,9 @@ class MainFrame(wx.Frame):
                     progress.Destroy()
                 if failures:
                     raise failures[0]
-            self.runner.set_task_encrypted(task_id, encrypted, artifacts_prepared=mp4_media)
+            self.runner.set_task_encrypted(task_id, encrypted, artifacts_prepared=True)
             metadata_updated = True
-            cleanup_errors = []
-            for source, destination, working, _complete in prepared:
-                try:
-                    if working != destination:
-                        os.replace(working, destination)
-                    if source != destination:
-                        source.unlink(missing_ok=True)
-                except OSError as error:
-                    cleanup_errors.append(error)
+            cleanup_errors = publish_task_artifacts(prepared)
             self.OnRefresh(None)
             if cleanup_errors:
                 action = '加密' if encrypted else '解密'
@@ -1302,24 +1242,47 @@ class MainFrame(wx.Frame):
                           wx.OK | wx.ICON_ERROR, parent=self)
 
     def _GetEncryptionContextForOperation(self):
-        """Validate the shared password without changing encrypted-task visibility."""
+        """Load the locally protected key, asking only for first-time setup/migration."""
         try:
             password_store = TaskEncryption()
             if not password_store.is_configured():
-                wx.MessageBox('请先从“任务”菜单设置加密任务密码。',
-                              '尚未设置密码', wx.OK | wx.ICON_INFORMATION, parent=self)
-                return None
-        except ValueError as error:
+                dialog = TaskPasswordDialog(self, has_existing=False)
+                try:
+                    if dialog.ShowModal() != wx.ID_OK:
+                        return None
+                    password = dialog.GetPassword()
+                    password_store.set_password(password)
+                    return password_store.unlock(password)
+                finally:
+                    dialog.Destroy()
+        except (OSError, ValueError) as error:
             wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
             return None
+
+        try:
+            context = password_store.unlock_local()
+        except (OSError, ValueError) as error:
+            wx.MessageBox(str(error), '读取本地密码失败', wx.OK | wx.ICON_ERROR, parent=self)
+            return None
+        if context is not None:
+            return context
 
         dialog = TaskUnlockDialog(self, title='验证加密任务密码')
         try:
             if dialog.ShowModal() != wx.ID_OK:
                 return None
-            context = password_store.unlock(dialog.password.GetValue())
+            password = dialog.password.GetValue()
+            context = password_store.unlock(password)
             if context is None:
                 wx.MessageBox('密码不正确。', '验证失败', wx.OK | wx.ICON_ERROR, parent=self)
+            else:
+                # 旧配置只有不可逆校验值；验证成功后保存一份由当前 Windows
+                # 用户 DPAPI 保护的凭据，以便后续加解密操作直接复用。
+                try:
+                    password_store.remember_password(password)
+                except OSError as error:
+                    wx.MessageBox(f'密码验证成功，但无法保存本地凭据；后续操作仍需验证密码。\n{error}',
+                                  '本地密码保存失败', wx.OK | wx.ICON_WARNING, parent=self)
             return context
         finally:
             dialog.Destroy()
@@ -1368,6 +1331,11 @@ class MainFrame(wx.Frame):
             if context is None:
                 wx.MessageBox('密码不正确。', '无法解锁', wx.OK | wx.ICON_ERROR, parent=self)
                 return
+            try:
+                password_store.remember_password(dialog.password.GetValue())
+            except OSError as error:
+                wx.MessageBox(f'已解锁任务，但无法保存本地凭据；下次操作仍需验证密码。\n{error}',
+                              '本地密码保存失败', wx.OK | wx.ICON_WARNING, parent=self)
             self._encryption_context = context
             self._encrypted_tasks_unlocked = True
             self._SyncLockEncryptedTasksEnabled()
@@ -1417,18 +1385,17 @@ class MainFrame(wx.Frame):
             if dialog.ShowModal() != wx.ID_OK:
                 return
             if has_existing and dialog.GetCurrentPassword() != dialog.GetPassword():
-                encrypted_mp4_exists = False
+                encrypted_files_exist = False
                 for task in self.tasks.repository.list_tasks():
-                    if task.type != TaskType.MP4:
+                    if not task.encrypted or task.type not in (TaskType.MP4, TaskType.M3U8):
                         continue
-                    download = output_for(task, 'download')
-                    candidates = ([output_path(task, download)] if download is not None else [])
-                    candidates.append(task.save_dir / task.details.temporary_path)
+                    candidates = [source for source, _destination, _complete
+                                  in plan_task_artifacts(task, not task.encrypted)]
                     if any(is_encrypted_mp4(path) for path in candidates):
-                        encrypted_mp4_exists = True
+                        encrypted_files_exist = True
                         break
-                if encrypted_mp4_exists:
-                    wx.MessageBox('当前版本暂不支持在已有加密 MP4 时修改密码。请先完成密码迁移支持后再修改。',
+                if encrypted_files_exist:
+                    wx.MessageBox('已有加密任务文件时暂不支持修改密码。请先解密任务文件后再修改。',
                                   '无法修改密码', wx.OK | wx.ICON_WARNING, parent=self)
                     return
             password_store.set_password(dialog.GetPassword(),
@@ -1438,7 +1405,7 @@ class MainFrame(wx.Frame):
             self._SyncLockEncryptedTasksEnabled()
             wx.MessageBox('加密任务密码已保存。', '设置完成',
                           wx.OK | wx.ICON_INFORMATION, parent=self)
-        except ValueError as error:
+        except (OSError, ValueError) as error:
             wx.MessageBox(str(error), '设置密码失败', wx.OK | wx.ICON_ERROR, parent=self)
         finally:
             dialog.Destroy()
