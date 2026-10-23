@@ -222,6 +222,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             'status': status,
             'failed': failed,
             'pending': pending,
+            'requesting': requesting,
             'merging': merging,
             'paused': paused,
             'progress': '100%' if output_only else f'{int(done * 100 / total) if total else 0}% · {done}/{total}',
@@ -336,7 +337,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 dict(id='more', label='更多', enabled=True),
             ]
         info = self.TaskInfo(index)
-        idle = not info['pending'] and not info['merging']
+        # 已暂停的任务仍留在待下载队列中；只有存在在途请求时才不能删除。
+        idle = (not info['pending'] or (info['paused'] and not info['requesting'])) \
+            and not info['merging']
         # 主动开始/重试由 TaskRunner 恢复当前任务，不受其他任务暂停状态阻挡。
         downloadable = idle and not task.outputs
 

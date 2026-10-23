@@ -341,8 +341,7 @@ class TaskActionsController:
             # 暂停中的 M3U8 任务仍保留在内存等待队列里，runner.delete 会安全移除
             # 这部分队列；这里若直接用 busy() 拦截，就会导致必须重启后才能删除。
             if (scope == 'task' and self.frame.runner.busy(task.task_id)
-                    and not (task.task_type == TaskType.M3U8
-                             and task.task_status == TaskStatus.PAUSED)):
+                    and task.task_type != TaskType.M3U8):
                 raise ValueError('任务仍在下载、检测或合并中，暂时不能删除。')
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(str(error), '无法删除', wx.OK | wx.ICON_WARNING, parent=self.frame)
