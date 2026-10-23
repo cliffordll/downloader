@@ -99,6 +99,24 @@ class TaskTypesUITests(unittest.TestCase):
         item = model.ObjectToItem(model._BuildKey((0,)))
         self.assertEqual(model.GetValue(item, 1), '🔒 MP4')
 
+    def test_paused_m3u8_task_can_be_deleted_after_inflight_requests_finish(self):
+        from src.media.m3u8.m3u8_downloader import M3U8Downloader
+        task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
+                                        '#EXTM3U\n#EXTINF:4,\na.ts\n')
+        model = self.model()
+        self.addCleanup(model.DecRef)
+        key = M3U8Downloader.FileKey(model.fileTree.items[0].childs[0].fileName)
+        paused = {'pending': {key}, 'requesting': set(), 'paused': False,
+                  'paused_files': {key}, 'failed': set(), 'errors': {}}
+        with patch.object(M3U8Downloader, 'Snapshot', return_value=paused):
+            self.assertTrue(next(action for action in model.TaskActions(0)
+                                 if action['id'] == 'delete')['enabled'])
+
+        active = {**paused, 'requesting': {key}, 'paused_files': set()}
+        with patch.object(M3U8Downloader, 'Snapshot', return_value=active):
+            self.assertFalse(next(action for action in model.TaskActions(0)
+                                  if action['id'] == 'delete')['enabled'])
+
     def test_encryption_dialogs_share_the_existing_task_dialog_layout(self):
         dialogs = [TaskPasswordDialog(None, has_existing=True), TaskUnlockDialog(None)]
         try:
@@ -175,6 +193,7 @@ class TaskTypesUITests(unittest.TestCase):
         password_store.set_password.assert_called_once_with('new-secret')
         unlock_prompt.assert_not_called()
         dialog.Destroy.assert_called_once()
+
 
     def test_password_eye_toggles_visibility_without_changing_value(self):
         dialog = TaskPasswordDialog(None, has_existing=True)
