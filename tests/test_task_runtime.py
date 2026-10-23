@@ -18,6 +18,7 @@ from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.core.sys_setting import SysSetting
 from src.storage.task_repository import TaskRepository
 from src.core.task_service import TaskService
+from src.core.task_files import segment_path
 from src.schemas.task import FileStatus, TaskStatus
 from src.views.main_frame import MainFrame
 from src.views.dialogs.settings_dialog import SettingsDialog
@@ -67,8 +68,8 @@ class TaskRuntimeTests(unittest.TestCase):
         return frame
 
     def write_segment(self, task, sequence):
-        path = task.save_dir / next(segment.segment_path for segment in task.details.segments
-                                    if segment.sequence == sequence)
+        segment = next(segment for segment in task.details.segments if segment.sequence == sequence)
+        path = segment_path(task, segment)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b'12345')
         return path
@@ -89,7 +90,8 @@ class TaskRuntimeTests(unittest.TestCase):
             record = self.repository.get(task_id)
             if record is None:
                 return
-            keys = {M3U8Downloader.FileKey(record.save_dir / record.name / s.segment_path) for s in record.details.segments}
+            keys = {M3U8Downloader.FileKey(segment_path(record, segment))
+                    for segment in record.details.segments}
             M3U8Downloader._jobs[task_id] = [self.service, keys, record.status]
         key = M3U8Downloader.FileKey(filename)
         M3U8Downloader._Deliver(('url', filename, M3U8Downloader._SaveResult, context, key), success)

@@ -1,15 +1,14 @@
 """单个 TS 分片的下载地址和播放时长编辑窗口。"""
 import wx
 
-from src.views.components.icons import app_icons
+from src.views.dialogs.base_dialog import AppDialog
 
 
-class SegmentEditDialog(wx.Dialog):
+class SegmentEditDialog(AppDialog):
     def __init__(self, parent, url, duration, *, completed=False):
         super().__init__(parent, title='修改分片信息',
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
-        self.SetIcons(app_icons())
-        border = self.FromDIP(5)
+        border = self.dialog_spacing
         layout = wx.BoxSizer(wx.VERTICAL)
         # 长 URL 仅视觉换行，GetValue 仍返回原始地址，不插入换行符。
         self.url = wx.TextCtrl(self, value=url, style=wx.TE_MULTILINE | wx.TE_CHARWRAP)

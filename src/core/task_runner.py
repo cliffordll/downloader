@@ -7,7 +7,7 @@ from threading import Event, RLock
 from src.core.sys_setting import SysSetting
 from src.core.task_service import TaskService
 from src.core.task_files import trash_task_files
-from src.core.task_paths import output_for, output_path, segment_path
+from src.core.task_files import output_for, output_path, segment_path
 from src.core.task_rules import can_rename
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
@@ -34,6 +34,11 @@ class TaskRunner:
         self._duration_jobs = set()
         self._duration_blocked = set()
         self._merging = set()
+        self._encryption_context_provider = None
+
+    def set_encryption_context_provider(self, provider):
+        """Supply the unlocked password context only to explicitly encrypted jobs."""
+        self._encryption_context_provider = provider
 
     def _task(self, task_id):
         task = self.tasks.repository.get(task_id)
@@ -61,9 +66,17 @@ class TaskRunner:
             task = self.check_files(task_id)
             if task.status == TaskStatus.COMPLETED:
                 return False
-            return self.mp4.start(task_id)
+            if not task.encrypted:
+                return self.mp4.start(task_id)
+            context = self._encryption_context_provider() if self._encryption_context_provider else None
+            return self.mp4.start(task_id, encryption_context=context)
         if not isinstance(task, M3U8Task):
             raise ValueError('此任务类型尚不支持下载。')
+        context = None
+        if task.encrypted:
+            context = self._encryption_context_provider() if self._encryption_context_provider else None
+            if context is None:
+                raise ValueError('请先解锁加密任务，再开始或继续下载。')
         with self._lock:
             merging = task_id in self._merging
         merged = output_for(task, 'merged')
@@ -88,7 +101,8 @@ class TaskRunner:
                 self.complete(task_id)
             return 0
         try:
-            count = M3U8Downloader.StartTask(self.tasks, task_id, wanted)
+            count = M3U8Downloader.StartTask(
+                self.tasks, task_id, wanted, encryption_context=context)
             if count:
                 # 用户主动开始/重试只恢复本次选择，其他全局暂停的任务保持暂停。
                 M3U8Downloader.ResumeFiles({M3U8Downloader.FileKey(segment_path(task, s))
@@ -228,6 +242,15 @@ class TaskRunner:
                 raise ValueError('任务正在下载、检测或合并，暂时不能重命名。')
             return self.tasks.rename_task(task_id, name)
 
+    def set_task_encrypted(self, task_id, encrypted, *, artifacts_prepared=False):
+        """Serialize task locking against starts, detection and merge operations."""
+        with self._lock:
+            task = self._task(task_id)
+            if not can_rename(task):
+                raise ValueError('任务正在下载、检测或合并，暂时不能加密或解密。')
+            return self.tasks.set_task_encrypted(
+                task_id, encrypted, artifacts_prepared=artifacts_prepared)
+
     def delete(self, task_id, *, delete_files=False, scope='task'):
         """统一处理任务、工作文件和 MP4 删除；单删文件保留记录并核对状态。"""
         if scope not in ('task', 'work', 'output'):
@@ -347,6 +370,8 @@ class TaskRunner:
             task = self._task(task_id)
             if not isinstance(task, M3U8Task):
                 raise ValueError('只有 M3U8 分片任务可以合并。')
+            if task.encrypted:
+                raise ValueError('加密的 M3U8 任务不能合并，请先解密任务。')
             if self.busy(task_id):
                 raise ValueError('任务仍在下载、检测或合并中，请稍后操作。')
             merged = output_for(task, 'merged')
@@ -395,7 +420,8 @@ class TaskRunner:
     def complete(self, task_id):
         """分片齐备后的处理顺序：检测实际时长、重建播放列表、按设置自动合并。"""
         task = self._task(task_id)
-        if not isinstance(task, M3U8Task) or task.status != TaskStatus.WAITING_MERGE:
+        if (not isinstance(task, M3U8Task) or task.encrypted
+                or task.status != TaskStatus.WAITING_MERGE):
             return  # 忽略已进入合并或合并失败后的迟到完成事件，不能自动重试合并。
         if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.media_segments):
             self.queue_duration(task_id)

@@ -99,20 +99,12 @@ class TaskRepositoryTests(unittest.TestCase):
         output.write_bytes(b'keep')
         other = self.repo.create(self.task('其他任务'))
         self.assertEqual(output.read_bytes(), b'keep')
-        with closing(sqlite3.connect(self.path)) as connection, connection:
-            connection.execute('PRAGMA foreign_keys=ON')
-            connection.execute(
-                'INSERT INTO task_encryption '
-                '(task_id, format_version, kdf_salt, wrapped_key_nonce, wrapped_key) '
-                'VALUES (?, 1, ?, ?, ?)', (str(task.id), b'salt', b'nonce', b'wrapped-key'))
         self.assertTrue(self.repo.delete(task.id))
         self.assertFalse(self.repo.delete(task.id))
         with closing(sqlite3.connect(self.path)) as connection:
             for table in ('task_m3u8', 'task_segments', 'task_outputs'):
                 self.assertEqual(connection.execute(f'SELECT COUNT(*) FROM {table} WHERE task_id=?',
                                                     (str(task.id),)).fetchone()[0], 0)
-            self.assertEqual(connection.execute('SELECT COUNT(*) FROM task_encryption WHERE task_id=?',
-                                                (str(task.id),)).fetchone()[0], 0)
         self.assertEqual(self.repo.list_tasks(), [other])
         with self.assertRaises(TaskConflictError):
             self.repo.update(task)

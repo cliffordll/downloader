@@ -55,6 +55,7 @@ class SettingsTests(unittest.TestCase):
                         {'max_workers': 0}, {'max_workers': 1.5}, {'max_workers': True},
                         {'request_interval': float('nan')}, {'request_interval': -1},
                         {'max_retries': 11}, {'connect_timeout': 0}, {'read_timeout': 601},
+                        {'playback_port': -1}, {'playback_port': 65536}, {'playback_port': True},
                         {'download_dir': 'relative'}, {'ffmpeg_path': str(self.root / 'missing.exe')},
                         {'auto_merge': 'true'}, {'default_expand_tasks': 'true'}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
@@ -413,11 +414,13 @@ class DownloadSettingsTests(unittest.TestCase):
 
     def test_completion_event_delegates_task_identity_to_runner(self):
         from src.views.main_frame import MainFrame
+        from src.views.controllers.task_actions_controller import TaskActionsController
         event = Mock()
         event.GetData.return_value = {'fileName': 'download.m3u8'}
         task = SimpleNamespace(task_id='task-id', parent=SimpleNamespace(fileName='download.m3u8'), outputs=[])
         model = Mock(fileTree=SimpleNamespace(items=[task]))
         frame = SimpleNamespace(model=model, runner=Mock(), _RefreshWithState=Mock())
+        frame.task_actions = TaskActionsController(frame)
         MainFrame.OnAllTSDownload(frame, event)
         frame.runner.complete.assert_called_once_with('task-id')
 

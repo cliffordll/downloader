@@ -43,6 +43,7 @@ class FileItem(BaseModel):
 
 class TreeItem(BaseModel):
     rename_allowed: bool = False
+    encrypted: bool = False
     duration_pending: bool = False
     task_type: TaskType = TaskType.M3U8
     save_dir: Optional[Path] = None

@@ -2687,6 +2687,22 @@
       "source": "source/tools/merge.png"
     },
     {
+      "category": "tools",
+      "name": "eye",
+      "label": "显示密码",
+      "origin": "password-entry",
+      "added": true,
+      "source": "source/tools/eye.png"
+    },
+    {
+      "category": "tools",
+      "name": "eye-off",
+      "label": "隐藏密码",
+      "origin": "password-entry",
+      "added": true,
+      "source": "source/tools/eye-off.png"
+    },
+    {
       "category": "app",
       "name": "download",
       "label": "下载",

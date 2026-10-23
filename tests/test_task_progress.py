@@ -33,7 +33,7 @@ class TaskProgressTests(unittest.TestCase):
             patch.object(M3U8Downloader, '_paused_files', set()),
                         patch.object(M3U8Downloader, '_user_paused', threading.Event()),
                         patch.object(FFmpegConverter, '_outputs', set()),
-                        patch('src.views.main_frame.load_tree', return_value=self.tree)):
+                        patch('src.views.controllers.task_list_controller.load_tree', return_value=self.tree)):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.service = Mock()  # 展示测试显式注入服务替身，避免访问用户任务库。
@@ -333,9 +333,11 @@ class TaskProgressTests(unittest.TestCase):
             self.app.ProcessPendingEvents()
 
     def test_unknown_task_notification_does_not_change_rows(self):
+        from src.views.controllers.task_actions_controller import TaskActionsController
         self.tree.items.insert(0, TreeItem(parent=FileItem(fileName='other/download.m3u8'),
                                         childs=[FileItem(fileName='other/a.ts')]))
         receiver = SimpleNamespace(model=self.model)
+        receiver.task_actions = TaskActionsController(receiver)
         MainFrame._M3U8Changed(receiver, 'unknown-task-id')
         self.assertEqual(self.tree.items[0].download, 0)
         self.assertEqual(self.tree.items[1].download, 1)
@@ -410,7 +412,7 @@ class TaskProgressTests(unittest.TestCase):
             def inspect_menu(menu):
                 entries = {entry.GetItemLabelText(): entry for entry in menu.GetMenuItems()
                            if not entry.IsSeparator()}
-                self.assertEqual(set(entries), {'重命名…', '打开文件夹', '检测分片时长', '转 MP4', '播放视频', '另存为…'})
+                self.assertEqual(set(entries), {'重命名…', '加密任务', '打开文件夹', '检测分片时长', '转 MP4', '播放视频', '另存为…'})
                 self.assertTrue(entries['打开文件夹'].IsEnabled())
                 self.assertFalse(entries['播放视频'].IsEnabled())
                 self.assertFalse(entries['转 MP4'].IsEnabled())
@@ -458,6 +460,24 @@ class TaskProgressTests(unittest.TestCase):
                     frame.OnDeleteTask(self.task)
                     delete.assert_called_once_with(self.task.task_id, delete_files=checked)
                     dialog.return_value.Destroy.assert_called_once()
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_paused_m3u8_can_reach_delete_confirmation_with_queued_files(self):
+        from src.schemas.task import TaskStatus
+        self.task.task_status = TaskStatus.PAUSED
+        M3U8Downloader._pending.add(self.key)
+        M3U8Downloader._paused_files.add(self.key)
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            with patch.object(frame.runner, 'busy', return_value=True), \
+                 patch('src.views.main_frame.wx.RichMessageDialog') as dialog:
+                dialog.return_value.ShowModal.return_value = wx.ID_NO
+                frame.OnDeleteTask(self.task)
+                dialog.assert_called_once()
+                dialog.return_value.Destroy.assert_called_once()
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
@@ -531,7 +551,7 @@ class TaskProgressTests(unittest.TestCase):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
-            with patch('src.views.main_frame.SegmentEditDialog') as dialog, \
+            with patch('src.views.controllers.task_actions_controller.SegmentEditDialog') as dialog, \
                  patch.object(frame.runner, 'update_segment_info') as update, \
                  patch.object(frame, '_SyncDownloads') as sync:
                 dialog.return_value.ShowModal.return_value = wx.ID_CANCEL
@@ -699,10 +719,10 @@ class TaskProgressTests(unittest.TestCase):
             view_labels = ['全部展开', '全部折叠', '刷新', '查找', '默认展开任务']
             if wx.Platform != '__WXMAC__':
                 view_labels.append('显示工具栏')
-            view_labels.append('显示状态栏')
+            view_labels.extend(('显示状态栏', '本机服务状态…'))
             for index, expected in enumerate((
-                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
-                ['全部暂停', '全部继续'],
+                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '播放加密 MP4…', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
+                ['全部暂停', '全部继续', '设置加密密码…', '显示加密任务…', '隐藏加密任务'],
                 view_labels,
                 ['使用说明', '关于'],
             )):
@@ -723,8 +743,13 @@ class TaskProgressTests(unittest.TestCase):
                 return
             tools = [frame.toolBar.GetToolByPos(i).GetLabel()
                      for i in range(frame.toolBar.GetToolsCount())]
-            for label in ('浏览器扩展配对', '全部展开', '全部折叠', '全部暂停', '刷新', '设置'):
+            for label in ('浏览器扩展配对', '全部展开', '全部折叠', '全部暂停', '刷新',
+                          '显示加密任务', '设置'):
                 self.assertIn(label, tools)
+            self.assertNotIn('设置加密密码', tools)
+            self.assertNotIn('隐藏加密任务', tools)
+            self.assertEqual(sum(label in ('显示加密任务', '隐藏加密任务') for label in tools), 1)
+            self.assertEqual(frame._encryptedTasksTool.GetLabel(), '显示加密任务')
             self.assertFalse(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
             M3U8Downloader._pending.add(self.key)
             frame._UpdatePauseTool()
@@ -732,6 +757,32 @@ class TaskProgressTests(unittest.TestCase):
             M3U8Downloader.Pause()
             frame._UpdatePauseTool()
             self.assertEqual(frame._pauseTool.GetLabel(), '全部继续')
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_locking_again_hides_encrypted_tasks_immediately(self):
+        self.task.encrypted = True
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            self.assertNotIn(0, frame.model.visible_tasks)
+            frame._encrypted_tasks_unlocked = True
+            frame._SyncLockEncryptedTasksEnabled()
+            self.assertTrue(frame.toolBar.GetToolEnabled(frame._encryptedTasksTool.GetId()))
+            self.assertEqual(frame._encryptedTasksTool.GetLabel(), '隐藏加密任务')
+            frame._ApplyTaskFilter(force=True)
+            self.assertTrue(frame.model.visible_tasks is None or 0 in frame.model.visible_tasks)
+
+            event = wx.CommandEvent(wx.EVT_TOOL.typeId, frame._encryptedTasksTool.GetId())
+            event.SetEventObject(frame.toolBar)
+            frame.toolBar.GetEventHandler().ProcessEvent(event)
+
+            self.assertFalse(frame._encrypted_tasks_unlocked)
+            self.assertFalse(frame.lockEncryptedTasksItem.IsEnabled())
+            self.assertTrue(frame.toolBar.GetToolEnabled(frame._encryptedTasksTool.GetId()))
+            self.assertEqual(frame._encryptedTasksTool.GetLabel(), '显示加密任务')
+            self.assertNotIn(0, frame.model.visible_tasks)
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
@@ -761,7 +812,7 @@ class TaskProgressTests(unittest.TestCase):
             frame.OnPauseDownloads(None)
             self.assertEqual(frame._GlobalDownloadActions(), (True, False))
             self.assertEqual([item.GetItemLabelText() for item in frame.menuBar.GetMenu(1).GetMenuItems()],
-                             ['全部暂停', '全部继续'])
+                             ['全部暂停', '全部继续', '', '设置加密密码…', '显示加密任务…', '隐藏加密任务'])
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
@@ -1033,6 +1084,7 @@ class TaskProgressTests(unittest.TestCase):
             layouts = {}
             for width in (780, 1024, 1400, 850, 1024):
                 frame.mcTree.SetSize(frame.FromDIP(wx.Size(width, 400)))
+                frame.mcTree.GetMainWindow().SetSize(frame.mcTree.GetClientSize())
                 frame._FitTaskColumns()
                 columns = [frame.mcTree.GetColumn(i).GetWidth() for i in range(7)]
                 self.assertLessEqual(sum(columns), frame.mcTree.GetClientSize().width)
@@ -1144,6 +1196,43 @@ class TaskProgressTests(unittest.TestCase):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
             self.assertEqual(shown, [frame])
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_action_column_width_is_stable_after_native_first_show(self):
+        width_before_show = []
+
+        def show_after_measuring(frame):
+            width_before_show.append(frame.mcTree.GetColumn(6).GetWidth())
+            return wx.Frame.Show(frame)
+
+        with patch.object(MainFrame, 'Show', new=show_after_measuring):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            wx.YieldIfNeeded()
+            wx.YieldIfNeeded()
+            self.assertEqual(frame.mcTree.GetColumn(6).GetWidth(), width_before_show[0])
+            self.assertEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(7)),
+                             frame.mcTree.GetMainWindow().GetClientSize().width)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_column_fit_uses_viewport_width_when_vertical_scrollbar_appears(self):
+        import copy
+        items = []
+        for index in range(100):
+            item = copy.deepcopy(self.task)
+            item.parent.fileName = f'task/{index}.m3u8'
+            items.append(item)
+        frame = MainFrame(None, 'test', self.service, TreeData(items=items))
+        try:
+            wx.YieldIfNeeded()
+            wx.YieldIfNeeded()
+            viewport_width = frame.mcTree.GetMainWindow().GetClientSize().width
+            self.assertEqual(sum(frame.mcTree.GetColumn(i).GetWidth() for i in range(7)),
+                             viewport_width)
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()

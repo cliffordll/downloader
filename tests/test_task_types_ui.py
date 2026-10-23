@@ -1,6 +1,7 @@
 from src.models.tree_model import load_tree
 """混合类型任务的列表投影及事件分发；不请求网络、不修改用户任务库。"""
 from pathlib import Path
+import ctypes
 import os
 import subprocess
 import sys
@@ -16,6 +17,8 @@ from src.core.task_service import TaskService
 from src.models.tree_model import MultiColumnTreeModel, to_tree_item
 from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskOutput, TaskProgress, TaskStatus, FileStatus
 from src.views.main_frame import MainFrame, TaskActionRenderer, TaskProgressRenderer
+from src.views.dialogs.task_password_dialog import TaskPasswordDialog
+from src.views.dialogs.task_unlock_dialog import TaskUnlockDialog
 
 
 class TaskTypesUITests(unittest.TestCase):
@@ -68,6 +71,7 @@ class TaskTypesUITests(unittest.TestCase):
         row = to_tree_item(task)
         self.assertEqual(row.parent.absUri, task.source_url)
         self.assertEqual([file.displayName for file in row.manifests.values()], ['download.m3u8'])
+
         self.assertEqual(row.outputs, [])
         self.assertEqual(row.childs[0].displayName, '000000.ts')
         playlist = task.save_dir / task.name / task.details.playlist_path
@@ -85,6 +89,144 @@ class TaskTypesUITests(unittest.TestCase):
         concat.unlink()
         row = to_tree_item(task, previous=row)
         self.assertNotIn(-3, row.manifests)
+
+    def test_encrypted_task_is_marked_in_the_list_projection(self):
+        task = self.mp4(encrypted=True)
+        row = to_tree_item(task)
+        self.assertTrue(row.encrypted)
+        self.assertEqual(row.parent.displayName, 'MP4')
+        model = self.model()
+        item = model.ObjectToItem(model._BuildKey((0,)))
+        self.assertEqual(model.GetValue(item, 1), '🔒 MP4')
+
+    def test_paused_m3u8_task_can_be_deleted_after_inflight_requests_finish(self):
+        from src.media.m3u8.m3u8_downloader import M3U8Downloader
+        task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/index.m3u8',
+                                        '#EXTM3U\n#EXTINF:4,\na.ts\n')
+        model = self.model()
+        self.addCleanup(model.DecRef)
+        key = M3U8Downloader.FileKey(model.fileTree.items[0].childs[0].fileName)
+        paused = {'pending': {key}, 'requesting': set(), 'paused': False,
+                  'paused_files': {key}, 'failed': set(), 'errors': {}}
+        with patch.object(M3U8Downloader, 'Snapshot', return_value=paused):
+            self.assertTrue(next(action for action in model.TaskActions(0)
+                                 if action['id'] == 'delete')['enabled'])
+
+        active = {**paused, 'requesting': {key}, 'paused_files': set()}
+        with patch.object(M3U8Downloader, 'Snapshot', return_value=active):
+            self.assertFalse(next(action for action in model.TaskActions(0)
+                                  if action['id'] == 'delete')['enabled'])
+
+    def test_encryption_dialogs_share_the_existing_task_dialog_layout(self):
+        dialogs = [TaskPasswordDialog(None, has_existing=True), TaskUnlockDialog(None)]
+        try:
+            expected_width = dialogs[0].FromDIP(440)
+            for dialog in dialogs:
+                self.assertEqual(dialog.GetClientSize().width, expected_width)
+            password = dialogs[0]
+            field_x = password.password.GetPosition().x
+            self.assertEqual(password.confirm_password.GetPosition().x, field_x)
+            self.assertEqual(dialogs[1].password.GetPosition().x, field_x)
+            self.assertLess(field_x, password.FromDIP(90))
+            self.assertEqual(password.ok.GetMinSize().width,
+                             password.FindWindowById(wx.ID_CANCEL).GetMinSize().width)
+            self.assertEqual(dialogs[1].unlock.GetLabel(), '确定')
+            self.assertEqual(dialogs[1].unlock.GetMinSize().width,
+                             dialogs[1].cancel.GetMinSize().width)
+        finally:
+            for dialog in dialogs:
+                dialog.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_encryption_operation_validates_password_without_revealing_other_tasks(self):
+        from src.views.controllers.encryption_controller import EncryptionController
+        context = {'wrapping_key': b'key', 'salt': b'salt', 'iterations': 1}
+        password_store = Mock(is_configured=Mock(return_value=True),
+                              unlock_local=Mock(return_value=None),
+                              unlock=Mock(return_value=context))
+        dialog = Mock()
+        dialog.ShowModal.return_value = wx.ID_OK
+        dialog.password.GetValue.return_value = 'secret'
+        frame = SimpleNamespace(_encryption_context=None, _encrypted_tasks_unlocked=False)
+        frame.encryption = EncryptionController(frame)
+        with patch('src.views.controllers.encryption_controller.TaskEncryption', return_value=password_store), \
+             patch('src.views.controllers.encryption_controller.TaskUnlockDialog', return_value=dialog) as prompt:
+            result = frame.encryption._GetEncryptionContextForOperation()
+        self.assertEqual(result, context)
+        prompt.assert_called_once_with(frame, title='验证加密任务密码')
+        password_store.unlock.assert_called_once_with('secret')
+        password_store.remember_password.assert_called_once_with('secret')
+        self.assertIsNone(frame._encryption_context)
+        self.assertFalse(frame._encrypted_tasks_unlocked)
+        dialog.Destroy.assert_called_once()
+
+    def test_encryption_operation_reuses_protected_local_password(self):
+        from src.views.controllers.encryption_controller import EncryptionController
+        context = {'wrapping_key': b'key', 'salt': b'salt', 'iterations': 1}
+        password_store = Mock(is_configured=Mock(return_value=True),
+                              unlock_local=Mock(return_value=context))
+        frame = SimpleNamespace(_encryption_context=None, _encrypted_tasks_unlocked=False)
+        frame.encryption = EncryptionController(frame)
+        with patch('src.views.controllers.encryption_controller.TaskEncryption', return_value=password_store), \
+             patch('src.views.controllers.encryption_controller.TaskUnlockDialog') as prompt:
+            result = frame.encryption._GetEncryptionContextForOperation()
+        self.assertEqual(result, context)
+        password_store.unlock_local.assert_called_once_with()
+        prompt.assert_not_called()
+
+    def test_encryption_operation_prompts_to_create_missing_password(self):
+        from src.views.controllers.encryption_controller import EncryptionController
+        context = {'wrapping_key': b'key', 'salt': b'salt', 'iterations': 1}
+        password_store = Mock(is_configured=Mock(return_value=False),
+                              unlock=Mock(return_value=context))
+        dialog = Mock()
+        dialog.ShowModal.return_value = wx.ID_OK
+        dialog.GetPassword.return_value = 'new-secret'
+        frame = SimpleNamespace(_encryption_context=None, _encrypted_tasks_unlocked=False)
+        frame.encryption = EncryptionController(frame)
+        with patch('src.views.controllers.encryption_controller.TaskEncryption', return_value=password_store), \
+             patch('src.views.controllers.encryption_controller.TaskPasswordDialog', return_value=dialog) as prompt, \
+             patch('src.views.controllers.encryption_controller.TaskUnlockDialog') as unlock_prompt:
+            result = frame.encryption._GetEncryptionContextForOperation()
+        self.assertEqual(result, context)
+        prompt.assert_called_once_with(frame, has_existing=False)
+        password_store.set_password.assert_called_once_with('new-secret')
+        unlock_prompt.assert_not_called()
+        dialog.Destroy.assert_called_once()
+
+
+    def test_password_eye_toggles_visibility_without_changing_value(self):
+        dialog = TaskPasswordDialog(None, has_existing=True)
+        try:
+            field = dialog.password
+            dialog.Show()
+            self.app.Yield()
+            field.Layout()
+            self.assertGreaterEqual(
+                field.eye.GetPosition().x,
+                field.text.GetPosition().x + field.text.GetSize().width)
+            self.assertLessEqual(field.eye.GetPosition().x + field.eye.GetSize().width,
+                                 field.GetClientSize().width)
+            self.assertTrue(field.eye.IsShownOnScreen())
+            field.text.ChangeValue('test-password')
+            self.assertTrue(field.text.GetWindowStyleFlag() & wx.TE_PASSWORD)
+            field.eye.GetEventHandler().ProcessEvent(wx.MouseEvent(wx.wxEVT_LEFT_UP))
+            self.assertTrue(field.visible)
+            self.assertFalse(field.text.GetWindowStyleFlag() & wx.TE_PASSWORD)
+            self.assertEqual(field.GetValue(), 'test-password')
+            if sys.platform == 'win32':
+                self.assertEqual(ctypes.windll.user32.SendMessageW(
+                    field.text.GetHandle(), 0x00D2, 0, 0), 0)
+            field.eye.GetEventHandler().ProcessEvent(wx.MouseEvent(wx.wxEVT_LEFT_UP))
+            self.assertFalse(field.visible)
+            self.assertTrue(field.text.GetWindowStyleFlag() & wx.TE_PASSWORD)
+            self.assertEqual(field.GetValue(), 'test-password')
+            if sys.platform == 'win32':
+                self.assertEqual(ctypes.windll.user32.SendMessageW(
+                    field.text.GetHandle(), 0x00D2, 0, 0), 0x25CF)
+        finally:
+            dialog.Destroy()
+            self.app.ProcessPendingEvents()
 
     def test_deleted_work_directory_stays_hidden_after_reopen_and_can_be_recreated(self):
         from src.core.task_files import trash_task_files
@@ -476,12 +618,14 @@ class TaskTypesUITests(unittest.TestCase):
             self.assertEqual(self.repo.get(task.id).status, TaskStatus.NEW)
 
     def test_save_as_dialog_copies_file_and_cancel_leaves_destination_unchanged(self):
+        from src.views.controllers.task_actions_controller import TaskActionsController
         source = self.root / 'source.mp4'
         source.write_bytes(b'complete video')
         directory = self.root / 'export'
         directory.mkdir()
         destination = directory / 'renamed.mp4'
         frame = SimpleNamespace()
+        frame.task_actions = TaskActionsController(frame)
         with patch('src.views.main_frame.wx.FileDialog') as dialog, \
                 patch('src.views.main_frame.wx.ProgressDialog') as progress, \
                 patch('src.views.main_frame.wx.MessageBox') as message:
@@ -502,6 +646,7 @@ class TaskTypesUITests(unittest.TestCase):
             progress.assert_not_called()
 
     def test_completed_video_menu_exports_exact_output_path(self):
+        from src.views.controllers.task_actions_controller import TaskActionsController
         task = self.mp4(status=TaskStatus.COMPLETED)
         target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         target.parent.mkdir(parents=True)
@@ -516,23 +661,26 @@ class TaskTypesUITests(unittest.TestCase):
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=select_save),
                                 _SaveFileAs=export, _OpenLocalPath=Mock())
+        frame.task_actions = TaskActionsController(frame)
         MainFrame.OnTaskMenu(frame, item)
         export.assert_called_once_with(target)
 
     def test_single_file_menu_and_dispatch_do_not_offer_merge(self):
+        from src.views.controllers.task_actions_controller import TaskActionsController
         task = self.mp4()
         model = self.model()
         item = model.ObjectToItem(model._BuildKey((0,)))
         opened = Mock()
         def inspect_menu(menu):
             labels = ['|' if entry.IsSeparator() else entry.GetItemLabelText() for entry in menu.GetMenuItems()]
-            self.assertEqual(labels, ['重命名…', '打开文件夹', '播放视频', '|', '查看下载地址', '|', '另存为…'])
-            entry = menu.GetMenuItems()[1]
+            self.assertEqual(labels, ['重命名…', '|', '加密任务', '打开文件夹', '播放视频', '|', '查看下载地址', '|', '另存为…'])
+            entry = menu.GetMenuItems()[3]
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=inspect_menu),
                                 _OpenLocalPath=opened, _CreateMP4File=Mock(), _DownloadFiles=Mock(),
                                 runner=Mock(), _completion_notified=set(), _SyncDownloads=Mock(),
                                 _SetTaskExpanded=Mock())
+        frame.task_actions = TaskActionsController(frame)
         MainFrame.OnTaskMenu(frame, item)
         opened.assert_called_once_with(task.save_dir)
         for action in ('merge', 'start', 'retry', 'toggle'):

@@ -3,18 +3,17 @@ from pathlib import Path
 
 import wx
 
-from src.views.components.icons import app_icons
+from src.views.dialogs.base_dialog import AppDialog
 
 
-class PlayerSelectDialog(wx.Dialog):
+class PlayerSelectDialog(AppDialog):
     """选择已发现的播放器，或交由调用方打开系统文件选择器。"""
 
     def __init__(self, parent, players, current_player=None):
         super().__init__(parent, title='选择播放器', style=wx.DEFAULT_DIALOG_STYLE)
-        self.SetIcons(app_icons())
         self.players = players
         self.browse_requested = False
-        border = self.FromDIP(5)
+        border = self.dialog_spacing
         layout = wx.BoxSizer(wx.VERTICAL)
         layout.Add(wx.StaticText(self, label='选择用于打开视频的播放器：'),
                    flag=wx.LEFT | wx.RIGHT | wx.TOP, border=border)

@@ -1,16 +1,15 @@
 """任务重命名弹窗。"""
 import wx
 
-from src.views.components.icons import app_icons
+from src.views.dialogs.base_dialog import AppDialog
 
 
-class TaskRenameDialog(wx.Dialog):
+class TaskRenameDialog(AppDialog):
     """重命名任务；不让用户输入输出文件扩展名。"""
 
     def __init__(self, parent, current_name):
         super().__init__(parent, title='重命名任务', style=wx.DEFAULT_DIALOG_STYLE)
-        self.SetIcons(app_icons())
-        border = self.FromDIP(5)
+        border = self.dialog_spacing
         layout = wx.BoxSizer(wx.VERTICAL)
         layout.Add(wx.StaticText(self, label='任务名称：'),
                    flag=wx.LEFT | wx.RIGHT | wx.TOP, border=border)

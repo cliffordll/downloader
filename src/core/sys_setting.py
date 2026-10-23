@@ -30,6 +30,7 @@ class SysSetting:
             'read_timeout': 30,
             'ffmpeg_path': '',
             'player_path': '',
+            'playback_port': 0,
             'auto_merge': False,
             'default_expand_tasks': False,
         }
@@ -52,6 +53,9 @@ class SysSetting:
             if not lower <= value <= upper or (integral and value != int(value)):
                 raise ValueError(f'{label}必须在 {lower}～{upper} 之间' + ('，且为整数。' if integral else '。'))
             result[key] = int(value) if integral else float(value)
+        playback_port = result['playback_port']
+        if isinstance(playback_port, bool) or not isinstance(playback_port, int) or not 0 <= playback_port <= 65535:
+            raise ValueError('加密视频播放服务端口必须是 0～65535 的整数。')
         directory = result['download_dir']
         if not isinstance(directory, str) or not directory.strip():
             raise ValueError('请选择下载目录。')

@@ -10,8 +10,10 @@ from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 
 from src.media.m3u8.m3u8_parser import M3U8Parser
 from src.media.m3u8.aes128 import parse_iv, sequence_iv
+from src.media.encrypted_file import is_encrypted_mp4, read_metadata
+from src.core.task_encryption import encrypted_artifact_name
 from src.core.path_manager import PathManager
-from src.core.task_paths import output_for, output_path, playlist_path, segment_path, work_dir
+from src.core.task_files import output_for, output_path, playlist_path, segment_path, work_dir
 from src.core.task_rules import can_rename
 from src.storage.task_repository import TaskRepository
 from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus, SegmentStatus
@@ -149,6 +151,86 @@ class TaskService:
                      updated.save_dir / updated.details.temporary_path)
             saved = self.repository.update(updated)
             return saved
+        except Exception:
+            for destination, source in reversed(moves):
+                try:
+                    if destination.exists() and not source.exists():
+                        destination.rename(source)
+                except OSError:
+                    pass
+            raise
+
+    def set_task_encrypted(self, task_id, encrypted, *, artifacts_prepared=False):
+        """Persist encryption state and relative paths for prepared task artifacts.
+
+        When artifacts_prepared is true, the caller has written converted files at
+        their destination paths while retaining the original files. Only metadata
+        is updated here; the caller removes originals after this update succeeds.
+        """
+        current = self.repository.get(task_id)
+        if current is None:
+            raise ValueError('任务不存在，请刷新后重试。')
+        if not can_rename(current):
+            raise ValueError('任务正在下载、检测或合并，暂时不能加密或解密。')
+        encrypted = bool(encrypted)
+        if current.encrypted == encrypted:
+            return current
+        updated = current.model_copy(deep=True)
+        moves = []
+        candidates = []
+        if isinstance(updated, MP4Task):
+            download = output_for(updated, 'download')
+            if download is None:
+                raise ValueError('MP4 任务缺少下载产物记录。')
+            new_relative = encrypted_artifact_name(download.output_path, encrypted)
+            download.output_path = new_relative
+            updated.details.temporary_path = encrypted_artifact_name(
+                current.details.temporary_path, encrypted, partial=True)
+            candidates.extend([
+                (output_path(current, output_for(current, 'download')),
+                 output_path(updated, download)),
+                (current.save_dir / current.details.temporary_path,
+                 updated.save_dir / updated.details.temporary_path),
+            ])
+        elif isinstance(updated, M3U8Task):
+            for old_segment, new_segment in zip(current.details.segments, updated.details.segments):
+                old_path = old_segment.segment_path
+                new_segment.segment_path = encrypted_artifact_name(old_path, encrypted)
+                candidates.append((segment_path(current, old_segment),
+                                   updated.save_dir / updated.name / new_segment.segment_path))
+            for old_output, new_output in zip(current.outputs, updated.outputs):
+                old_path = old_output.output_path
+                new_output.output_path = encrypted_artifact_name(old_path, encrypted)
+                candidates.append((output_path(current, old_output), output_path(updated, new_output)))
+            if current.details.playlist_path:
+                old_path = current.details.playlist_path
+                updated.details.playlist_path = encrypted_artifact_name(old_path, encrypted)
+                candidates.append((playlist_path(current), playlist_path(updated)))
+
+        for source, destination in candidates:
+            if source == destination:
+                continue
+            if source.exists() and source.is_symlink():
+                raise ValueError(f'检测到符号链接，不能安全更改文件名：{source}')
+            if artifacts_prepared:
+                if destination.is_symlink():
+                    raise ValueError(f'检测到符号链接，不能安全更改文件名：{destination}')
+                if source.exists() and not destination.is_file():
+                    raise FileNotFoundError(f'转换后的文件不存在，未更改任务加密状态：{destination}')
+                if not source.exists() and destination.exists():
+                    raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
+            elif destination.exists() or destination.is_symlink():
+                raise FileExistsError(f'目标文件已存在，未更改任务加密状态：{destination}')
+        if not artifacts_prepared:
+            for source, destination in candidates:
+                if source != destination and source.exists():
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    source.rename(destination)
+                    moves.append((destination, source))
+
+        updated.encrypted = encrypted
+        try:
+            return self.repository.update(updated)
         except Exception:
             for destination, source in reversed(moves):
                 try:
@@ -380,6 +462,10 @@ class TaskService:
     @staticmethod
     def _file_size(path):
         try:
+            if is_encrypted_mp4(path):
+                header = read_metadata(path)
+                return int(header.get('plaintext_size') if header.get('complete')
+                           else header.get('written_size', 0))
             info = path.stat()
         except FileNotFoundError:
             return None
@@ -498,6 +584,8 @@ class TaskService:
                 raise ValueError('播放时长必须是大于 0 的秒数，支持小数。')
         def change(task):
             self._require_m3u8(task)
+            if task.encrypted:
+                raise ValueError('加密的 M3U8 任务不能修改分片信息，请先解密任务。')
             segment = next((s for s in task.details.media_segments if s.sequence == sequence), None)
             if segment is None:
                 raise ValueError('分片不存在，请刷新后重试。')
@@ -537,7 +625,8 @@ class TaskService:
                 raise ValueError('分片回调身份或保存路径不匹配。')
             path = segment_path(task, segment)
             if success and path.is_file():
-                segment.status, segment.size_bytes, segment.last_error = SegmentStatus.COMPLETED, path.stat().st_size, None
+                segment.status, segment.size_bytes, segment.last_error = (
+                    SegmentStatus.COMPLETED, self._file_size(path), None)
             else:
                 segment.status, segment.size_bytes = SegmentStatus.FAILED, None
                 segment.last_error = error or '分片下载失败或文件未保存。'
@@ -578,6 +667,8 @@ class TaskService:
         self.check_files(task_id)
         def change(task):
             self._require_m3u8(task)
+            if task.encrypted:
+                raise ValueError('加密的 M3U8 任务不能合并，请先解密任务。')
             if not task.details.media_segments or task.progress.completed_segments != task.progress.total_segments:
                 raise ValueError('分片尚未全部下载，不能合并。')
             if task.details.detect_duration and any(s.duration_status == 'pending' for s in task.details.media_segments):
@@ -662,6 +753,8 @@ class TaskService:
         task = self.repository.get(task_id)
         if not isinstance(task, M3U8Task):
             raise ValueError('任务不存在或不是分片任务。')
+        if task.encrypted:
+            raise ValueError('加密的 M3U8 任务不能重建明文播放列表，请先解密任务。')
         path = playlist_path(task)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None

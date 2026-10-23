@@ -13,6 +13,8 @@ from src.core.task_service import TaskService
 from src.storage.task_repository import TaskRepository
 from src.views.main_frame import MainFrame
 from src.views.dialogs.browser_connect_dialog import BrowserConnectDialog
+from src.views.controllers.browser_controller import BrowserController
+from src.views.controllers.task_media_controller import TaskMediaController
 
 
 class BrowserCaptureUITests(unittest.TestCase):
@@ -58,6 +60,7 @@ class BrowserCaptureUITests(unittest.TestCase):
         inbox.put(capture)
         frame = SimpleNamespace(browser_bridge=SimpleNamespace(inbox=inbox),
                                 _capture_dialog_open=False, _OpenBrowserCapture=Mock())
+        frame.browser = BrowserController(frame)
         modal = Mock(spec=wx.Dialog)
         modal.IsModal.return_value = True
         with patch('wx.GetTopLevelWindows', return_value=[modal]), patch('wx.CallAfter') as dispatch:
@@ -70,51 +73,67 @@ class BrowserCaptureUITests(unittest.TestCase):
             dispatch.assert_called_once_with(frame._OpenBrowserCapture, capture)
             self.assertEqual(inbox.qsize(), 1)
 
+    def test_creating_mp4_tasks_does_not_start_download(self):
+        dialog = Mock()
+        dialog.ShowModal.return_value = wx.OK
+        with patch('src.views.controllers.task_media_controller.DownloadDialogMP4', return_value=dialog):
+            frame = SimpleNamespace(tasks=Mock(), OnRefresh=Mock(), _StartMP4=Mock())
+            frame.task_media = TaskMediaController(frame)
+            MainFrame.OnAddMP4(frame, None)
+        frame.OnRefresh.assert_called_once_with(None)
+        frame._StartMP4.assert_not_called()
+        dialog.Destroy.assert_called_once()
+
+    def test_browser_captured_mp4_is_created_without_starting_download(self):
+        dialog = Mock()
+        dialog.ShowModal.return_value = wx.OK
+        frame = SimpleNamespace(_closing=False, IsBeingDeleted=Mock(return_value=False),
+                                Iconize=Mock(), Raise=Mock(), OnRefresh=Mock(),
+                                _StartMP4=Mock(), _capture_dialog_open=True, tasks=Mock())
+        frame.browser = BrowserController(frame)
+        with patch('src.views.controllers.browser_controller.DownloadDialogMP4', return_value=dialog):
+            MainFrame._OpenBrowserCapture(frame, {'type': 'mp4', 'url': 'https://cdn/video.mp4'})
+        frame.OnRefresh.assert_called_once_with(None)
+        frame._StartMP4.assert_not_called()
+        self.assertFalse(frame._capture_dialog_open)
+        dialog.Destroy.assert_called_once()
+
     def test_startup_restores_connection_only_after_first_enable(self):
         config = self.root / 'browser-pairing.json'
-        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock())
-        with patch('src.views.main_frame.pairing_path', return_value=config), \
-             patch('src.views.main_frame.BrowserBridge') as bridge:
-            MainFrame.RestoreBrowserConnection(frame)
+        frame = SimpleNamespace(browser_bridge=None, _SetPrimaryStatusText=Mock(),
+                                _local_http_service=Mock())
+        frame.browser = BrowserController(frame)
+        with patch('src.views.controllers.browser_controller.pairing_path', return_value=config), \
+             patch('src.views.controllers.browser_controller.BrowserBridge') as bridge:
+            frame.browser.RestoreBrowserConnection()
             bridge.assert_not_called()
             config.write_text('{}')
-            MainFrame.RestoreBrowserConnection(frame)
-            bridge.assert_called_once_with()
+            frame.browser.RestoreBrowserConnection()
+            bridge.assert_called_once_with(http_service=frame._local_http_service)
             self.assertIs(frame.browser_bridge, bridge.return_value)
-            MainFrame.RestoreBrowserConnection(frame)
-            bridge.assert_called_once_with()
+            frame.browser.RestoreBrowserConnection()
+            bridge.assert_called_once_with(http_service=frame._local_http_service)
 
     def test_connection_restore_failure_keeps_app_usable(self):
         config = self.root / 'browser-pairing.json'
         config.write_text('{}')
-        frame = SimpleNamespace(browser_bridge=None, statusBar=Mock())
-        with patch('src.views.main_frame.pairing_path', return_value=config), \
-             patch('src.views.main_frame.BrowserBridge', side_effect=OSError('port occupied')):
-            MainFrame.RestoreBrowserConnection(frame)
+        frame = SimpleNamespace(browser_bridge=None, _SetPrimaryStatusText=Mock(),
+                                _local_http_service=Mock())
+        frame.browser = BrowserController(frame)
+        with patch('src.views.controllers.browser_controller.pairing_path', return_value=config), \
+             patch('src.views.controllers.browser_controller.BrowserBridge', side_effect=OSError('port occupied')):
+            frame.browser.RestoreBrowserConnection()
         self.assertIsNone(frame.browser_bridge)
-        frame.statusBar.SetStatusText.assert_called_once()
+        frame._SetPrimaryStatusText.assert_called_once()
 
-    def test_port_form_validates_input_and_updates_status_only_after_success(self):
-        apply = Mock(return_value=17840)
+    def test_port_is_read_only_and_explains_automatic_allocation(self):
         dialog = BrowserConnectDialog(None, 'A' * 43, reset_token=Mock(), port=17839,
-                                      apply_port=apply, listening=False)
+                                      listening=False)
         try:
-            initial = dialog.description.GetLabel()
-            dialog.port.ChangeValue('0')
-            with patch('wx.MessageBox') as message:
-                dialog.OnApplyPort(None)
-                apply.assert_not_called()
-                message.assert_called_once()
-            dialog.port.ChangeValue('17840')
-            apply.side_effect = OSError('port occupied')
-            with patch('wx.MessageBox'):
-                dialog.OnApplyPort(None)
-            self.assertEqual(dialog.description.GetLabel(), initial)
-            apply.side_effect = None
-            dialog.OnApplyPort(None)
-            apply.assert_called_with(17840)
-            self.assertIn('17840', dialog.note.GetLabel())
-            self.assertIn('已开启', dialog.description.GetLabel())
+            self.assertFalse(dialog.port.IsEditable())
+            self.assertEqual(dialog.port.GetValue(), '17839')
+            self.assertIn('自动分配', dialog.note.GetLabel())
+            self.assertIn('端口', dialog.note.GetLabel())
             self.assertEqual(dialog.code.GetValue(), 'A' * 43)
             self.assertGreaterEqual(dialog.code.GetClientSize().width,
                                     dialog.code.GetTextExtent(dialog.code.GetValue()).width + 16)

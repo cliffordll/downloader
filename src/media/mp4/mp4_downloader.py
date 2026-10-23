@@ -10,8 +10,9 @@ import requests
 
 from src.core.sys_setting import SysSetting
 from src.core.path_manager import PathManager
-from src.core.task_paths import output_for, output_path
+from src.core.task_files import output_for, output_path
 from src.media.downloader import Downloader
+from src.media.encrypted_file import EncryptedMP4Writer, is_encrypted_mp4, read_metadata
 from src.schemas.task import MP4Task, TaskProgress, TaskStatus, FileStatus
 
 
@@ -25,6 +26,7 @@ class MP4Downloader:
         self._futures = set()
         self._lock = threading.RLock()
         self._jobs = {}  # UUID → 暂停事件；直到后台关闭文件并保存最终状态才移除。
+        self._encryption_contexts = {}  # UUID → 解锁期间的文件密钥封装上下文。
         self._closed = threading.Event()
         self._changes = SimpleQueue()
         self.errors = SimpleQueue()
@@ -49,10 +51,13 @@ class MP4Downloader:
         self._changes.put(task_id)
         return record
 
-    def start(self, task_id):
+    def start(self, task_id, *, encryption_context=None):
         with self._lock:
             if self._closed.is_set() or task_id in self._jobs:
                 return False
+            current = self.repository.get(task_id)
+            if isinstance(current, MP4Task) and current.encrypted and encryption_context is None:
+                raise ValueError('请先解锁加密任务，再开始或继续下载。')
             def enqueue(task):
                 if not isinstance(task, MP4Task):
                     raise ValueError('此下载器仅支持 MP4 直链任务。')
@@ -63,8 +68,10 @@ class MP4Downloader:
             self._write(task_id, enqueue)
             pause = threading.Event()
             self._jobs[task_id] = pause
+            if encryption_context is not None:
+                self._encryption_contexts[task_id] = encryption_context
             try:
-                future = Downloader.Submit(task_id, self._run, task_id, pause,
+                future = Downloader.Submit(task_id, self._run, task_id, pause, encryption_context,
                     cancelled=lambda: pause.is_set() or self._closed.is_set(), limit=1)
                 self._futures.add(future)
                 future.add_done_callback(lambda result: self._scheduled_finished(task_id, result))
@@ -106,13 +113,13 @@ class MP4Downloader:
         if pause.is_set() or self._closed.is_set():
             raise _Paused()
 
-    def _run(self, task_id, pause):
+    def _run(self, task_id, pause, encryption_context=None):
         try:
             retries = SysSetting.GetAll()['max_retries']
             for attempt in range(retries + 1):
                 self._check(pause)
                 try:
-                    self._transfer(task_id, pause)
+                    self._transfer(task_id, pause, encryption_context)
                     break
                 except requests.RequestException as error:
                     # 非临时错误不重复请求；每次重试从已落盘文件长度恢复。
@@ -134,6 +141,7 @@ class MP4Downloader:
         finally:
             with self._lock:
                 self._jobs.pop(task_id, None)
+                self._encryption_contexts.pop(task_id, None)
             self._changes.put(task_id)
 
     def _finish_state(self, task_id, status, error=None):
@@ -147,7 +155,9 @@ class MP4Downloader:
                                    TaskStatus.PAUSED if self._jobs[task_id].is_set() else status)
                     task.last_error = error
                     path = task.save_dir / task.details.temporary_path
-                    done = path.stat().st_size if path.is_file() else 0
+                    done = (int(read_metadata(path).get('written_size', 0))
+                            if path.is_file() and is_encrypted_mp4(path)
+                            else path.stat().st_size if path.is_file() else 0)
                     total = task.progress.total_bytes
                     task.progress = TaskProgress(downloaded_bytes=done,
                                                  total_bytes=total if total is None or done <= total else None)
@@ -155,10 +165,14 @@ class MP4Downloader:
         except Exception as failure:
             self.errors.put(f'保存 MP4 下载状态失败：{failure}')
 
-    def _transfer(self, task_id, pause):
+    def _transfer(self, task_id, pause, encryption_context=None):
         task = self.repository.get(task_id)
         if not isinstance(task, MP4Task):
             raise ValueError('MP4 任务不存在。')
+        if task.encrypted:
+            if encryption_context is None:
+                raise ValueError('请先解锁加密任务，再开始或继续下载。')
+            return self._transfer_encrypted(task_id, pause, task, encryption_context)
         path = task.save_dir / task.details.temporary_path
         download = output_for(task, 'download')
         if download is None:
@@ -265,5 +279,154 @@ class MP4Downloader:
                         current.progress = TaskProgress(downloaded_bytes=done, total_bytes=done)
                         for item in current.outputs:
                             item.status, item.size_bytes = FileStatus.COMPLETED, done
+                    self._write(task_id, completed)
+                return
+
+    @staticmethod
+    def _partial_plaintext_size(path):
+        if not path.is_file() or not path.stat().st_size:
+            return 0
+        if is_encrypted_mp4(path):
+            return int(read_metadata(path).get('written_size', 0))
+        return path.stat().st_size
+
+    def _transfer_encrypted(self, task_id, pause, task, context):
+        """Resume by plaintext byte offsets while persisting only authenticated chunks."""
+        path = task.save_dir / task.details.temporary_path
+        download = output_for(task, 'download')
+        if download is None:
+            raise ValueError('MP4 任务缺少下载产物记录。')
+        target = output_path(task, download)
+        if target.exists():
+            raise ValueError('目标文件已经存在，请核对文件；为避免覆盖，下载已停止。')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        wrapping_key, salt, iterations = context['wrapping_key'], context['salt'], context['iterations']
+
+        # 将加锁前已经下载的明文临时文件转换成密文临时文件，再继续续传。
+        if path.is_file() and path.stat().st_size and not is_encrypted_mp4(path):
+            migrated = path.with_name(path.name + '.encrypting')
+            migrated.unlink(missing_ok=True)
+            writer = EncryptedMP4Writer(migrated, wrapping_key, salt, iterations)
+            try:
+                with path.open('rb') as source:
+                    while True:
+                        self._check(pause)
+                        chunk = source.read(64 * 1024)
+                        if not chunk:
+                            break
+                        writer.append(chunk)
+                writer.close()  # 保留完整密文块；未满一块的尾部会从网络续传。
+                os.replace(migrated, path)
+            except Exception:
+                writer.close()
+                migrated.unlink(missing_ok=True)
+                raise
+
+        offset = self._partial_plaintext_size(path)
+        etag = task.details.etag
+        strong_etag = etag if etag and not etag.startswith('W/') else None
+        validator = strong_etag or task.details.last_modified
+        offset = offset if validator else 0
+        for fallback in range(2):
+            self._check(pause)
+            while True:
+                self._check(pause)
+                delay = Downloader.RequestDelay()
+                if delay <= 0:
+                    break
+                pause.wait(min(delay, 0.2))
+            headers = {**task.details.request_headers, 'Accept-Encoding': 'identity'}
+            if offset:
+                headers.update({'Range': f'bytes={offset}-', 'If-Range': validator})
+            with requests.get(task.source_url, headers=headers, stream=True,
+                              timeout=SysSetting.GetTimeout()) as response:
+                self._check(pause)
+                if response.status_code == 416 and offset and not fallback:
+                    offset = 0
+                    continue
+                response.raise_for_status()
+                if response.status_code not in (200, 206):
+                    raise ValueError(f'不支持的下载响应：HTTP {response.status_code}')
+                if response.headers.get('Content-Encoding', 'identity').lower() != 'identity':
+                    raise ValueError('服务器返回了压缩内容，不能安全进行字节续传。')
+                if 'text/html' in response.headers.get('Content-Type', '').lower():
+                    raise ValueError('网址返回的是网页，请填写视频文件的直链。')
+                total = None
+                if response.status_code == 206:
+                    match = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)', response.headers.get('Content-Range', ''))
+                    if not match:
+                        raise ValueError('服务器返回无效的 Content-Range，已停止续传。')
+                    start, end, total = map(int, match.groups())
+                    changed = offset and ((strong_etag and response.headers.get('ETag') != strong_etag) or
+                        (not strong_etag and response.headers.get('Last-Modified') != task.details.last_modified))
+                    if start != offset or changed:
+                        if offset and not fallback:
+                            offset = 0
+                            continue
+                        raise ValueError('服务器返回的续传位置或文件标识不一致。')
+                    if end < start or end >= total:
+                        raise ValueError('服务器返回无效的续传范围。')
+                    length = response.headers.get('Content-Length')
+                    if length is not None and int(length) != end - start + 1:
+                        raise ValueError('服务器返回的续传长度不一致。')
+                else:
+                    offset = 0
+                    length = response.headers.get('Content-Length')
+                    total = int(length) if length is not None else None
+                    if total is not None and total < 0:
+                        raise ValueError('服务器返回无效的文件长度。')
+
+                resume = bool(offset and response.status_code == 206 and is_encrypted_mp4(path))
+                writer = EncryptedMP4Writer(path, wrapping_key, salt, iterations,
+                                            plaintext_size=total, resume=resume)
+                with self._lock:
+                    def metadata(current):
+                        current.details.verified_bytes = None
+                        current.details.etag = response.headers.get('ETag')
+                        current.details.last_modified = response.headers.get('Last-Modified')
+                        current.details.supports_ranges = response.status_code == 206
+                        current.status = TaskStatus.PAUSING if pause.is_set() else TaskStatus.DOWNLOADING
+                        current.last_error = None
+                        current.progress = TaskProgress(downloaded_bytes=writer.plaintext_bytes,
+                                                        total_bytes=total)
+                    self._write(task_id, metadata)
+
+                received, checkpoint = 0, time.monotonic()
+                try:
+                    for chunk in response.iter_content(chunk_size=64 * 1024):
+                        self._check(pause)
+                        if not chunk:
+                            continue
+                        if total is not None and offset + received + len(chunk) > total:
+                            raise ValueError('服务器实际数据超过声明的文件大小。')
+                        writer.append(chunk)
+                        received += len(chunk)
+                        if time.monotonic() - checkpoint >= 0.5:
+                            received_size = offset + received
+                            self._write(task_id, lambda current: setattr(current, 'progress',
+                                TaskProgress(downloaded_bytes=received_size, total_bytes=total)))
+                            checkpoint = time.monotonic()
+                    if total is not None and offset + received != total:
+                        raise requests.ConnectionError('连接提前结束，文件尚未完整。')
+                    if not offset + received:
+                        raise ValueError('服务器返回空文件。')
+                    final_size = offset + received
+                    writer.finalize(total if total is not None else final_size)
+                except Exception:
+                    writer.close()
+                    raise
+
+                with self._lock:
+                    self._check(pause)
+                    self._write(task_id, lambda current: setattr(current.details, 'verified_bytes', final_size))
+                    if target.exists():
+                        raise ValueError('目标文件已存在，已保留下载临时文件，请核对后重试。')
+                    PathManager.PublishFile(path, target)
+                    def completed(current):
+                        current.status, current.last_error = TaskStatus.COMPLETED, None
+                        current.progress = TaskProgress(downloaded_bytes=final_size, total_bytes=final_size)
+                        for item in current.outputs:
+                            item.status, item.size_bytes = FileStatus.COMPLETED, final_size
                     self._write(task_id, completed)
                 return

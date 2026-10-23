@@ -3,7 +3,7 @@ import json
 # import wx.gizmos as gizmos
 import wx.dataview as dv
 from src.core.path_manager import PathManager
-from src.core.task_paths import output_path, playlist_path, segment_path, work_dir
+from src.core.task_files import output_path, playlist_path, segment_path, work_dir
 from src.core.task_rules import can_rename
 from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
@@ -38,6 +38,7 @@ def to_tree_item(task, previous=None):
             partial = task.save_dir / task.details.temporary_path
             outputs = [_file(partial, partial.name, size=task.progress.downloaded_bytes)]
         return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                        encrypted=task.encrypted,
                         rename_allowed=can_rename(task),
                         progress=task.progress, task_status=task.status,
                         last_error=task.last_error, parent=parent, outputs=outputs)
@@ -66,6 +67,7 @@ def to_tree_item(task, previous=None):
                      size=output.size_bytes, status=output.status)
                for output in task.outputs if output.status == FileStatus.COMPLETED]
     return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+                    encrypted=task.encrypted,
                     rename_allowed=can_rename(task),
                     manifests={-2: _file(playlist, playlist.name)},
                     work_dir=work_dir(task),
@@ -220,6 +222,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             'status': status,
             'failed': failed,
             'pending': pending,
+            'requesting': requesting,
             'merging': merging,
             'paused': paused,
             'progress': '100%' if output_only else f'{int(done * 100 / total) if total else 0}% · {done}/{total}',
@@ -334,7 +337,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 dict(id='more', label='更多', enabled=True),
             ]
         info = self.TaskInfo(index)
-        idle = not info['pending'] and not info['merging']
+        # 已暂停的任务仍留在待下载队列中；只有存在在途请求时才不能删除。
+        idle = (not info['pending'] or (info['paused'] and not info['requesting'])) \
+            and not info['merging']
         # 主动开始/重试由 TaskRunner 恢复当前任务，不受其他任务暂停状态阻挡。
         downloadable = idle and not task.outputs
 
@@ -599,7 +604,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             if parent is None:
                 return ''
             if col == 1:
-                return parent.displayName or parent.fileName
+                name = parent.displayName or parent.fileName
+                return f'🔒 {name}' if self.fileTree.items[idxi].encrypted else name
             elif col == 2:
                 return self._DisplayMetadata(parent.fileSize)
             elif col == 3:

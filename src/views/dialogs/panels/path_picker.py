@@ -13,7 +13,7 @@ def form_label_size(window, width):
 
 
 def form_action_size(window):
-    """保存表单右侧的帮助、浏览和下载使用同一列尺寸。"""
+    """保存表单右侧的帮助、浏览和创建操作使用同一列尺寸。"""
     native = wx.Button.GetDefaultSize()
     return wx.Size(max(window.FromDIP(75), native.width), native.height)
 
@@ -24,7 +24,7 @@ class DownloadHelpDialog(InformationDialog):
 
 
 class DownloadPath(wx.Panel):
-    """三个下载弹窗共用保存目录、文件名和下载按钮。"""
+    """三个任务弹窗共用保存目录、文件名和创建按钮。"""
     def __init__(self, parent, workPath):
         super().__init__(parent=parent, id=wx.ID_ANY)
         self._suggested = ''
@@ -33,7 +33,7 @@ class DownloadPath(wx.Panel):
         label = wx.StaticText(self, label='保存目录：', size=form_label_size(self, 60))
         self.directory = wx.TextCtrl(self, value=workPath)
         self.directory.SetToolTip('默认使用系统配置的下载目录，可为当前任务单独选择。')
-        self.browseButton = wx.Button(self, label='浏览', size=form_action_size(self))
+        self.browseButton = wx.Button(self, label='选择目录', size=form_action_size(self))
         self.browseButton.Bind(wx.EVT_BUTTON, self.OnBrowse)
         directory_row.Add(label, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(10))
         directory_row.Add(self.directory, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT,
@@ -46,11 +46,11 @@ class DownloadPath(wx.Panel):
         self.tcDown = wx.TextCtrl(self)
         self.tcDown.SetHint('自动从网址生成，可修改，例如 video.mp4')
         self.tcDown.SetToolTip('重名时自动追加序号；M3U8、TS 的分片保存在同名子目录。')
-        button = wx.Button(self, label='下载', size=form_action_size(self))
-        button.Bind(wx.EVT_BUTTON, self.OnBtnDownClicked)
+        self.createButton = wx.Button(self, label='创建任务', size=form_action_size(self))
+        self.createButton.Bind(wx.EVT_BUTTON, self.OnBtnDownClicked)
         filename_row.Add(label, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(10))
         filename_row.Add(self.tcDown, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(10))
-        filename_row.Add(button, flag=wx.ALIGN_CENTER_VERTICAL)
+        filename_row.Add(self.createButton, flag=wx.ALIGN_CENTER_VERTICAL)
         sizer.Add(filename_row, flag=wx.EXPAND)
         self.SetSizer(sizer)
 

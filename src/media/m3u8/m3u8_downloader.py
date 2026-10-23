@@ -8,8 +8,9 @@ from typing import Any, TypedDict
 import requests
 
 from src.core.sys_setting import SysSetting
-from src.core.task_paths import segment_path
+from src.core.task_files import segment_path
 from src.media.downloader import Downloader, DownloadRemoved
+from src.media.encrypted_file import EncryptedMP4Writer, decrypt_bytes, encrypt_bytes, is_encrypted_mp4
 from src.schemas.task import FileStatus, SegmentStatus, TaskStatus
 
 
@@ -67,15 +68,19 @@ class M3U8Downloader:
                 return ids
 
     @classmethod
-    def StartTask(cls, service, task_id, sequences):
+    def StartTask(cls, service, task_id, sequences, *, encryption_context=None):
         """登记一批分片并入队；开始操作可由界面调用，下载结果由后台保存。"""
         with cls._state_lock:
             if cls._shutdown.is_set():
                 return 0
             sequences = list(sequences)
+            current = service.repository.get(task_id)
+            if current is not None and current.encrypted and encryption_context is None:
+                raise ValueError('请先解锁加密任务，再开始或继续下载。')
             record = service.begin_download(task_id, sequences)
             if record is None:
                 raise ValueError('任务已删除。')
+            storage_encrypt = encryption_context if record.encrypted else None
             selected = set(sequences)
             previous = cls._jobs.get(task_id)
             keys = set(previous[1]) if previous else set()
@@ -103,7 +108,8 @@ class M3U8Downloader:
                         with cls.threadLock:
                             cls._errors[key] = 'M3U8 加密分片缺少对应密钥条目。'
                         continue
-                    get_key = lambda entry=key_entry: cls._EnsureKey(service, task_id, entry, options)
+                    get_key = lambda entry=key_entry: cls._EnsureKey(
+                        service, task_id, entry, options, storage_encrypt)
                     prepare = lambda get_key=get_key, sequence=segment.sequence: (
                         get_key(), cls._SetSegmentStatus(
                             service, task_id, sequence, SegmentStatus.DOWNLOADING))[0]
@@ -119,7 +125,9 @@ class M3U8Downloader:
                     ('prepare', prepare), ('transform', transform),
                     ('on_started', on_started), ('on_transform', on_transform)) if value is not None}
                 if cls.DownloadTSFile(segment.source_url, path, cls._SaveResult,
-                                      (task_id, segment.sequence), **callbacks, **options):
+                                      (task_id, segment.sequence),
+                                      **({'storage_encrypt': storage_encrypt} if storage_encrypt else {}),
+                                      **callbacks, **options):
                     count += 1
             for path, sequence, key in missing:
                 with cls.threadLock:
@@ -137,7 +145,7 @@ class M3U8Downloader:
         cls._changes.put(task_id)
 
     @classmethod
-    def _EnsureKey(cls, service, task_id, key_entry, options):
+    def _EnsureKey(cls, service, task_id, key_entry, options, encryption_context=None):
         path = segment_path(service.repository.get(task_id), key_entry)
         lock_key = (str(task_id), key_entry.sequence)
         with cls._key_locks_lock:
@@ -145,6 +153,8 @@ class M3U8Downloader:
         with lock:
             if path.is_file():
                 content = path.read_bytes()
+                if is_encrypted_mp4(path):
+                    content = decrypt_bytes(content, encryption_context['wrapping_key'])
                 if len(content) == 16:
                     return content
             service.key_status(task_id, key_entry.sequence, SegmentStatus.DOWNLOADING)
@@ -164,7 +174,10 @@ class M3U8Downloader:
             temporary = path.with_name(path.name + '.part')
             try:
                 with temporary.open('wb') as output:
-                    output.write(content)
+                    output.write(encrypt_bytes(content, encryption_context['wrapping_key'],
+                                               encryption_context['salt'],
+                                               encryption_context['iterations'])
+                                 if encryption_context else content)
                     output.flush()
                     os.fsync(output.fileno())
                 os.replace(temporary, path)
@@ -422,7 +435,7 @@ class M3U8Downloader:
 
     @classmethod
     def _DownLoadFile(cls, baseUrl, fileName, headers=None, prepare=None, transform=None,
-                      on_started=None, on_transform=None):
+                      on_started=None, on_transform=None, storage_encrypt=None):
         """由统一调度器分配额度；实际文件写入由 _SaveFile 完成。"""
         with cls.threadLock:
             if cls._shutdown.is_set() or cls.IsPaused() or cls.FileKey(fileName) in cls._paused_files:
@@ -438,12 +451,15 @@ class M3U8Downloader:
             with cls.threadLock:
                 cls._errors[cls.FileKey(fileName)] = str(error)
             return False, fileName
+        storage_options = {'storage_encrypt': storage_encrypt} if storage_encrypt else {}
         if transform is None and on_transform is None:
-            return cls._SaveFile(baseUrl, fileName, headers)
-        return cls._SaveFile(baseUrl, fileName, headers, transform, on_transform)
+            return cls._SaveFile(baseUrl, fileName, headers, **storage_options)
+        return cls._SaveFile(baseUrl, fileName, headers, transform, on_transform,
+                             **storage_options)
 
     @classmethod
-    def _SaveFile(cls, baseUrl, fileName, headers=None, transform=None, on_transform=None):
+    def _SaveFile(cls, baseUrl, fileName, headers=None, transform=None, on_transform=None,
+                  *, storage_encrypt=None):
         """线程池逐块写入分片；每次重试截断临时文件，从头重新下载。
 
         先写同目录 .part 临时文件，再用 os.replace 替换目标，避免未写完的文件
@@ -455,21 +471,41 @@ class M3U8Downloader:
 
             def save(response):
                 size = 0
-                with open(partial, 'wb') as output:
-                    for chunk in response.iter_content(chunk_size=64 * 1024):
-                        if cls._shutdown.is_set():
-                            raise _TaskPaused()
-                        if chunk:
-                            output.write(chunk)
-                            size += len(chunk)
+                writer = None
+                if storage_encrypt and transform is None:
+                    writer = EncryptedMP4Writer(
+                        partial, storage_encrypt['wrapping_key'], storage_encrypt['salt'],
+                        storage_encrypt['iterations'])
+                try:
+                    if writer:
+                        for chunk in response.iter_content(chunk_size=64 * 1024):
+                            if cls._shutdown.is_set():
+                                raise _TaskPaused()
+                            if chunk:
+                                writer.append(chunk)
+                                size += len(chunk)
+                    else:
+                        with open(partial, 'wb') as output:
+                            for chunk in response.iter_content(chunk_size=64 * 1024):
+                                if cls._shutdown.is_set():
+                                    raise _TaskPaused()
+                                if chunk:
+                                    output.write(chunk)
+                                    size += len(chunk)
+                            output.flush()
+                            os.fsync(output.fileno())
                     # requests 对压缩响应会解码，只有未压缩响应才能按 Content-Length 核对。
                     expected = response.headers.get('Content-Length')
                     if expected and not response.headers.get('Content-Encoding') and size != int(expected):
                         raise requests.ConnectionError('分片长度与服务器声明不符。')
                     if not size:
                         raise requests.ConnectionError('服务器返回了空分片。')
-                    output.flush()
-                    os.fsync(output.fileno())
+                    if writer:
+                        writer.finalize(size)
+                except Exception:
+                    if writer:
+                        writer.close()
+                    raise
                 return size
 
             success, content = cls.DownloadContent(baseUrl, respect_pause=True,
@@ -484,10 +520,21 @@ class M3U8Downloader:
                     on_transform()
                 clear = transform(Path(partial).read_bytes())
                 clear_partial = partial + '.clear'
-                with open(clear_partial, 'wb') as output:
-                    output.write(clear)
-                    output.flush()
-                    os.fsync(output.fileno())
+                if storage_encrypt:
+                    writer = EncryptedMP4Writer(
+                        clear_partial, storage_encrypt['wrapping_key'], storage_encrypt['salt'],
+                        storage_encrypt['iterations'], plaintext_size=len(clear))
+                    try:
+                        writer.append(clear)
+                        writer.finalize(len(clear))
+                    except Exception:
+                        writer.close()
+                        raise
+                else:
+                    with open(clear_partial, 'wb') as output:
+                        output.write(clear)
+                        output.flush()
+                        os.fsync(output.fileno())
                 os.replace(clear_partial, fileName)
                 if os.path.isfile(clear_partial):
                     os.unlink(clear_partial)
@@ -514,7 +561,7 @@ class M3U8Downloader:
 
     @classmethod
     def DownloadTSFile(cls, absUri, absFile, callback, item, headers=None, *, prepare=None,
-                       transform=None, on_started=None, on_transform=None):
+                       transform=None, on_started=None, on_transform=None, storage_encrypt=None):
         """底层单分片入队方法；任务入口为 StartTask，不在调用线程中等待网络请求。
 
         返回 True 表示接受入队，不代表下载成功；重复任务或程序退出时返回 False。
@@ -529,12 +576,13 @@ class M3U8Downloader:
             cls._errors.pop(key, None)
             # 请求头随分片快照入队；不同任务不共享 Session 或可变字典。
             task = (absUri, absFile, callback, item, key, dict(headers or {}),
-                    prepare, transform, on_started, on_transform)
+                    prepare, transform, on_started, on_transform, storage_encrypt)
             task_id = item[0] if isinstance(item, tuple) and len(item) == 2 else 'legacy-ts'
             options = {'headers': dict(headers)} if headers else {}
             options.update({name: value for name, value in (
                 ('prepare', prepare), ('transform', transform),
-                ('on_started', on_started), ('on_transform', on_transform)) if value is not None})
+                ('on_started', on_started), ('on_transform', on_transform),
+                ('storage_encrypt', storage_encrypt)) if value is not None})
             cls._scheduled[key] = Downloader.Submit(
                 task_id, cls._DownLoadFile, absUri, absFile,
                 ready=lambda: not cls.IsPaused() and key not in cls._paused_files,
@@ -617,7 +665,8 @@ class M3U8Downloader:
                                 if len(task) > 6:
                                     options.update({name: value for name, value in (
                                         ('prepare', task[6]), ('transform', task[7]),
-                                        ('on_started', task[8]), ('on_transform', task[9]))
+                                        ('on_started', task[8]), ('on_transform', task[9]),
+                                        ('storage_encrypt', task[10] if len(task) > 10 else None))
                                         if value is not None})
                                 cls._scheduled[key] = Downloader.Submit(
                                     task_id, cls._DownLoadFile, task[0], task[1],

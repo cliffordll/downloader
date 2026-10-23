@@ -23,6 +23,13 @@ ICON_FILES = {
     "task-stop": "tools/task-stop.png",
     "settings": "tools/settings.png",
     "player": "tools/player.png",
+    "lock": "tools/lock.png",
+    "key": "tools/key.png",
+    "key-classic": "tools/key-classic.png",
+    "key-horizontal": "tools/key-horizontal.png",
+    "unlock": "tools/unlock.png",
+    "eye": "tools/eye.png",
+    "eye-off": "tools/eye-off.png",
     "help": "tools/help.png",
     "about": "tools/about.png",
 }
