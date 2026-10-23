@@ -125,7 +125,8 @@ class M3U8Downloader:
                     ('prepare', prepare), ('transform', transform),
                     ('on_started', on_started), ('on_transform', on_transform)) if value is not None}
                 if cls.DownloadTSFile(segment.source_url, path, cls._SaveResult,
-                                      (task_id, segment.sequence), storage_encrypt=storage_encrypt,
+                                      (task_id, segment.sequence),
+                                      **({'storage_encrypt': storage_encrypt} if storage_encrypt else {}),
                                       **callbacks, **options):
                     count += 1
             for path, sequence, key in missing:
@@ -450,10 +451,11 @@ class M3U8Downloader:
             with cls.threadLock:
                 cls._errors[cls.FileKey(fileName)] = str(error)
             return False, fileName
+        storage_options = {'storage_encrypt': storage_encrypt} if storage_encrypt else {}
         if transform is None and on_transform is None:
-            return cls._SaveFile(baseUrl, fileName, headers, storage_encrypt=storage_encrypt)
+            return cls._SaveFile(baseUrl, fileName, headers, **storage_options)
         return cls._SaveFile(baseUrl, fileName, headers, transform, on_transform,
-                             storage_encrypt=storage_encrypt)
+                             **storage_options)
 
     @classmethod
     def _SaveFile(cls, baseUrl, fileName, headers=None, transform=None, on_transform=None,

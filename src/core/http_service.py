@@ -54,7 +54,8 @@ class LocalHTTPService:
 
                 def _range(self, size):
                     playback = service.playback_service
-                    return playback._handler._range(self, size) if playback is not None else None
+                    return (playback._handler._range(size, self.headers.get('Range'))
+                            if playback is not None else None)
 
                 def _serve(self, body):
                     playback = service.playback_service

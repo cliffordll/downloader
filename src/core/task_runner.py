@@ -37,7 +37,7 @@ class TaskRunner:
         self._encryption_context_provider = None
 
     def set_encryption_context_provider(self, provider):
-        """Supply the unlocked password-derived key only to explicitly encrypted MP4 jobs."""
+        """Supply the unlocked password context only to explicitly encrypted jobs."""
         self._encryption_context_provider = provider
 
     def _task(self, task_id):

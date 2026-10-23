@@ -13,6 +13,7 @@ import sys
 from src.core.task_files import output_path, playlist_path, segment_path
 from src.media.encrypted_file import (
     decrypt_file, encrypt_file, encrypt_partial_file, is_encrypted_mp4, read_metadata,
+    prepare_header_rewrap, verify_encrypted_file, write_encrypted_header,
 )
 from src.schemas.task import M3U8Task, MP4Task
 
@@ -32,12 +33,14 @@ class TaskEncryption:
     def is_configured(self):
         return self._read() is not None
 
-    def set_password(self, password, *, current_password=None):
+    def set_password(self, password, *, current_password=None, encrypted_files=()):
         if not isinstance(password, str) or not password:
             raise ValueError('密码不能为空。')
         existing = self._read()
+        old_context = None
         if existing is not None:
-            if current_password is None or not self.verify(current_password):
+            old_context = self.unlock(current_password) if current_password is not None else None
+            if old_context is None:
                 raise ValueError('当前密码不正确。')
 
         # Keep the KDF salt stable for an existing password vault: MP4 file
@@ -55,7 +58,32 @@ class TaskEncryption:
         protected_password = _protect_local_secret(password.encode('utf-8'))
         if protected_password is not None:
             data['local_password'] = base64.b64encode(protected_password).decode('ascii')
-        self._write(data)
+        header_updates = []
+        if old_context is not None and password != current_password:
+            seen = set()
+            for path in encrypted_files:
+                path = Path(path)
+                key = os.path.normcase(str(path.resolve()))
+                if key in seen:
+                    continue
+                seen.add(key)
+                original, updated = prepare_header_rewrap(
+                    path, old_context['wrapping_key'], derived)
+                header_updates.append((path, original, updated))
+        try:
+            for path, _original, updated in header_updates:
+                write_encrypted_header(path, updated)
+            self._write(data)
+        except Exception as error:
+            rollback_errors = []
+            for path, original, _updated in reversed(header_updates):
+                try:
+                    write_encrypted_header(path, original)
+                except OSError as rollback_error:
+                    rollback_errors.append(f'{path}: {rollback_error}')
+            if rollback_errors:
+                raise OSError('密码修改失败，部分文件头回滚失败：' + '；'.join(rollback_errors)) from error
+            raise
 
     def verify(self, password):
         record = self._read()
@@ -147,7 +175,6 @@ class TaskEncryption:
     def _derive(password, salt, iterations=ITERATIONS):
         return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt,
                                    iterations, dklen=32)
-
 
 def _protect_local_secret(secret):
     """Protect a local secret with Windows DPAPI; other platforms use manual unlock."""
@@ -259,6 +286,8 @@ def prepare_task_artifacts(media_paths, encrypted, context):
             created.append(working)
 
             already_encrypted = is_encrypted_mp4(source)
+            if already_encrypted:
+                verify_encrypted_file(source, context['wrapping_key'])
             if encrypted and not already_encrypted:
                 convert = encrypt_file if complete else encrypt_partial_file
                 convert(source, working, context['wrapping_key'],

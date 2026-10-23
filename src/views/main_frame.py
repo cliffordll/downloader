@@ -807,10 +807,10 @@ class MainFrame(wx.Frame):
         except (OSError, subprocess.SubprocessError) as error:
             wx.MessageBox(f'无法启动播放器：{error}', '提示', parent=self)
 
-    def _OpenVideo(self, path):
+    def _OpenVideo(self, path, task_id=None):
         target = Path(path)
         if is_encrypted_mp4(target):
-            self._PlayEncryptedMP4(target)
+            self._PlayEncryptedMP4(target, task_id=task_id)
             return
         player = SysSetting.GetAll()['player_path']
         if player and Path(player).exists():
@@ -818,14 +818,62 @@ class MainFrame(wx.Frame):
         else:
             self._OpenLocalPath(path)
 
-    def _PlayEncryptedMP4(self, path, player=None):
+    def _TaskPlaybackContext(self, task_id):
+        """Get the password-derived file-key wrapping context for playback."""
+        password_context = self._encryption_context
+        if password_context is None:
+            password_store = TaskEncryption()
+            password_context = password_store.unlock_local()
+            if password_context is None:
+                dialog = TaskUnlockDialog(self, title='验证加密任务密码')
+                try:
+                    if dialog.ShowModal() != wx.ID_OK:
+                        return None
+                    password = dialog.password.GetValue()
+                    password_context = password_store.unlock(password)
+                    if password_context is None:
+                        raise ValueError('密码不正确。')
+                    try:
+                        password_store.remember_password(password)
+                    except OSError:
+                        pass
+                finally:
+                    dialog.Destroy()
+        return password_context
+
+    def _FindEncryptedMP4Task(self, path):
+        target = Path(path).resolve()
+        for task in self.tasks.repository.list_tasks():
+            if task.type != TaskType.MP4 or not task.encrypted:
+                continue
+            download = output_for(task, 'download')
+            if download is not None and (task.save_dir / download.output_path).resolve() == target:
+                return task.id
+        return None
+
+    def _PlayEncryptedMP4(self, path, player=None, task_id=None):
         path = Path(path)
-        context = self._encryption_context
-        if context is not None:
+        if task_id is None:
+            try:
+                task_id = self._FindEncryptedMP4Task(path)
+            except (OSError, sqlite3.Error, TaskDataError) as error:
+                wx.MessageBox(str(error), '无法读取加密任务', wx.OK | wx.ICON_ERROR, parent=self)
+                return
+        if task_id is not None:
+            try:
+                context = self._TaskPlaybackContext(task_id)
+            except (OSError, ValueError, sqlite3.Error, TaskDataError) as error:
+                wx.MessageBox(str(error), '无法解密 MP4', wx.OK | wx.ICON_ERROR, parent=self)
+                return
+            if context is None:
+                return
             try:
                 EncryptedMP4Reader(path, context['wrapping_key'])
-            except (OSError, ValueError):
-                context = None
+            except (OSError, ValueError) as error:
+                wx.MessageBox(str(error), '无法解密 MP4', wx.OK | wx.ICON_ERROR, parent=self)
+                return
+        else:
+            context = self._encryption_context
         if context is None:
             dialog = TaskUnlockDialog(self, title='播放加密 MP4')
             try:
@@ -849,7 +897,12 @@ class MainFrame(wx.Frame):
                     port=SysSetting.GetAll()['playback_port'],
                     on_port_assigned=self._RememberPlaybackPort,
                     http_service=self._local_http_service)
-            token, url = self._playback_service.create_session(path, context['wrapping_key'])
+            task_name = None
+            if task_id is not None:
+                playback_task = self.tasks.repository.get(task_id)
+                task_name = playback_task.name if playback_task is not None else None
+            token, url = self._playback_service.create_session(
+                path, context['wrapping_key'], task_id=task_id, task_name=task_name)
             self._playback_sessions.add(token)
             if sys.platform == 'darwin':
                 subprocess.Popen(['open', '-a', player, '--', url])
@@ -860,6 +913,57 @@ class MainFrame(wx.Frame):
                 self._playback_service.close_session(token)
                 self._playback_sessions.discard(token)
             wx.MessageBox(f'无法播放加密 MP4：{error}', '播放失败', parent=self)
+
+    def _PlayEncryptedM3U8(self, task_id, player=None):
+        try:
+            task = self.tasks.repository.get(task_id)
+            if task is None or task.type != TaskType.M3U8:
+                raise ValueError('M3U8 任务不存在。')
+            context = self._TaskPlaybackContext(task_id)
+            if context is None:
+                return
+            if not task.details.playlist_path:
+                raise ValueError('M3U8 任务缺少播放列表路径。')
+            playlist = Path(task.save_dir) / task.name / task.details.playlist_path
+            EncryptedMP4Reader(playlist, context['wrapping_key'])
+        except (OSError, ValueError, sqlite3.Error, TaskDataError) as error:
+            wx.MessageBox(str(error), '无法播放加密 M3U8', wx.OK | wx.ICON_ERROR, parent=self)
+            return
+        player = player or SysSetting.GetAll()['player_path']
+        if not player or not Path(player).exists():
+            player = self._ChoosePlayer()
+        if not player:
+            return
+        try:
+            if self._playback_service is None:
+                self._playback_service = PlaybackHTTPServer(
+                    port=SysSetting.GetAll()['playback_port'],
+                    on_port_assigned=self._RememberPlaybackPort,
+                    http_service=self._local_http_service)
+            token, url = self._playback_service.create_m3u8_session(task, context['wrapping_key'])
+            self._playback_sessions.add(token)
+            if sys.platform == 'darwin':
+                subprocess.Popen(['open', '-a', player, '--', url])
+            else:
+                subprocess.Popen([player, url])
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            if 'token' in locals() and self._playback_service is not None:
+                self._playback_service.close_session(token)
+                self._playback_sessions.discard(token)
+            wx.MessageBox(f'无法播放加密 M3U8：{error}', '播放失败', parent=self)
+
+    def _OpenTaskManifest(self, task, path, player=None):
+        if task.encrypted and is_encrypted_mp4(path):
+            self._PlayEncryptedM3U8(task.task_id, player)
+        elif player:
+            self._OpenWithPlayer(path, player)
+        else:
+            self._OpenLocalPath(path)
+
+    def _ChoosePlayerAndOpenManifest(self, task, path):
+        player = self._ChoosePlayer()
+        if player:
+            self._OpenTaskManifest(task, path, player)
 
     def _ClosePlaybackServers(self):
         self._playback_sessions.clear()
@@ -907,11 +1011,11 @@ class MainFrame(wx.Frame):
             return None
         return player
 
-    def _ChoosePlayerAndOpen(self, path):
+    def _ChoosePlayerAndOpen(self, path, task_id=None):
         player = self._ChoosePlayer()
         if player:
             if is_encrypted_mp4(path):
-                self._PlayEncryptedMP4(path, player)
+                self._PlayEncryptedMP4(path, player, task_id=task_id)
             else:
                 self._OpenWithPlayer(path, player)
 
@@ -1040,8 +1144,8 @@ class MainFrame(wx.Frame):
             elif key in task.manifests:
                 # 清单节点单独登记在 manifests 中，当前 -2 对应 download.m3u8。
                 path = Path(task.manifests[key].fileName)
-                add('打开/播放', lambda: self._OpenVideo(path))
-                add('选择播放器…', lambda: self._ChoosePlayerAndOpen(path), new_group=True)
+                add('打开/播放', lambda: self._OpenTaskManifest(task, path))
+                add('选择播放器…', lambda: self._ChoosePlayerAndOpenManifest(task, path), new_group=True)
                 add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
                 add('查看内容', lambda: self._ViewPlaylist(path), new_group=True)
             elif 0 <= key < len(task.outputs) + len(task.childs):
@@ -1061,8 +1165,8 @@ class MainFrame(wx.Frame):
                         self.model.CanDownloadSegment(index, key))
                 else:
                     if not partial:
-                        add('打开/播放', lambda: self._OpenVideo(path))
-                        add('选择播放器…', lambda: self._ChoosePlayerAndOpen(path), new_group=True)
+                        add('打开/播放', lambda: self._OpenVideo(path, task.task_id))
+                        add('选择播放器…', lambda: self._ChoosePlayerAndOpen(path, task.task_id), new_group=True)
                     add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
                 # 分片使用自己的 URL；直链 MP4（含 .part）使用任务 URL。
                 # 合成 MP4 是本地生成文件，没有独立下载地址。
@@ -1095,9 +1199,9 @@ class MainFrame(wx.Frame):
         if task.outputs and (task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
             for output in task.outputs:
                 path = PathManager.GetAbsPath(output.fileName)
-                add('播放视频', lambda path=path: self._OpenVideo(path))
+                add('播放视频', lambda path=path: self._OpenVideo(path, task.task_id))
                 add('选择播放器',
-                    lambda path=path: self._ChoosePlayerAndOpen(path), new_group=True)
+                    lambda path=path: self._ChoosePlayerAndOpen(path, task.task_id), new_group=True)
         else:
             add('播放视频', lambda: None, False)
         if task.parent.absUri:
@@ -1216,6 +1320,9 @@ class MainFrame(wx.Frame):
             self.runner.set_task_encrypted(task_id, encrypted, artifacts_prepared=True)
             metadata_updated = True
             cleanup_errors = publish_task_artifacts(prepared)
+            if self._playback_service is not None:
+                self._playback_sessions.difference_update(
+                    self._playback_service.close_task_sessions(task_id))
             self.OnRefresh(None)
             if cleanup_errors:
                 action = '加密' if encrypted else '解密'
@@ -1380,24 +1487,25 @@ class MainFrame(wx.Frame):
         try:
             if dialog.ShowModal() != wx.ID_OK:
                 return
+            encrypted_files = []
             if has_existing and dialog.GetCurrentPassword() != dialog.GetPassword():
-                encrypted_files_exist = False
                 for task in self.tasks.repository.list_tasks():
                     if not task.encrypted or task.type not in (TaskType.MP4, TaskType.M3U8):
                         continue
                     candidates = [source for source, _destination, _complete
                                   in plan_task_artifacts(task, not task.encrypted)]
-                    if any(is_encrypted_mp4(path) for path in candidates):
-                        encrypted_files_exist = True
-                        break
-                if encrypted_files_exist:
-                    wx.MessageBox('已有加密任务文件时暂不支持修改密码。请先解密任务文件后再修改。',
-                                  '无法修改密码', wx.OK | wx.ICON_WARNING, parent=self)
-                    return
+                    for path in candidates:
+                        if not path.exists():
+                            continue
+                        if not is_encrypted_mp4(path):
+                            raise ValueError(f'任务标记为已加密，但文件并非有效加密容器：{path.name}')
+                        encrypted_files.append(path)
             password_store.set_password(dialog.GetPassword(),
-                                        current_password=dialog.GetCurrentPassword())
+                                        current_password=dialog.GetCurrentPassword(),
+                                        encrypted_files=encrypted_files)
             self._encryption_context = password_store.unlock(dialog.GetPassword())
             self._encrypted_tasks_unlocked = True
+            self._ClosePlaybackServers()  # 密码变更后立即撤销旧播放 URL 和内存会话。
             self._SyncLockEncryptedTasksEnabled()
             wx.MessageBox('加密任务密码已保存。', '设置完成',
                           wx.OK | wx.ICON_INFORMATION, parent=self)
@@ -1978,14 +2086,15 @@ class MainFrame(wx.Frame):
         if self.model.IsContainer(item):
             self._SetTaskExpanded(item)
         elif len(objs) == 2 and objs[1] in self.model.fileTree.items[objs[0]].manifests:
-            self._OpenLocalPath(self.model.fileTree.items[objs[0]].manifests[objs[1]].fileName)
+            task = self.model.fileTree.items[objs[0]]
+            self._OpenTaskManifest(task, task.manifests[objs[1]].fileName)
         elif len(objs) == 2:
             task = self.model.fileTree.items[objs[0]]
             if 0 <= objs[1] < len(task.outputs):
                 output = task.outputs[objs[1]]
                 if Path(output.fileName).suffix.lower() == '.mp4' and (
                         task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
-                    self._OpenVideo(output.fileName)
+                    self._OpenVideo(output.fileName, task.task_id)
 
     # 窗口把点击位置转换为稳定的任务 UUID；执行规则由 TaskRunner 重新核对。
     def _SetTaskExpanded(self, item, expanded=None):

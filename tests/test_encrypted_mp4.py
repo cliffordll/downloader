@@ -3,8 +3,9 @@ import socket
 import tempfile
 import unittest
 from pathlib import Path
-from urllib.request import Request, urlopen
 from urllib.parse import unquote, urlsplit
+
+import requests
 
 from src.media.encrypted_file import (
     CHUNK_SIZE, EncryptedMP4Reader, EncryptedMP4Writer, context_from_password,
@@ -22,6 +23,17 @@ class EncryptedMP4Tests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def local_get(self, url, **kwargs):
+        session = requests.Session()
+        session.trust_env = False
+        self.addCleanup(session.close)
+        try:
+            return session.get(url, timeout=3, **kwargs)
+        except requests.ConnectionError as error:
+            if '10013' in str(error) or getattr(error.__cause__, 'winerror', None) == 10013:
+                self.skipTest('sandbox policy blocks loopback client connections')
+            raise
 
     def test_encrypts_file_and_supports_random_range_reads(self):
         plain = os.urandom(CHUNK_SIZE * 2 + 123)
@@ -104,18 +116,17 @@ class EncryptedMP4Tests(unittest.TestCase):
         source, encrypted = self.root / 'source.mp4', self.root / 'video.mp4'
         source.write_bytes(plain)
         encrypt_file(source, encrypted, self.key, self.salt, 1000)
-        server = PlaybackHTTPServer()
+        server = PlaybackHTTPServer(port=0)
         _, url = server.create_session(encrypted, self.key, 'my video.mp4.enc')
         self.assertEqual(unquote(urlsplit(url).path.rsplit('/', 1)[-1]), 'my video.mp4')
         try:
-            request = Request(url, headers={'Range': 'bytes=20-49'})
-            with urlopen(request) as response:
-                self.assertEqual(response.status, 206)
-                self.assertEqual(response.headers['Content-Range'], f'bytes 20-49/{len(plain)}')
-                self.assertEqual(response.read(), plain[20:50])
-            with urlopen(url) as response:
-                self.assertEqual(response.status, 200)
-                self.assertEqual(response.read(), plain)
+            response = self.local_get(url, headers={'Range': 'bytes=20-49'})
+            self.assertEqual(response.status_code, 206)
+            self.assertEqual(response.headers['Content-Range'], f'bytes 20-49/{len(plain)}')
+            self.assertEqual(response.content, plain[20:50])
+            response = self.local_get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content, plain)
         finally:
             server.close()
 
@@ -124,21 +135,17 @@ class EncryptedMP4Tests(unittest.TestCase):
         source, encrypted = self.root / 'source.mp4', self.root / 'video.mp4'
         source.write_bytes(plain)
         encrypt_file(source, encrypted, self.key, self.salt, 1000)
-        server = PlaybackHTTPServer()
+        server = PlaybackHTTPServer(port=0)
         first_token, first_url = server.create_session(encrypted, self.key)
         second_token, second_url = server.create_session(encrypted, self.key)
         try:
             self.assertEqual(first_url.split(':')[2].split('/')[0],
                              second_url.split(':')[2].split('/')[0])
-            with urlopen(first_url) as response:
-                self.assertEqual(response.read(), plain)
-            with urlopen(second_url) as response:
-                self.assertEqual(response.read(), plain)
+            self.assertEqual(self.local_get(first_url).content, plain)
+            self.assertEqual(self.local_get(second_url).content, plain)
             server.close_session(first_token)
-            with self.assertRaises(Exception):
-                urlopen(first_url, timeout=1)
-            with urlopen(second_url) as response:
-                self.assertEqual(response.read(), plain)
+            self.assertEqual(self.local_get(first_url).status_code, 404)
+            self.assertEqual(self.local_get(second_url).content, plain)
         finally:
             server.close_session(first_token)
             server.close_session(second_token)
@@ -152,13 +159,14 @@ class EncryptedMP4Tests(unittest.TestCase):
         server = PlaybackHTTPServer()
         try:
             self.assertFalse(server.get_status()['running'])
-            token, url = server.create_session(encrypted, self.key)
+            token, url = server.create_session(encrypted, self.key, task_id='task-a')
             status = server.get_status()
             self.assertTrue(status['running'])
             self.assertEqual(status['address'], '127.0.0.1')
             self.assertEqual(status['port'], int(url.split(':')[2].split('/')[0]))
             self.assertEqual(status['sessions'], 1)
-            server.close_session(token)
+            self.assertEqual(server.close_task_sessions('another-task'), [])
+            self.assertEqual(server.close_task_sessions('task-a'), [token])
             self.assertEqual(server.get_status()['sessions'], 0)
         finally:
             server.close()

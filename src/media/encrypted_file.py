@@ -126,6 +126,44 @@ def read_metadata(path):
     return header
 
 
+def verify_encrypted_file(path, wrapping_key):
+    """Authenticate an encrypted container header without decrypting its payload."""
+    header = read_metadata(path)
+    file_key = _unwrap(header, wrapping_key)
+    _verify_header(header, file_key)
+    return header
+
+
+def prepare_header_rewrap(path, old_wrapping_key, new_wrapping_key):
+    """Prepare a password-key change for a file without touching its media data."""
+    with Path(path).open('rb') as source:
+        original = source.read(HEADER_SIZE)
+        if len(original) != HEADER_SIZE:
+            raise ValueError('加密文件头不完整。')
+        source.seek(0)
+        header = _read_header(source)
+    file_key = _unwrap(header, old_wrapping_key)
+    _verify_header(header, file_key)
+    salt = _unb64(header['salt'], 16, 'salt')
+    iterations = int(header['iterations'])
+    nonce = os.urandom(12)
+    header['wrap_nonce'] = _b64(nonce)
+    header['wrapped_key'] = _b64(AESGCM(new_wrapping_key).encrypt(
+        nonce, file_key, _wrap_aad(salt, iterations)))
+    return original, _header_bytes(header, file_key)
+
+
+def write_encrypted_header(path, header_bytes):
+    """Replace only the fixed-size container header and flush it to disk."""
+    if len(header_bytes) != HEADER_SIZE:
+        raise ValueError('加密文件头长度无效。')
+    with Path(path).open('r+b') as target:
+        target.seek(0)
+        target.write(header_bytes)
+        target.flush()
+        os.fsync(target.fileno())
+
+
 def context_from_password(path, password):
     """Derive a file's wrapping key from only its embedded KDF salt and password."""
     if not isinstance(password, str) or not password:

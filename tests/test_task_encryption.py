@@ -6,6 +6,7 @@ import json
 import unittest
 
 from src.core.task_encryption import TaskEncryption
+from src.media.encrypted_file import decrypt_file, encrypt_file, HEADER_SIZE
 
 
 class TaskEncryptionTests(unittest.TestCase):
@@ -65,6 +66,51 @@ class TaskEncryptionTests(unittest.TestCase):
         after = self.password.unlock('same password')
         self.assertEqual(before['salt'], after['salt'])
         self.assertEqual(before['wrapping_key'], after['wrapping_key'])
+
+    def test_password_change_rewraps_only_encrypted_file_headers(self):
+        self.password.set_password('first password')
+        old_context = self.password.unlock('first password')
+        source = Path(self.temp.name) / 'source.mp4'
+        encrypted = Path(self.temp.name) / 'source.mp4.enc'
+        decrypted = Path(self.temp.name) / 'decrypted.mp4'
+        source.write_bytes(b'media payload' * 100)
+        encrypt_file(source, encrypted, old_context['wrapping_key'],
+                     old_context['salt'], old_context['iterations'])
+        before = encrypted.read_bytes()
+
+        self.password.set_password('second password', current_password='first password',
+                                   encrypted_files=[encrypted])
+
+        after = encrypted.read_bytes()
+        self.assertNotEqual(before[:HEADER_SIZE], after[:HEADER_SIZE])
+        self.assertEqual(before[HEADER_SIZE:], after[HEADER_SIZE:])
+        new_context = self.password.unlock('second password')
+        decrypt_file(encrypted, decrypted, new_context['wrapping_key'])
+        self.assertEqual(decrypted.read_bytes(), source.read_bytes())
+
+    def test_password_change_rolls_back_headers_when_password_file_write_fails(self):
+        self.password.set_password('first password')
+        old_context = self.password.unlock('first password')
+        source = Path(self.temp.name) / 'source.mp4'
+        encrypted = Path(self.temp.name) / 'source.mp4.enc'
+        source.write_bytes(b'media payload')
+        encrypt_file(source, encrypted, old_context['wrapping_key'],
+                     old_context['salt'], old_context['iterations'])
+        before = encrypted.read_bytes()
+        original_write = self.password._write
+
+        def fail_write(_data):
+            raise OSError('simulated password config failure')
+
+        self.password._write = fail_write
+        try:
+            with self.assertRaisesRegex(OSError, 'simulated password config failure'):
+                self.password.set_password('second password', current_password='first password',
+                                           encrypted_files=[encrypted])
+        finally:
+            self.password._write = original_write
+        self.assertEqual(encrypted.read_bytes(), before)
+        self.assertTrue(self.password.verify('first password'))
 
     def test_empty_password_is_rejected(self):
         with self.assertRaisesRegex(ValueError, '不能为空'):
