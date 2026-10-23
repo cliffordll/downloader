@@ -13,6 +13,8 @@ from src.core.task_service import TaskService
 from src.storage.task_repository import TaskRepository
 from src.views.main_frame import MainFrame
 from src.views.dialogs.browser_connect_dialog import BrowserConnectDialog
+from src.views.controllers.browser_controller import BrowserController
+from src.views.controllers.task_media_controller import TaskMediaController
 
 
 class BrowserCaptureUITests(unittest.TestCase):
@@ -58,6 +60,7 @@ class BrowserCaptureUITests(unittest.TestCase):
         inbox.put(capture)
         frame = SimpleNamespace(browser_bridge=SimpleNamespace(inbox=inbox),
                                 _capture_dialog_open=False, _OpenBrowserCapture=Mock())
+        frame.browser = BrowserController(frame)
         modal = Mock(spec=wx.Dialog)
         modal.IsModal.return_value = True
         with patch('wx.GetTopLevelWindows', return_value=[modal]), patch('wx.CallAfter') as dispatch:
@@ -73,8 +76,9 @@ class BrowserCaptureUITests(unittest.TestCase):
     def test_creating_mp4_tasks_does_not_start_download(self):
         dialog = Mock()
         dialog.ShowModal.return_value = wx.OK
-        with patch('src.views.main_frame.DownloadDialogMP4', return_value=dialog):
+        with patch('src.views.controllers.task_media_controller.DownloadDialogMP4', return_value=dialog):
             frame = SimpleNamespace(tasks=Mock(), OnRefresh=Mock(), _StartMP4=Mock())
+            frame.task_media = TaskMediaController(frame)
             MainFrame.OnAddMP4(frame, None)
         frame.OnRefresh.assert_called_once_with(None)
         frame._StartMP4.assert_not_called()
@@ -86,7 +90,8 @@ class BrowserCaptureUITests(unittest.TestCase):
         frame = SimpleNamespace(_closing=False, IsBeingDeleted=Mock(return_value=False),
                                 Iconize=Mock(), Raise=Mock(), OnRefresh=Mock(),
                                 _StartMP4=Mock(), _capture_dialog_open=True, tasks=Mock())
-        with patch('src.views.main_frame.DownloadDialogMP4', return_value=dialog):
+        frame.browser = BrowserController(frame)
+        with patch('src.views.controllers.browser_controller.DownloadDialogMP4', return_value=dialog):
             MainFrame._OpenBrowserCapture(frame, {'type': 'mp4', 'url': 'https://cdn/video.mp4'})
         frame.OnRefresh.assert_called_once_with(None)
         frame._StartMP4.assert_not_called()
@@ -97,15 +102,16 @@ class BrowserCaptureUITests(unittest.TestCase):
         config = self.root / 'browser-pairing.json'
         frame = SimpleNamespace(browser_bridge=None, _SetPrimaryStatusText=Mock(),
                                 _local_http_service=Mock())
-        with patch('src.views.main_frame.pairing_path', return_value=config), \
-             patch('src.views.main_frame.BrowserBridge') as bridge:
-            MainFrame.RestoreBrowserConnection(frame)
+        frame.browser = BrowserController(frame)
+        with patch('src.views.controllers.browser_controller.pairing_path', return_value=config), \
+             patch('src.views.controllers.browser_controller.BrowserBridge') as bridge:
+            frame.browser.RestoreBrowserConnection()
             bridge.assert_not_called()
             config.write_text('{}')
-            MainFrame.RestoreBrowserConnection(frame)
+            frame.browser.RestoreBrowserConnection()
             bridge.assert_called_once_with(http_service=frame._local_http_service)
             self.assertIs(frame.browser_bridge, bridge.return_value)
-            MainFrame.RestoreBrowserConnection(frame)
+            frame.browser.RestoreBrowserConnection()
             bridge.assert_called_once_with(http_service=frame._local_http_service)
 
     def test_connection_restore_failure_keeps_app_usable(self):
@@ -113,9 +119,10 @@ class BrowserCaptureUITests(unittest.TestCase):
         config.write_text('{}')
         frame = SimpleNamespace(browser_bridge=None, _SetPrimaryStatusText=Mock(),
                                 _local_http_service=Mock())
-        with patch('src.views.main_frame.pairing_path', return_value=config), \
-             patch('src.views.main_frame.BrowserBridge', side_effect=OSError('port occupied')):
-            MainFrame.RestoreBrowserConnection(frame)
+        frame.browser = BrowserController(frame)
+        with patch('src.views.controllers.browser_controller.pairing_path', return_value=config), \
+             patch('src.views.controllers.browser_controller.BrowserBridge', side_effect=OSError('port occupied')):
+            frame.browser.RestoreBrowserConnection()
         self.assertIsNone(frame.browser_bridge)
         frame._SetPrimaryStatusText.assert_called_once()
 

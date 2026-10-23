@@ -1,61 +1,48 @@
 import json
-import os
-import sqlite3
-import subprocess
-import sys
 import textwrap
-from queue import Empty
 from pathlib import Path
-from threading import Thread
 
 import wx 
 import wx.dataview as dv
-from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD, load_tree
+from src.models.tree_model import MultiColumnTreeModel, EVT_ALL_DOWNLOAD
 from src.views.ui_metrics import OUTER_MARGIN_DIP
 
-from src.views.dialogs.m3u8_dialog import DownloadDialogMU
-from src.views.dialogs.ts_dialog import DownloadDialogTS
-from src.views.dialogs.mp4_dialog import DownloadDialogMP4
 from src.views.dialogs.information_dialog import InformationDialog
-from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
-from src.views.dialogs.browser_connect_dialog import BrowserConnectDialog
-from src.views.dialogs.player_select_dialog import PlayerSelectDialog
-from src.views.dialogs.task_rename_dialog import TaskRenameDialog
-from src.views.dialogs.task_unlock_dialog import TaskUnlockDialog
-from src.views.dialogs.task_password_dialog import TaskPasswordDialog
-from src.views.dialogs.service_status_dialog import ServiceStatusDialog
 from src.core.task_runner import TaskRunner
-from src.core.services.browser_bridge import BrowserBridge
-from src.core.services.playback_http import PlaybackHTTPServer
 from src.core.http_service import LocalHTTPService
 from src.core.services.browser_pairing import load_or_create_pairing, pairing_path
-from src.core.file_export import save_file_as
 
 
-from src.media.m3u8.m3u8_downloader import M3U8Downloader
 from src.core.sys_setting import SysSetting
-from src.core.media_players import discover_media_players
 from src.core.task_service import TaskService
-from src.core.task_files import output_for, output_path
-from src.core.task_encryption import (
-    TaskEncryption,
-    plan_task_artifacts, prepare_task_artifacts, publish_task_artifacts,
-)
 from src.media.encrypted_file import is_encrypted_mp4
-from src.media.encrypted_file import EncryptedMP4Reader, context_from_password
 from src.models.file_base import TreeData
-from src.core.path_manager import PathManager
-from src.storage.task_repository import TaskDataError, TaskConflictError
-from src.schemas.task import FileStatus, TaskStatus, TaskType
+from src.schemas.task import TaskStatus
 
-from src.views.components.icons import app_icons, icon_image, toolbar_icon, set_titlebar_icon
+from src.views.components.icons import app_icons, toolbar_icon, set_titlebar_icon
 from src.views.components.renderers import TaskProgressRenderer, TaskActionRenderer
+from src.views.controllers.encryption_controller import EncryptionController
+from src.views.controllers.playback_controller import PlaybackController
+from src.views.controllers.service_controller import ServiceController
+from src.views.controllers.browser_controller import BrowserController
+from src.views.controllers.task_actions_controller import TaskActionsController
+from src.views.controllers.task_list_controller import TaskListController
+from src.views.controllers.download_controller import DownloadController
+from src.views.controllers.task_media_controller import TaskMediaController
 
 
 class MainFrame(wx.Frame):
     def __init__(self, parent, title, task_service: TaskService, initial_tree: TreeData):
         # super(MyFrame, self).__init__(parent, title=title)
         super().__init__(parent, title=title)
+        self.playback = PlaybackController(self)
+        self.encryption = EncryptionController(self)
+        self.services = ServiceController(self)
+        self.browser = BrowserController(self)
+        self.task_actions = TaskActionsController(self)
+        self.task_list = TaskListController(self)
+        self.downloads = DownloadController(self)
+        self.task_media = TaskMediaController(self)
         self._closing = False
         self.browser_bridge = None
         self._capture_dialog_open = False
@@ -729,878 +716,153 @@ class MainFrame(wx.Frame):
             self._PrepareClose()
         event.Skip()
 
-    def OnTaskProgress(self, event, notify=True):
-        """启动只建立缓存；后续只刷新变化的单元格，不反复使整行和全部表头失效。"""
-        if self._closing:
-            return
-        self._SyncDownloads()
-        self._CheckBrowserInbox()
-        display = {}
-        child_display = {}
-        file_actions = {}
-        snapshot = M3U8Downloader.Snapshot()
-        for index, task in enumerate(self.model.fileTree.items):
-            info = self.model.TaskInfo(index)
-            state = (info['progress'], info['status'], json.dumps(self.model.TaskActions(index), ensure_ascii=False))
-            display[task.parent.fileName] = state
-            previous = self._task_display.get(task.parent.fileName)
-            if notify and previous != state:
-                item = self.model.ObjectToItem(self.model._BuildKey((index,)))
-                for field, column in enumerate((5, 6, 4)):
-                    if previous is None or previous[field] != state[field]:
-                        self.model.ValueChanged(item, column)
-            root = self.model.ObjectToItem(self.model._BuildKey((index,)))
-            if self.mcTree.IsExpanded(root):
-                for file_index in [-4, *range(len(task.outputs))]:
-                    actions = self.model.FileActions(index, file_index)
-                    if not actions:
-                        continue
-                    key = (task.task_id or task.parent.fileName, file_index)
-                    file_actions[key] = json.dumps(actions, ensure_ascii=False)
-                    if notify and getattr(self, '_file_actions_display', {}).get(key) != file_actions[key]:
-                        node = self.model.ObjectToItem(self.model._BuildKey((index, file_index)))
-                        self.model.ValueChanged(node, 4)
-                for child_index in range(len(task.outputs) + (0 if task.work_dir_missing else len(task.childs))):
-                    folder = self.model.ObjectToItem(self.model._BuildKey((index, -1)))
-                    if child_index >= len(task.outputs) and not self.mcTree.IsExpanded(folder):
-                        continue
-                    key = (task.parent.fileName, child_index)
-                    child_status = self.model.ChildStatus(index, child_index, snapshot)
-                    child_display[key] = child_status
-                    if notify and getattr(self, '_child_status_display', {}).get(key) != child_status:
-                        child = self.model.ObjectToItem(self.model._BuildKey((index, child_index)))
-                        self.model.ValueChanged(child, 6)
-        status_changed = any(self._task_display.get(key, ('', ''))[1] != state[1]
-                             for key, state in display.items())
-        self._task_display = display
-        self._child_status_display = child_display
-        self._file_actions_display = file_actions
-        if status_changed and self.statusFilter.GetSelection() > 0:
-            self._ApplyTaskFilter()
+    def OnTaskProgress(self, *args, **kwargs):
+        return self.downloads.OnTaskProgress(*args, **kwargs)
+
 
 
     def OnTaskContextMenu(self, event):
         self.OnTaskMenu(event.GetItem())
 
-    def _OpenLocalPath(self, path):
-        target = Path(path)
-        if not target.exists():
-            wx.MessageBox('文件或目录已不存在，请确认保存位置或重新下载。', '提示', parent=self)
-            return
-        if not wx.LaunchDefaultApplication(str(target)):
-            wx.MessageBox('无法打开，请检查系统的默认应用设置。', '提示', parent=self)
+    def _OpenLocalPath(self, *args, **kwargs):
+        return self.playback._OpenLocalPath(*args, **kwargs)
 
-    def _OpenWithPlayer(self, path, player=None):
-        target = Path(path)
-        player = player or SysSetting.GetAll()['player_path']
-        if not target.is_file():
-            wx.MessageBox('视频文件已不存在，请确认保存位置或重新下载。', '提示', parent=self)
-            return
-        if not player or not Path(player).exists():
-            wx.MessageBox('尚未选择有效的播放器，请使用“选择播放器打开”。', '提示', parent=self)
-            return
-        try:
-            if sys.platform == 'darwin':
-                subprocess.Popen(['open', '-a', player, '--', str(target)])
-            else:
-                subprocess.Popen([player, str(target)])
-        except (OSError, subprocess.SubprocessError) as error:
-            wx.MessageBox(f'无法启动播放器：{error}', '提示', parent=self)
 
-    def _OpenVideo(self, path, task_id=None):
-        target = Path(path)
-        if is_encrypted_mp4(target):
-            self._PlayEncryptedMP4(target, task_id=task_id)
-            return
-        player = SysSetting.GetAll()['player_path']
-        if player and Path(player).exists():
-            self._OpenWithPlayer(path, player)
-        else:
-            self._OpenLocalPath(path)
+    def _OpenWithPlayer(self, *args, **kwargs):
+        return self.playback._OpenWithPlayer(*args, **kwargs)
 
-    def _TaskPlaybackContext(self, task_id):
-        """Get the password-derived file-key wrapping context for playback."""
-        password_context = self._encryption_context
-        if password_context is None:
-            password_store = TaskEncryption()
-            password_context = password_store.unlock_local()
-            if password_context is None:
-                dialog = TaskUnlockDialog(self, title='验证加密任务密码')
-                try:
-                    if dialog.ShowModal() != wx.ID_OK:
-                        return None
-                    password = dialog.password.GetValue()
-                    password_context = password_store.unlock(password)
-                    if password_context is None:
-                        raise ValueError('密码不正确。')
-                    try:
-                        password_store.remember_password(password)
-                    except OSError:
-                        pass
-                finally:
-                    dialog.Destroy()
-        return password_context
 
-    def _FindEncryptedMP4Task(self, path):
-        target = Path(path).resolve()
-        for task in self.tasks.repository.list_tasks():
-            if task.type != TaskType.MP4 or not task.encrypted:
-                continue
-            download = output_for(task, 'download')
-            if download is not None and (task.save_dir / download.output_path).resolve() == target:
-                return task.id
-        return None
+    def _OpenVideo(self, *args, **kwargs):
+        return self.playback._OpenVideo(*args, **kwargs)
 
-    def _PlayEncryptedMP4(self, path, player=None, task_id=None):
-        path = Path(path)
-        if task_id is None:
-            try:
-                task_id = self._FindEncryptedMP4Task(path)
-            except (OSError, sqlite3.Error, TaskDataError) as error:
-                wx.MessageBox(str(error), '无法读取加密任务', wx.OK | wx.ICON_ERROR, parent=self)
-                return
-        if task_id is not None:
-            try:
-                context = self._TaskPlaybackContext(task_id)
-            except (OSError, ValueError, sqlite3.Error, TaskDataError) as error:
-                wx.MessageBox(str(error), '无法解密 MP4', wx.OK | wx.ICON_ERROR, parent=self)
-                return
-            if context is None:
-                return
-            try:
-                EncryptedMP4Reader(path, context['wrapping_key'])
-            except (OSError, ValueError) as error:
-                wx.MessageBox(str(error), '无法解密 MP4', wx.OK | wx.ICON_ERROR, parent=self)
-                return
-        else:
-            context = self._encryption_context
-        if context is None:
-            dialog = TaskUnlockDialog(self, title='播放加密 MP4')
-            try:
-                if dialog.ShowModal() != wx.ID_OK:
-                    return
-                context = context_from_password(path, dialog.password.GetValue())
-                EncryptedMP4Reader(path, context['wrapping_key'])
-            except (OSError, ValueError) as error:
-                wx.MessageBox(str(error), '无法解密 MP4', wx.OK | wx.ICON_ERROR, parent=self)
-                return
-            finally:
-                dialog.Destroy()
-        player = player or SysSetting.GetAll()['player_path']
-        if not player or not Path(player).exists():
-            player = self._ChoosePlayer()
-        if not player:
-            return
-        try:
-            if self._playback_service is None:
-                self._playback_service = PlaybackHTTPServer(
-                    port=SysSetting.GetAll()['playback_port'],
-                    on_port_assigned=self._RememberPlaybackPort,
-                    http_service=self._local_http_service)
-            task_name = None
-            if task_id is not None:
-                playback_task = self.tasks.repository.get(task_id)
-                task_name = playback_task.name if playback_task is not None else None
-            token, url = self._playback_service.create_session(
-                path, context['wrapping_key'], task_id=task_id, task_name=task_name)
-            self._playback_sessions.add(token)
-            if sys.platform == 'darwin':
-                subprocess.Popen(['open', '-a', player, '--', url])
-            else:
-                subprocess.Popen([player, url])
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            if 'token' in locals() and self._playback_service is not None:
-                self._playback_service.close_session(token)
-                self._playback_sessions.discard(token)
-            wx.MessageBox(f'无法播放加密 MP4：{error}', '播放失败', parent=self)
 
-    def _PlayEncryptedM3U8(self, task_id, player=None):
-        try:
-            task = self.tasks.repository.get(task_id)
-            if task is None or task.type != TaskType.M3U8:
-                raise ValueError('M3U8 任务不存在。')
-            context = self._TaskPlaybackContext(task_id)
-            if context is None:
-                return
-            if not task.details.playlist_path:
-                raise ValueError('M3U8 任务缺少播放列表路径。')
-            playlist = Path(task.save_dir) / task.name / task.details.playlist_path
-            EncryptedMP4Reader(playlist, context['wrapping_key'])
-        except (OSError, ValueError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(str(error), '无法播放加密 M3U8', wx.OK | wx.ICON_ERROR, parent=self)
-            return
-        player = player or SysSetting.GetAll()['player_path']
-        if not player or not Path(player).exists():
-            player = self._ChoosePlayer()
-        if not player:
-            return
-        try:
-            if self._playback_service is None:
-                self._playback_service = PlaybackHTTPServer(
-                    port=SysSetting.GetAll()['playback_port'],
-                    on_port_assigned=self._RememberPlaybackPort,
-                    http_service=self._local_http_service)
-            token, url = self._playback_service.create_m3u8_session(task, context['wrapping_key'])
-            self._playback_sessions.add(token)
-            if sys.platform == 'darwin':
-                subprocess.Popen(['open', '-a', player, '--', url])
-            else:
-                subprocess.Popen([player, url])
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            if 'token' in locals() and self._playback_service is not None:
-                self._playback_service.close_session(token)
-                self._playback_sessions.discard(token)
-            wx.MessageBox(f'无法播放加密 M3U8：{error}', '播放失败', parent=self)
+    def _TaskPlaybackContext(self, *args, **kwargs):
+        return self.playback._TaskPlaybackContext(*args, **kwargs)
 
-    def _OpenTaskManifest(self, task, path, player=None):
-        if task.encrypted and is_encrypted_mp4(path):
-            self._PlayEncryptedM3U8(task.task_id, player)
-        elif player:
-            self._OpenWithPlayer(path, player)
-        else:
-            self._OpenLocalPath(path)
 
-    def _ChoosePlayerAndOpenManifest(self, task, path):
-        player = self._ChoosePlayer()
-        if player:
-            self._OpenTaskManifest(task, path, player)
+    def _FindEncryptedMP4Task(self, *args, **kwargs):
+        return self.playback._FindEncryptedMP4Task(*args, **kwargs)
 
-    def _ClosePlaybackServers(self):
-        self._playback_sessions.clear()
-        if self._playback_service is not None:
-            self._playback_service.close()
-            self._playback_service = None
 
-    def _ChoosePlayer(self):
-        current = SysSetting.GetAll()['player_path']
-        players = discover_media_players()
-        if current and Path(current).exists() and all(Path(candidate).resolve() != Path(current).resolve()
-                                                      for _, candidate in players):
-            players.insert(0, (f'已选播放器（{Path(current).name}）', current))
-        labels = [f'{name} — {Path(candidate).name}' for name, candidate in players]
-        dialog = PlayerSelectDialog(self, list(zip(labels, [candidate for _, candidate in players])), current)
-        try:
-            if dialog.ShowModal() != wx.ID_OK:
-                return
-            selection = dialog.GetSelection()
-            browse_requested = dialog.browse_requested
-        finally:
-            dialog.Destroy()
-        if browse_requested:
-            if sys.platform == 'darwin':
-                browser = wx.DirDialog(self, '选择播放器应用（例如 VLC.app 或 IINA.app）',
-                                       defaultPath=str(Path(current).parent) if current else '/Applications')
-            else:
-                browser = wx.FileDialog(
-                    self, '选择播放器程序', defaultDir=str(Path(current).parent) if current else '',
-                    wildcard='可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*', style=wx.FD_OPEN)
-            try:
-                if browser.ShowModal() != wx.ID_OK:
-                    return
-                player = browser.GetPath()
-            finally:
-                browser.Destroy()
-        else:
-            player = players[selection][1]
-        try:
-            values = SysSetting.GetAll()
-            values['player_path'] = player
-            SysSetting.Save(values)
-        except (OSError, ValueError) as error:
-            wx.MessageBox(f'播放器设置保存失败：{error}', '提示', parent=self)
-            return None
-        return player
+    def _PlayEncryptedMP4(self, *args, **kwargs):
+        return self.playback._PlayEncryptedMP4(*args, **kwargs)
 
-    def _ChoosePlayerAndOpen(self, path, task_id=None):
-        player = self._ChoosePlayer()
-        if player:
-            if is_encrypted_mp4(path):
-                self._PlayEncryptedMP4(path, player, task_id=task_id)
-            else:
-                self._OpenWithPlayer(path, player)
 
-    def OnSelectPlayer(self, event):
-        player = self._ChoosePlayer()
-        if player:
-            self._SetPrimaryStatusText(f'已选择播放器：{Path(player).name}')
+    def _PlayEncryptedM3U8(self, *args, **kwargs):
+        return self.playback._PlayEncryptedM3U8(*args, **kwargs)
 
-    def _SaveFileAs(self, source):
-        source = Path(source)
-        if not source.is_file():
-            wx.MessageBox('原文件已不存在，请重新下载后再另存为。', '另存为失败', wx.OK | wx.ICON_ERROR, self)
-            return
-        dialog = wx.FileDialog(self, '另存为', defaultFile=source.name,
-                               wildcard='所有文件 (*.*)|*.*',
-                               style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
-        try:
-            if dialog.ShowModal() != wx.ID_OK:
-                return
-            destination = dialog.GetPath()
-        finally:
-            dialog.Destroy()
-        errors = []
 
-        def copy():
-            try:
-                save_file_as(source, destination)
-            except (OSError, ValueError) as error:
-                errors.append(str(error))
+    def _OpenTaskManifest(self, *args, **kwargs):
+        return self.playback._OpenTaskManifest(*args, **kwargs)
 
-        progress = wx.ProgressDialog('另存为', '正在复制文件，请稍候…', parent=self,
-                                     style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME)
-        worker = Thread(target=copy, name='file-export')
-        try:
-            worker.start()
-            while worker.is_alive():
-                progress.Pulse()
-                worker.join(0.05)
-        finally:
-            progress.Destroy()
-        if errors:
-            wx.MessageBox(errors[0], '另存为失败', wx.OK | wx.ICON_ERROR, self)
 
-    def _ViewPlaylist(self, path):
-        path = Path(path)
-        try:
-            text = path.read_text(encoding='utf-8-sig')
-        except (OSError, UnicodeError) as error:
-            wx.MessageBox(f'无法读取播放列表：{error}', '查看内容失败', parent=self)
-            return
-        self._ShowInformation('查看内容：' + path.name, text, line_numbers=True)
+    def _ChoosePlayerAndOpenManifest(self, *args, **kwargs):
+        return self.playback._ChoosePlayerAndOpenManifest(*args, **kwargs)
 
-    def _EditSegmentInfo(self, task_id, sequence):
-        try:
-            record = self.tasks.repository.get(task_id)
-            if record is None:
-                raise ValueError('任务不存在，请刷新后重试。')
-            segment = next((s for s in record.details.media_segments if s.sequence == sequence), None)
-            if segment is None:
-                raise ValueError('分片不存在，请刷新后重试。')
-            dialog = SegmentEditDialog(self, segment.source_url or '', segment.duration,
-                                       completed=segment.status == FileStatus.COMPLETED)
-            try:
-                while dialog.ShowModal() == wx.ID_OK:
-                    try:
-                        self.runner.update_segment_info(task_id, sequence, dialog.GetURL(), dialog.GetDuration())
-                    except ValueError as error:
-                        wx.MessageBox(str(error), '无法修改分片信息', parent=dialog)
-                        continue
-                    self._SyncDownloads()
-                    break
-            finally:
-                dialog.Destroy()
-        except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
-            wx.MessageBox(str(error), '无法修改分片信息', parent=self)
 
-    def _DetectSegmentDurations(self, task_id):
-        try:
-            self.runner.detect_durations(task_id)
-        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(str(error), '无法检测分片时长', parent=self)
-            return
-        if not hasattr(self, '_manualDurationChecks'):
-            self._manualDurationChecks = set()
-        self._manualDurationChecks.add(task_id)
-        self._SetPrimaryStatusText('正在检测已下载分片的播放时长…')
-        self.OnTaskProgress(None)
+    def _ClosePlaybackServers(self, *args, **kwargs):
+        return self.playback._ClosePlaybackServers(*args, **kwargs)
 
-    def _CheckAndContinue(self, task_id):
-        """已完成任务也可显式检查并补下载，不在展示时检查磁盘。"""
-        try:
-            if self.runner.start(task_id):
-                self._completion_notified.discard(task_id)
-        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(str(error), '任务操作失败', parent=self)
-        self._SyncDownloads()
 
-    def OnTaskMenu(self, item):
-        if not item.IsOk():
-            return
-        keys = self.model.ParseKey(self.model.ItemToObject(item))
-        if len(keys) not in (1, 2):
-            return
-        index = keys[0]
-        task = self.model.fileTree.items[index]
-        directory = task.save_dir or Path(PathManager.GetAbsPath(task.parent.fileName)).parent
-        menu = wx.Menu()
+    def _ChoosePlayer(self, *args, **kwargs):
+        return self.playback._ChoosePlayer(*args, **kwargs)
 
-        def add(label, callback, enabled=True, *, new_group=False):
-            if new_group and menu.GetMenuItemCount():
-                menu.AppendSeparator()
-            entry = menu.Append(wx.ID_ANY, label)
-            entry.Enable(enabled)
-            menu.Bind(wx.EVT_MENU, lambda event: callback(), entry)
 
-        # keys=[任务索引] 表示任务；[任务索引, 节点键] 表示该任务的文件或目录。
-        # 节点键不表示目录深度；工作目录里的分片也使用两个元素的 keys。
-        if len(keys) == 2:
-            key = keys[1]
-            # 负数是特殊节点：-4 为工作目录，-1 为 segments 分片目录。
-            if key in (-4, -1):
-                directory = task.work_dir or Path(task.parent.fileName).parent
-                if key == -1:
-                    directory = directory / 'segments'
-                add('打开文件夹', lambda: self._OpenLocalPath(directory))
-            elif key in task.manifests:
-                # 清单节点单独登记在 manifests 中，当前 -2 对应 download.m3u8。
-                path = Path(task.manifests[key].fileName)
-                add('打开/播放', lambda: self._OpenTaskManifest(task, path))
-                add('选择播放器…', lambda: self._ChoosePlayerAndOpenManifest(task, path), new_group=True)
-                add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
-                add('查看内容', lambda: self._ViewPlaylist(path), new_group=True)
-            elif 0 <= key < len(task.outputs) + len(task.childs):
-                # 非负键先排列 outputs（成品或 .part），再排列 childs（TS 分片）。
-                # 减去输出数量后，负数表示输出文件，非负数才是分片列表的索引。
-                # 例如有 1 个输出：key=0 是输出，key=1 是第 0 个分片。
-                segment_index = key - len(task.outputs)
-                file = task.outputs[key] if segment_index < 0 else task.childs[segment_index]
-                path = Path(file.fileName)
-                # 未完成的直链 MP4 输出行代表 .part，不提供播放和另存为。
-                partial = segment_index < 0 and task.task_type == TaskType.MP4 and task.task_status != TaskStatus.COMPLETED
-                pending = segment_index >= 0 and file.fileSize == '-'
-                if pending:
-                    # '-' 是展示模型的未完成分片标记；此处不访问磁盘检查文件。
-                    info = self.model.TaskInfo(index)
-                    add('下载', lambda: self.OnSegmentDownload(item),
-                        self.model.CanDownloadSegment(index, key))
-                else:
-                    if not partial:
-                        add('打开/播放', lambda: self._OpenVideo(path, task.task_id))
-                        add('选择播放器…', lambda: self._ChoosePlayerAndOpen(path, task.task_id), new_group=True)
-                    add('打开所在文件夹', lambda: self._OpenLocalPath(path.parent))
-                # 分片使用自己的 URL；直链 MP4（含 .part）使用任务 URL。
-                # 合成 MP4 是本地生成文件，没有独立下载地址。
-                source_url = file.absUri if segment_index >= 0 else (
-                    task.parent.absUri if task.task_type == TaskType.MP4 else '')
-                if source_url:
-                    add('查看下载地址', lambda: self._ShowInformation('下载地址', source_url), new_group=True)
-                if segment_index >= 0:
-                    info = self.model.TaskInfo(index)
-                    add('修改分片信息', lambda: self._EditSegmentInfo(task.task_id, file.sequence),
-                        not info['merging'] and not info['pending'], new_group=not source_url)
-                if not pending and not partial:
-                    add('另存为…', lambda: self._SaveFileAs(path), new_group=True)
-            try:
-                if menu.GetMenuItemCount():
-                    self.mcTree.PopupMenu(menu)
-            finally:
-                menu.Destroy()
-            # 文件/目录菜单处理完即返回，不再追加下面的任务菜单。
-            return
+    def _ChoosePlayerAndOpen(self, *args, **kwargs):
+        return self.playback._ChoosePlayerAndOpen(*args, **kwargs)
 
-        info = self.model.TaskInfo(index)
-        parent_item = self.model.ObjectToItem(self.model._BuildKey((index,)))
-        add('重命名…', lambda: self._RenameTask(task.task_id, task.parent.displayName),
-            task.rename_allowed)
-        add('解密任务' if task.encrypted else '加密任务',
-            lambda: self._SetTaskEncrypted(task.task_id, not task.encrypted),
-            task.rename_allowed, new_group=True)
-        add('打开文件夹', lambda: self._OpenLocalPath(directory))
-        if task.outputs and (task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
-            for output in task.outputs:
-                path = PathManager.GetAbsPath(output.fileName)
-                add('播放视频', lambda path=path: self._OpenVideo(path, task.task_id))
-                add('选择播放器',
-                    lambda path=path: self._ChoosePlayerAndOpen(path, task.task_id), new_group=True)
-        else:
-            add('播放视频', lambda: None, False)
-        if task.parent.absUri:
-            add('查看下载地址', lambda: self._ShowInformation('下载地址', task.parent.absUri), new_group=True)
-        if task.task_type == TaskType.MP4 and task.last_error:
-            add('查看失败原因', lambda: self._ShowInformation('MP4 下载失败', task.last_error),
-                new_group=not task.parent.absUri)
-        if task.task_type == TaskType.M3U8:
-            add('检测分片时长', lambda: self._DetectSegmentDurations(task.task_id),
-                bool(info['done']) and not info['pending'] and not info['merging'], new_group=True)
-            add('转 MP4', lambda: self.OnTaskAction(parent_item, 'merge'),
-                bool(info['total']) and info['done'] == info['total'] and not task.outputs
-                and not task.encrypted and not info['pending'] and not info['merging'])
-        if task.task_type in (TaskType.M3U8, TaskType.MP4) and task.task_status in (TaskStatus.COMPLETED, TaskStatus.WAITING_MERGE):
-            add('检查并继续下载', lambda: self._CheckAndContinue(task.task_id),
-                new_group=task.task_type != TaskType.M3U8)
-        completed_files = []
-        if task.task_type == TaskType.M3U8 or task.task_status == TaskStatus.COMPLETED:
-            completed_files = [Path(PathManager.GetAbsPath(output.fileName)) for output in task.outputs]
-            if not completed_files and task.task_type != TaskType.M3U8:
-                completed_files = [Path(PathManager.GetAbsPath(task.parent.fileName))]
-        if completed_files:
-            for position, path in enumerate(completed_files):
-                label = '另存为…' if len(completed_files) == 1 else '另存为：' + path.name
-                add(label, lambda path=path: self._SaveFileAs(path), new_group=position == 0)
-        else:
-            add('另存为…', lambda: None, False, new_group=True)
-        try:
-            self.mcTree.PopupMenu(menu)
-        finally:
-            menu.Destroy()
 
-    def _RenameTask(self, task_id, current_name):
-        dialog = TaskRenameDialog(self, current_name)
-        try:
-            if dialog.ShowModal() != wx.ID_OK:
-                return
-            name = dialog.GetName().strip()
-            if not name:
-                return
-            self.runner.rename(task_id, name)
-            self.OnRefresh(None)
-            self._SyncDownloads()
-        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
-            wx.MessageBox(str(error), '重命名失败', parent=self)
-        finally:
-            dialog.Destroy()
+    def OnSelectPlayer(self, *args, **kwargs):
+        return self.playback.OnSelectPlayer(*args, **kwargs)
 
-    def _SetTaskEncrypted(self, task_id, encrypted):
-        try:
-            busy = self.runner.busy(task_id)
-        except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
-            wx.MessageBox(str(error), '任务加密失败' if encrypted else '任务解密失败',
-                          wx.OK | wx.ICON_ERROR, parent=self)
-            return
-        if busy:
-            wx.MessageBox('任务正在下载、检测或合并，请等待结束后再加密或解密。',
-                          '暂时无法操作', wx.OK | wx.ICON_INFORMATION, parent=self)
-            return
-        task = self.tasks.repository.get(task_id)
-        if task is None:
-            wx.MessageBox('任务不存在，请刷新后重试。', '任务加密失败' if encrypted else '任务解密失败',
-                          wx.OK | wx.ICON_ERROR, parent=self)
-            return
-        if task.type not in (TaskType.MP4, TaskType.M3U8):
-            wx.MessageBox('当前任务类型不支持加密或解密文件。',
-                          '暂时无法操作', wx.OK | wx.ICON_INFORMATION, parent=self)
-            return
-        media_paths = plan_task_artifacts(task, encrypted)
-        for media_path, destination, _complete in media_paths:
-            if destination != media_path and (destination.exists() or destination.is_symlink()):
-                wx.MessageBox(f'目标文件已存在，未修改原文件：{destination.name}',
-                              '目标文件已存在', wx.OK | wx.ICON_WARNING, parent=self)
-                return
-        needs_key = encrypted or task.encrypted or any(
-            is_encrypted_mp4(path) for path, _destination, _complete in media_paths)
-        context = self._encryption_context
-        if needs_key and context is None:
-            context = self._GetEncryptionContextForOperation()
-            if context is None:
-                return
-        if encrypted:
-            try:
-                if not TaskEncryption().is_configured():
-                    wx.MessageBox('请先从“任务”菜单设置加密任务密码。',
-                                  '尚未设置密码', wx.OK | wx.ICON_INFORMATION, parent=self)
-                    return
-            except ValueError as error:
-                wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
-                return
-        try:
-            prepared = []
-            metadata_updated = False
-            if media_paths:
-                failures = []
 
-                def convert_media():
-                    try:
-                        prepared.extend(prepare_task_artifacts(media_paths, encrypted, context))
-                    except Exception as error:
-                        failures.append(error)
+    def _SaveFileAs(self, *args, **kwargs):
+        return self.task_actions._SaveFileAs(*args, **kwargs)
 
-                worker = Thread(target=convert_media, name='task-encryption')
-                action = '加密' if encrypted else '解密'
-                progress = wx.ProgressDialog(f'任务{action}', '正在转换本地任务文件…', parent=self,
-                                             style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME)
-                try:
-                    worker.start()
-                    while worker.is_alive():
-                        progress.Pulse()
-                        worker.join(0.05)
-                finally:
-                    progress.Destroy()
-                if failures:
-                    raise failures[0]
-            self.runner.set_task_encrypted(task_id, encrypted, artifacts_prepared=True)
-            metadata_updated = True
-            cleanup_errors = publish_task_artifacts(prepared)
-            if self._playback_service is not None:
-                self._playback_sessions.difference_update(
-                    self._playback_service.close_task_sessions(task_id))
-            self.OnRefresh(None)
-            if cleanup_errors:
-                action = '加密' if encrypted else '解密'
-                names = '、'.join(source.name for source, _destination, _working, _complete in prepared
-                                  if source.exists())
-                wx.MessageBox(f'{action}状态已更新，但旧文件未能全部清理：{names}\n'
-                              f'请检查文件占用后手动删除旧文件。',
-                              f'{action}完成但清理未完成', wx.OK | wx.ICON_WARNING, parent=self)
-        except Exception as error:
-            if not metadata_updated:
-                for source, destination, working, _complete in prepared:
-                    artifacts = {path for path in (destination, working) if path != source}
-                    for artifact in artifacts:
-                        try:
-                            if artifact.exists():
-                                artifact.unlink()
-                        except OSError:
-                            pass
-            wx.MessageBox(str(error), '任务加密失败' if encrypted else '任务解密失败',
-                          wx.OK | wx.ICON_ERROR, parent=self)
 
-    def _GetEncryptionContextForOperation(self):
-        """Load the locally protected key, asking only for first-time setup/migration."""
-        try:
-            password_store = TaskEncryption()
-            if not password_store.is_configured():
-                dialog = TaskPasswordDialog(self, has_existing=False)
-                try:
-                    if dialog.ShowModal() != wx.ID_OK:
-                        return None
-                    password = dialog.GetPassword()
-                    password_store.set_password(password)
-                    return password_store.unlock(password)
-                finally:
-                    dialog.Destroy()
-        except (OSError, ValueError) as error:
-            wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
-            return None
+    def _ViewPlaylist(self, *args, **kwargs):
+        return self.task_actions._ViewPlaylist(*args, **kwargs)
 
-        try:
-            context = password_store.unlock_local()
-        except (OSError, ValueError) as error:
-            wx.MessageBox(str(error), '读取本地密码失败', wx.OK | wx.ICON_ERROR, parent=self)
-            return None
-        if context is not None:
-            return context
 
-        dialog = TaskUnlockDialog(self, title='验证加密任务密码')
-        try:
-            if dialog.ShowModal() != wx.ID_OK:
-                return None
-            password = dialog.password.GetValue()
-            context = password_store.unlock(password)
-            if context is None:
-                wx.MessageBox('密码不正确。', '验证失败', wx.OK | wx.ICON_ERROR, parent=self)
-            else:
-                # 旧配置只有不可逆校验值；验证成功后保存一份由当前 Windows
-                # 用户 DPAPI 保护的凭据，以便后续加解密操作直接复用。
-                try:
-                    password_store.remember_password(password)
-                except OSError as error:
-                    wx.MessageBox(f'密码验证成功，但无法保存本地凭据；后续操作仍需验证密码。\n{error}',
-                                  '本地密码保存失败', wx.OK | wx.ICON_WARNING, parent=self)
-            return context
-        finally:
-            dialog.Destroy()
+    def _EditSegmentInfo(self, *args, **kwargs):
+        return self.task_actions._EditSegmentInfo(*args, **kwargs)
+
+
+    def _DetectSegmentDurations(self, *args, **kwargs):
+        return self.task_actions._DetectSegmentDurations(*args, **kwargs)
+
+
+    def _CheckAndContinue(self, *args, **kwargs):
+        return self.task_actions._CheckAndContinue(*args, **kwargs)
+
+
+    def OnTaskMenu(self, *args, **kwargs):
+        return self.task_actions.OnTaskMenu(*args, **kwargs)
+
+
+    def _RenameTask(self, *args, **kwargs):
+        return self.task_actions._RenameTask(*args, **kwargs)
+
+
+    def _SetTaskEncrypted(self, *args, **kwargs):
+        return self.encryption._SetTaskEncrypted(*args, **kwargs)
+
+
+    def _GetEncryptionContextForOperation(self, *args, **kwargs):
+        return self.encryption._GetEncryptionContextForOperation(*args, **kwargs)
+
 
 
     ###################################
     ### 事件所需函数
     ###################################
-    def _SearchItems(self, text):
-        """应用关键词筛选；命中任务、MP4 或分片路径均保留整个任务。"""
-        self._filterText = text.strip().casefold()
-        self._ApplyTaskFilter()
+    def _SearchItems(self, *args, **kwargs):
+        return self.task_list._SearchItems(*args, **kwargs)
 
-    def _UpdateFilterCount(self):
-        total = len(self.model.fileTree.items)
-        visible = total if self.model.visible_tasks is None else len(self.model.visible_tasks)
-        label = f'显示 {visible} / {total} 个任务'
-        if self.filterCount.GetLabel() != label:
-            self.filterCount.SetLabel(label)
-        filtered = bool(self._filterText) or self.statusFilter.GetSelection() > 0
-        # 无任务时保持空列表；仅筛选无匹配结果时显示清除筛选提示。
-        empty = total > 0 and visible == 0 and filtered
-        self.clearFiltersButton.Show(filtered)
-        if self.emptyPanel.IsShown() != empty:
-            self.emptyPanel.Show(empty)
-            self.emptyPanel.GetParent().Layout()
-        if empty:
-            self.emptyPanel.Layout()
 
-    def OnUnlockEncryptedTasks(self, _event):
-        try:
-            password_store = TaskEncryption()
-            if not password_store.is_configured():
-                wx.MessageBox('请先从“任务”菜单设置加密任务密码。',
-                              '尚未设置密码', wx.OK | wx.ICON_INFORMATION, parent=self)
-                return
-        except ValueError as error:
-            wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
-            return
+    def _UpdateFilterCount(self, *args, **kwargs):
+        return self.task_list._UpdateFilterCount(*args, **kwargs)
 
-        dialog = TaskUnlockDialog(self)
-        try:
-            if dialog.ShowModal() != wx.ID_OK:
-                return
-            context = password_store.unlock(dialog.password.GetValue())
-            if context is None:
-                wx.MessageBox('密码不正确。', '无法解锁', wx.OK | wx.ICON_ERROR, parent=self)
-                return
-            try:
-                password_store.remember_password(dialog.password.GetValue())
-            except OSError as error:
-                wx.MessageBox(f'已解锁任务，但无法保存本地凭据；下次操作仍需验证密码。\n{error}',
-                              '本地密码保存失败', wx.OK | wx.ICON_WARNING, parent=self)
-            self._encryption_context = context
-            self._encrypted_tasks_unlocked = True
-            self._SyncLockEncryptedTasksEnabled()
-            self._ApplyTaskFilter(force=True)
-        finally:
-            dialog.Destroy()
 
-    def OnLockEncryptedTasks(self, _event):
-        """Clear the in-memory unlock state and immediately hide encrypted tasks."""
-        if not self._encrypted_tasks_unlocked:
-            return
-        self._encrypted_tasks_unlocked = False
-        self._encryption_context = None
-        self._ClosePlaybackServers()
-        self._SyncLockEncryptedTasksEnabled()
-        self._ApplyTaskFilter(force=True)
-        self._SetPrimaryStatusText('加密任务已隐藏。')
+    def OnUnlockEncryptedTasks(self, *args, **kwargs):
+        return self.encryption.OnUnlockEncryptedTasks(*args, **kwargs)
 
-    def OnEncryptedTasksTool(self, event):
-        if self._encrypted_tasks_unlocked:
-            self.OnLockEncryptedTasks(event)
-        else:
-            self.OnUnlockEncryptedTasks(event)
 
-    def _SyncLockEncryptedTasksEnabled(self):
-        unlocked = self._encrypted_tasks_unlocked
-        self.lockEncryptedTasksItem.Enable(unlocked)
-        if self.toolBar is not None:
-            tool_id = self._encryptedTasksTool.GetId()
-            label = '隐藏加密任务' if unlocked else '显示加密任务'
-            icon = 'lock' if unlocked else 'unlock'
-            self.toolBar.SetToolNormalBitmap(tool_id, toolbar_icon(icon))
-            self._encryptedTasksTool.SetLabel(label)
-            self.toolBar.SetToolShortHelp(tool_id, label)
-            self.toolBar.EnableTool(tool_id, True)
+    def OnLockEncryptedTasks(self, *args, **kwargs):
+        return self.encryption.OnLockEncryptedTasks(*args, **kwargs)
 
-    def OnSetEncryptedPassword(self, _event):
-        password_store = TaskEncryption()
-        try:
-            has_existing = password_store.is_configured()
-        except ValueError as error:
-            wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self)
-            return
 
-        dialog = TaskPasswordDialog(self, has_existing=has_existing)
-        try:
-            if dialog.ShowModal() != wx.ID_OK:
-                return
-            encrypted_files = []
-            if has_existing and dialog.GetCurrentPassword() != dialog.GetPassword():
-                for task in self.tasks.repository.list_tasks():
-                    if not task.encrypted or task.type not in (TaskType.MP4, TaskType.M3U8):
-                        continue
-                    candidates = [source for source, _destination, _complete
-                                  in plan_task_artifacts(task, not task.encrypted)]
-                    for path in candidates:
-                        if not path.exists():
-                            continue
-                        if not is_encrypted_mp4(path):
-                            raise ValueError(f'任务标记为已加密，但文件并非有效加密容器：{path.name}')
-                        encrypted_files.append(path)
-            password_store.set_password(dialog.GetPassword(),
-                                        current_password=dialog.GetCurrentPassword(),
-                                        encrypted_files=encrypted_files)
-            self._encryption_context = password_store.unlock(dialog.GetPassword())
-            self._encrypted_tasks_unlocked = True
-            self._ClosePlaybackServers()  # 密码变更后立即撤销旧播放 URL 和内存会话。
-            self._SyncLockEncryptedTasksEnabled()
-            wx.MessageBox('加密任务密码已保存。', '设置完成',
-                          wx.OK | wx.ICON_INFORMATION, parent=self)
-        except (OSError, ValueError) as error:
-            wx.MessageBox(str(error), '设置密码失败', wx.OK | wx.ICON_ERROR, parent=self)
-        finally:
-            dialog.Destroy()
+    def OnEncryptedTasksTool(self, *args, **kwargs):
+        return self.encryption.OnEncryptedTasksTool(*args, **kwargs)
 
-    def _ApplyTaskFilter(self, force=False, expanded_keys=None):
-        self.ClearTaskToolTip()
-        """只筛选根任务，保持原始任务索引，避免筛选后暂停、删除或下载回调操作错行。"""
-        text = self._filterText
-        status = self.statusFilter.GetStringSelection()
-        visible = None
-        locked_encrypted = {index for index, task in enumerate(self.model.fileTree.items)
-                            if task.encrypted and not self._encrypted_tasks_unlocked}
-        if text or status != '全部状态' or locked_encrypted:
-            visible = set()
-            for index, task in enumerate(self.model.fileTree.items):
-                if index in locked_encrypted:
-                    continue
-                if text and not (
-                    (task.parent and (text in task.parent.fileName.casefold()
-                                     or text in task.parent.displayName.casefold()))
-                    or any(text in file.fileName.casefold() for file in task.outputs)
-                    or any(text in file.fileName.casefold() for file in task.childs)
-                ):
-                    continue
-                if status != '全部状态' and self.model.TaskInfo(index)['status'].split(' · ', 1)[0] != status:
-                    continue
-                visible.add(index)
-        if force or visible != self.model.visible_tasks:
-            expanded = set() if expanded_keys is None else set(expanded_keys)
-            root = dv.NullDataViewItem
-            if expanded_keys is None:
-                self._SaveExpandState(root, expanded)
-            # 刷新时只给新任务应用默认值，已存在任务保留用户手动展开/折叠的状态。
-            if SysSetting.GetAll()['default_expand_tasks']:
-                for index, task in enumerate(self.model.fileTree.items):
-                    if task.parent and task.parent.fileName not in self._knownTaskPaths:
-                        expanded.add(self.model._BuildKey((index,)))
-            selected = self.mcTree.GetSelection()
-            selected_key = self.model.ItemToObject(selected) if selected.IsOk() else None
-            self.mcTree.Freeze()
-            try:
-                self.model.visible_tasks = visible
-                self.model.Cleared()
-                self._RestoreExpandState(root, expanded)
-                self._UpdateRowNumbers()
-                if selected_key is not None and not force:
-                    index = self.model.ParseKey(selected_key)[0]
-                    if visible is None or index in visible:
-                        self.mcTree.Select(self.model.ObjectToItem(selected_key))
-            finally:
-                self.mcTree.Thaw()
-        self._UpdateFilterCount()
-        self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
-        if hasattr(self, '_defaultTaskWidth'):
-            self._FitTaskColumns()
 
-    def _RecursiveExpand(self, item, expand):
-        """递归展开/折叠"""
-        child, cookie = self.model.GetFirstChild(item)
-        while child.IsOk():            
-            if self.model.IsContainer(child):
-                self._SetTaskExpanded(child, expand)
-            else:
-                self._RecursiveExpand(child, expand)
-            child, cookie = self.model.GetNextChild(item, cookie)
+    def _SyncLockEncryptedTasksEnabled(self, *args, **kwargs):
+        return self.encryption._SyncLockEncryptedTasksEnabled(*args, **kwargs)
 
-    def _RefreshWithState(self):
-        """重新加载视图时仍应用当前条件，并保留可见任务的展开状态。"""
-        self._ApplyTaskFilter(force=True)
 
-    def _SaveExpandState(self, parent, expandeds):
-        """递归保存展开状态"""
-        child, cookie = self.model.GetFirstChild(parent)
-        while child.IsOk():            
-            if self.model.IsContainer(child):
-                if self.mcTree.IsExpanded(child):
-                    obj = self.model.ItemToObject(child)
-                    expandeds.add(obj)
-                    self._SaveExpandState(child, expandeds)
-            child, cookie = self.model.GetNextChild(parent, cookie)
+    def OnSetEncryptedPassword(self, *args, **kwargs):
+        return self.encryption.OnSetEncryptedPassword(*args, **kwargs)
 
-    def _RestoreExpandState(self, parent, expandeds):
-        """根据上一次展开折叠状态，递归展开或折叠"""
-        child, cookie = self.model.GetFirstChild(parent)
-        while child.IsOk():            
-            if self.model.IsContainer(child):
-                obj = self.model.ItemToObject(child)
-                if obj in expandeds:
-                    self._SetTaskExpanded(child, True)
-                    self._RestoreExpandState(child, expandeds)
-            child, cookie = self.model.GetNextChild(parent, cookie)
+
+    def _ApplyTaskFilter(self, *args, **kwargs):
+        return self.task_list._ApplyTaskFilter(*args, **kwargs)
+
+
+    def _RecursiveExpand(self, *args, **kwargs):
+        return self.task_list._RecursiveExpand(*args, **kwargs)
+
+
+    def _RefreshWithState(self, *args, **kwargs):
+        return self.task_list._RefreshWithState(*args, **kwargs)
+
+
+    def _SaveExpandState(self, *args, **kwargs):
+        return self.task_list._SaveExpandState(*args, **kwargs)
+
+
+    def _RestoreExpandState(self, *args, **kwargs):
+        return self.task_list._RestoreExpandState(*args, **kwargs)
+
 
 
     ###################################
@@ -1626,233 +888,57 @@ class MainFrame(wx.Frame):
             return
         self._PlayEncryptedMP4(path)
 
-    def _ConfiguredBrowserPort(self):
-        if self.browser_bridge is not None:
-            return self.browser_bridge.port
-        path = pairing_path()
-        if path.is_file():
-            return load_or_create_pairing(path)[1]
-        return 0
+    def _ConfiguredBrowserPort(self, *args, **kwargs):
+        return self.services._ConfiguredBrowserPort(*args, **kwargs)
 
-    def _PlaybackServiceStatus(self):
-        if self._playback_service is not None:
-            return self._playback_service.get_status()
-        return {'running': False, 'port': None,
-                'configured_port': SysSetting.GetAll()['playback_port'], 'sessions': 0}
 
-    def _RememberPlaybackPort(self, port):
-        values = SysSetting.GetAll()
-        if values['playback_port'] == port:
-            return
-        values['playback_port'] = port
-        SysSetting.Save(values)
+    def _PlaybackServiceStatus(self, *args, **kwargs):
+        return self.services._PlaybackServiceStatus(*args, **kwargs)
 
-    def OnShowLocalServiceStatus(self, _event):
-        service = self._local_http_service.get_status()
-        playback = self._PlaybackServiceStatus()
-        bridge_status = self.browser_bridge.get_status() if self.browser_bridge is not None else None
-        try:
-            saved_browser_port = self._ConfiguredBrowserPort()
-        except (OSError, ValueError):
-            saved_browser_port = 0
-        port = service['port'] or playback['configured_port'] or saved_browser_port
-        endpoint_port = str(port) if port else '<自动分配端口>'
-        sessions = playback['sessions']
-        plugin_running = bridge_status is not None and bridge_status['running']
-        listener = {'running': service['running'], 'port': service['port'] or port}
-        features = [
-            {'name': '加密视频播放',
-             'state': f'{sessions} 个活动播放会话' if sessions else '当前没有活动播放会话',
-             'endpoint': f'http://127.0.0.1:{endpoint_port}/play/{{令牌}}/{{文件名}}',
-             'details': ('全部播放会话闲置 30 分钟后回收；若浏览器插件接收也未启用，'
-                         '共用的 HTTP 服务随之停止。')},
-            {'name': '浏览器插件接收',
-             'state': (f"运行中 · {bridge_status['pending_captures']} 个待处理地址"
-                       if plugin_running else '未启用'),
-             'endpoint': f'http://127.0.0.1:{endpoint_port}/capture',
-             'details': '配对配置保存后随程序启动；播放功能和插件接收共用上方监听端口。'},
-        ]
 
-        dialog = ServiceStatusDialog(self, listener, features)
-        try:
-            dialog.ShowModal()
-        finally:
-            dialog.Destroy()
+    def _RememberPlaybackPort(self, *args, **kwargs):
+        return self.services._RememberPlaybackPort(*args, **kwargs)
+
+
+    def OnShowLocalServiceStatus(self, *args, **kwargs):
+        return self.services.OnShowLocalServiceStatus(*args, **kwargs)
+
     
-    def OnAddMU(self, event):
-        workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogMU(self, workPath, task_service=self.tasks)
-        result = dlg.ShowModal()
-        if result == wx.OK:
-            # 创建新任务成功，自动刷新页面
-            self.OnRefresh(None)
-        dlg.Destroy()
+    def OnAddMU(self, *args, **kwargs):
+        return self.task_media.OnAddMU(*args, **kwargs)
 
-    def OnBrowserConnect(self, event):
-        if self.browser_bridge is None:
-            try:
-                self.browser_bridge = BrowserBridge(start=False, http_service=self._local_http_service)
-            except (OSError, ValueError) as error:
-                wx.MessageBox(f'无法读取浏览器配对配置：{error}', '连接失败', parent=self)
-                return
-        if self.browser_bridge.server is None:
-            try:
-                self.browser_bridge.start()
-            except (OSError, RuntimeError) as error:
-                self._SetPrimaryStatusText(f'本机接收服务未开启：{error}，请检查端口是否可用')
-        if self.browser_bridge.port_changed:
-            self._SetPrimaryStatusText(
-                f'浏览器插件端口已自动调整为 {self.browser_bridge.port}，请同步更新扩展。')
-        dialog = BrowserConnectDialog(self, self.browser_bridge.token, reset_token=self.browser_bridge.reset_token,
-                                      port=self.browser_bridge.port,
-                                      listening=self.browser_bridge.server is not None,
-                                      port_reassigned=self.browser_bridge.port_changed)
-        try:
-            dialog.ShowModal()
-        finally:
-            dialog.Destroy()
 
-    def RestoreBrowserConnection(self):
-        """首次启用过连接后，重启恢复服务，不弹出配对窗口。"""
-        if self.browser_bridge is not None or not pairing_path().is_file():
-            return
-        try:
-            self.browser_bridge = BrowserBridge(http_service=self._local_http_service)
-            if self.browser_bridge.port_changed:
-                self._SetPrimaryStatusText(
-                    f'浏览器插件端口已自动调整为 {self.browser_bridge.port}，请同步更新扩展。')
-        except (OSError, ValueError) as error:
-            self._SetPrimaryStatusText(f'浏览器连接未恢复：{error}')
+    def OnBrowserConnect(self, *args, **kwargs):
+        return self.browser.OnBrowserConnect(*args, **kwargs)
 
-    def _CheckBrowserInbox(self):
-        if self.browser_bridge is None or self._capture_dialog_open:
-            return
-        if any(isinstance(window, wx.Dialog) and window.IsModal() for window in wx.GetTopLevelWindows()):
-            return
-        try:
-            capture = self.browser_bridge.inbox.get_nowait()
-        except Empty:
-            return
-        self._capture_dialog_open = True
-        # 程序通知界面线程打开创建任务弹窗
-        # 相当于告诉 wxPython：“下一次处理界面事件时，执行 self._OpenBrowserCapture(capture)。”
-        wx.CallAfter(self._OpenBrowserCapture, capture)
 
-    def _OpenBrowserCapture(self, capture):
-        if self._closing or not self or self.IsBeingDeleted():
-            return
-        dialog = None
-        try:
-            # 表示取消主窗口的最小化状态。如果它原本没有最小化，通常不会改变当前状态。
-            self.Iconize(False)
-            # 将窗口提升到其他窗口前面
-            self.Raise()
-            if capture['type'] == 'm3u8':
-                dialog = DownloadDialogMU(self, SysSetting.GetWorkPath(), self.tasks,
-                                           title='从浏览器添加 M3U8', capture=capture)
-            else:
-                dialog = DownloadDialogMP4(self, SysSetting.GetWorkPath(), self.tasks,
-                                            title='从浏览器添加 MP4', capture=capture)
-            if dialog.ShowModal() == wx.OK:
-                self.OnRefresh(None)
-        finally:
-            if dialog is not None:
-                dialog.Destroy()
-            self._capture_dialog_open = False
+    def RestoreBrowserConnection(self, *args, **kwargs):
+        return self.browser.RestoreBrowserConnection(*args, **kwargs)
 
-    def OnAddTS(self, event):
-        workPath = SysSetting.GetWorkPath()
-        dlg = DownloadDialogTS(self, workPath, task_service=self.tasks)
-        result = dlg.ShowModal()
-        if result == wx.OK:
-            # 创建新任务成功，自动刷新页面
-            self.OnRefresh(None)
-        dlg.Destroy()
+
+    def _CheckBrowserInbox(self, *args, **kwargs):
+        return self.browser._CheckBrowserInbox(*args, **kwargs)
+
+
+    def _OpenBrowserCapture(self, *args, **kwargs):
+        return self.browser._OpenBrowserCapture(*args, **kwargs)
+
+
+    def OnAddTS(self, *args, **kwargs):
+        return self.task_media.OnAddTS(*args, **kwargs)
+
     
-    def OnAddMP4(self, event):
-        dialog = DownloadDialogMP4(self, SysSetting.GetWorkPath(), self.tasks)
-        try:
-            if dialog.ShowModal() == wx.OK:
-                self.OnRefresh(None)
-        finally:
-            dialog.Destroy()
+    def OnAddMP4(self, *args, **kwargs):
+        return self.task_media.OnAddMP4(*args, **kwargs)
 
-    def _StartMP4(self, task_id):
-        try:
-            self.runner.start(task_id)
-        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(f'无法启动 MP4 下载：{error}', '下载失败', parent=self)
-        self._SyncDownloads()
 
-    def _SyncDownloads(self):
-        """只消费协调对象的通知；窗口负责展示结果，不调度线程或选择下载器。"""
-        while True:
-            try:
-                task_id, error = self.runner.duration_results.get_nowait()
-            except Empty:
-                break
-            self._DurationChecked(task_id, None, error)
-        structure_changed = False
-        restored_tasks = set()
-        deferred_m3u8 = []
-        for task_id in self.runner.changes():
-            try:
-                record = self.tasks.repository.get(task_id)
-                if record is None:
-                    continue  # 删除后的迟到通知不能重新添加任务。
-                previous = next((task for task in self.model.fileTree.items if task.task_id == task_id), None)
-                index = self.model.ApplyTaskRecord(record)
-                if index is None:
-                    continue
-                current = self.model.fileTree.items[index]
-                task_structure_changed = previous is not None and (
-                    len(previous.outputs) != len(current.outputs)
-                    or previous.work_dir_missing != current.work_dir_missing
-                    or previous.manifests.keys() != current.manifests.keys())
-                structure_changed = structure_changed or task_structure_changed
-                if previous is not None and previous.work_dir_missing and not current.work_dir_missing:
-                    restored_tasks.add(task_id)
-                if task_structure_changed:
-                    # 新节点尚未进入原生控件，必须先重建，不能提前发送 ItemChanged。
-                    if record.type == TaskType.M3U8:
-                        deferred_m3u8.append(task_id)
-                    continue
-                if record.type == TaskType.M3U8:
-                    # 只刷新变化的分片，不因每次状态变化重绘整棵树。
-                    visible = self.model.visible_tasks is None or index in self.model.visible_tasks
-                    expanded = visible and not current.work_dir_missing and all(
-                        self.mcTree.IsExpanded(self.model.ObjectToItem(self.model._BuildKey(key)))
-                        for key in ((index,), (index, -4), (index, -1)))
-                    for offset, child in enumerate(current.childs if expanded else ()):
-                        old = previous.childs[offset] if previous and offset < len(previous.childs) else None
-                        if old is None or (old.fileSize, old.status) != (child.fileSize, child.status):
-                            item = self.model.ObjectToItem(self.model._BuildKey((index, len(current.outputs) + offset)))
-                            self.model.ItemChanged(item)
-                    self._M3U8Changed(task_id)
-                elif record.type == TaskType.MP4:
-                    root = self.model.ObjectToItem(self.model._BuildKey((index,)))
-                    if current.outputs and self.mcTree.IsExpanded(root):
-                        self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index, 0))))
-                    self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
-                elif record.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.PAUSED):
-                    self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
-            except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-                self._SetPrimaryStatusText(f'读取下载进度失败：{error}')
-        if structure_changed:
-            # 合并完成会新增 MP4 子节点，保留展开状态后重建树，不能只重绘单元格。
-            self._RefreshWithState()
-            for index, task in enumerate(self.model.fileTree.items):
-                if task.task_id in restored_tasks and (
-                        self.model.visible_tasks is None or index in self.model.visible_tasks):
-                    self._SetTaskExpanded(self.model.ObjectToItem(self.model._BuildKey((index,))), True)
-            for task_id in deferred_m3u8:
-                self._M3U8Changed(task_id)
-        while True:
-            try:
-                error = self.runner.errors.get_nowait()
-            except Empty:
-                break
-            wx.MessageBox(error, '保存失败', parent=self)
+    def _StartMP4(self, *args, **kwargs):
+        return self.downloads._StartMP4(*args, **kwargs)
+
+
+    def _SyncDownloads(self, *args, **kwargs):
+        return self.downloads._SyncDownloads(*args, **kwargs)
+
 
     def OnSetting(self, event):
         from src.views.dialogs.settings_dialog import SettingsDialog
@@ -1867,50 +953,22 @@ class MainFrame(wx.Frame):
     def OnExit(self, event):
         self.Close()
 
-    def OnPauseDownloads(self, event):
-        # 工具栏维持单按钮；所有待处理任务都已单独暂停时，也应显示并执行继续。
-        can_pause, can_resume = self._GlobalDownloadActions()
-        if can_pause:
-            self.OnPauseAllDownloads(event)
-        elif can_resume:
-            self.OnResumeAllDownloads(event)
+    def OnPauseDownloads(self, *args, **kwargs):
+        return self.downloads.OnPauseDownloads(*args, **kwargs)
 
 
-    def OnUpdateGlobalDownloadAction(self, event):
-        can_pause, can_resume = self._GlobalDownloadActions()
-        if event.GetId() == self.pauseAllItem.GetId():
-            event.Enable(can_pause)
-        else:
-            event.Enable(can_resume)
 
-    def OnUpdatePauseDownloads(self, event):
-        paused = M3U8Downloader.IsPaused()
-        busy = M3U8Downloader.IsBusy() or any(task.task_type == TaskType.MP4 and
-            self.runner.mp4.busy(task.task_id) for task in self.model.fileTree.items)
-        can_pause, can_resume = self._GlobalDownloadActions()
-        event.Enable(can_pause or can_resume)
-        self._UpdatePauseTool()
-        snapshot = M3U8Downloader.Snapshot()
-        self._SetPrimaryStatusText(('暂停中' if snapshot['requesting'] else '已暂停') if paused
-                                   else ('正在下载' if busy else '就绪'))
+    def OnUpdateGlobalDownloadAction(self, *args, **kwargs):
+        return self.downloads.OnUpdateGlobalDownloadAction(*args, **kwargs)
 
-    def _UpdatePauseTool(self):
-        """菜单和工具栏共用下载状态；状态未变时不重复设置位图，避免工具栏闪动。"""
-        if self.toolBar is None:
-            return
-        can_pause, can_resume = self._GlobalDownloadActions()
-        paused = not can_pause and can_resume
-        enabled = can_pause or can_resume
-        if self._pauseToolState == (paused, enabled):
-            return
-        label = '全部继续' if paused else '全部暂停'
-        tool_id = self._pauseTool.GetId()
-        self.toolBar.EnableTool(tool_id, enabled)
-        if self._pauseToolState is None or self._pauseToolState[0] != paused:
-            self.toolBar.SetToolNormalBitmap(tool_id, self._pauseIcons[paused])
-            self._pauseTool.SetLabel(label)
-            self.toolBar.SetToolShortHelp(tool_id, label + '（包括筛选隐藏的任务）')
-        self._pauseToolState = (paused, enabled)
+
+    def OnUpdatePauseDownloads(self, *args, **kwargs):
+        return self.downloads.OnUpdatePauseDownloads(*args, **kwargs)
+
+
+    def _UpdatePauseTool(self, *args, **kwargs):
+        return self.downloads._UpdatePauseTool(*args, **kwargs)
+
 
     def OnDefaultExpandTasks(self, event):
         """只保存加载偏好，不把当前列表的临时展开操作变成默认设置。"""
@@ -1987,453 +1045,122 @@ class MainFrame(wx.Frame):
     ###################################
     ### 操作树得事件
     ###################################
-    def OnFind(self, event):
-        """菜单和 Ctrl+F 共用：聚焦现有筛选框，选中文字以便直接输入新条件。"""
-        self.searchCtrl.SetFocus()
-        self.searchCtrl.SelectAll()
+    def OnFind(self, *args, **kwargs):
+        return self.task_list.OnFind(*args, **kwargs)
 
-    def OnSearch(self, event):
-        """点击搜索按钮或按回车立即筛选，取消尚未执行的延迟筛选。"""
-        self._searchTimer.Stop()
-        self._SearchItems(event.GetEventObject().GetValue())
+
+    def OnSearch(self, *args, **kwargs):
+        return self.task_list.OnSearch(*args, **kwargs)
+
     
-    def OnSearchText(self, event):
-        """输入停止 200 毫秒后才筛选；清空时立即移除关键词条件。"""
-        self._searchTimer.Stop()
-        self._searchText = event.GetString()
-        if self._searchText.strip():
-            self._searchTimer.StartOnce(200)
-        else:
-            self._SearchItems('')
+    def OnSearchText(self, *args, **kwargs):
+        return self.task_list.OnSearchText(*args, **kwargs)
 
-    def OnSearchKey(self, event):
-        """只处理筛选框内的 Esc，不注册全局快捷键，也不清除状态筛选。"""
-        if event.GetKeyCode() == wx.WXK_ESCAPE and not event.HasAnyModifiers():
-            self.OnClearSearch(event)
-        else:
-            event.Skip()
 
-    def OnClearSearch(self, event):
-        self._searchTimer.Stop()
-        self._searchText = ''
-        self.searchCtrl.ChangeValue('')
-        self._SearchItems('')
+    def OnSearchKey(self, *args, **kwargs):
+        return self.task_list.OnSearchKey(*args, **kwargs)
 
-    def OnClearAllFilters(self, event):
-        """空结果提示中的恢复入口，同时清除关键词、状态及尚未执行的筛选。"""
-        self.statusFilter.SetSelection(0)
-        self.OnClearSearch(event)
 
-    def OnStatusFilter(self, event):
-        self._searchTimer.Stop()
-        self._SearchItems(self.searchCtrl.GetValue())
+    def OnClearSearch(self, *args, **kwargs):
+        return self.task_list.OnClearSearch(*args, **kwargs)
 
-    def OnSearchTimer(self, event):
-        """计时结束时只搜索最新输入；清空输入或关闭窗口会取消计时。"""
-        if self._closing:
-            return
-        self._SearchItems(self._searchText)
 
-    def OnExpandAll(self, event):
-        """展开所有节点"""
-        # root = self.dvc.GetTopItem()
-        root = dv.NullDataViewItem  # 关键点：使用虚拟根节点
-        self._RecursiveExpand(root, True)
+    def OnClearAllFilters(self, *args, **kwargs):
+        return self.task_list.OnClearAllFilters(*args, **kwargs)
+
+
+    def OnStatusFilter(self, *args, **kwargs):
+        return self.task_list.OnStatusFilter(*args, **kwargs)
+
+
+    def OnSearchTimer(self, *args, **kwargs):
+        return self.task_list.OnSearchTimer(*args, **kwargs)
+
+
+    def OnExpandAll(self, *args, **kwargs):
+        return self.task_list.OnExpandAll(*args, **kwargs)
+
     
-    def OnCollapseAll(self, event):
-        """折叠所有节点"""
-        # root = self.dvc.GetTopItem()
-        root = dv.NullDataViewItem  # 关键点：使用虚拟根节点
-        self._RecursiveExpand(root, False)
+    def OnCollapseAll(self, *args, **kwargs):
+        return self.task_list.OnCollapseAll(*args, **kwargs)
 
-    def OnRefresh(self, event):
-        self.ClearTaskToolTip()
-        self.runner.reset_duration_failures()
-        # 只从数据库恢复任务；读取失败保留当前列表，不退回扫描目录。
-        try:
-            tree = load_tree(self.tasks)
-        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(f'读取任务失败：{error}', '刷新失败', wx.OK | wx.ICON_WARNING, parent=self)
-            return
-        # 删除或新增记录会改变行号，先按任务身份保存展开状态，再映射到新行。
-        expanded_ids = set()
-        expanded_folders = set()
-        for index, task in enumerate(self.model.fileTree.items):
-            item = self.model.ObjectToItem(self.model._BuildKey((index,)))
-            if self.mcTree.IsExpanded(item):
-                expanded_ids.add(task.task_id or task.parent.fileName)
-                for key in (-4, -1):
-                    folder = self.model.ObjectToItem(self.model._BuildKey((index, key)))
-                    if self.model.IsContainer(folder) and self.mcTree.IsExpanded(folder):
-                        expanded_folders.add((task.task_id or task.parent.fileName, key))
-        self.model.fileTree = tree
-        expanded = {self.model._BuildKey((index,)) for index, task in enumerate(tree.items)
-                    if (task.task_id or task.parent.fileName) in expanded_ids}
-        expanded.update(self.model._BuildKey((index, key)) for index, task in enumerate(tree.items)
-                        for key in (-4, -1) if (task.task_id or task.parent.fileName, key) in expanded_folders)
-        self._ApplyTaskFilter(force=True, expanded_keys=expanded)
 
-    def OnActivatedChanged(self, event):
-        """双击/键盘激活展开目录，打开播放列表或已完成的视频。"""
-        column = event.GetDataViewColumn()
-        if column is not None and column.GetModelColumn() == 4:
-            return  # The custom renderer handles action cells on a single click.
-        item = event.GetItem()
-        if not item.IsOk():
-            return
-        keys = self.model.ItemToObject(item)
-        objs = self.model.ParseKey(keys)
-        if self.model.IsContainer(item):
-            self._SetTaskExpanded(item)
-        elif len(objs) == 2 and objs[1] in self.model.fileTree.items[objs[0]].manifests:
-            task = self.model.fileTree.items[objs[0]]
-            self._OpenTaskManifest(task, task.manifests[objs[1]].fileName)
-        elif len(objs) == 2:
-            task = self.model.fileTree.items[objs[0]]
-            if 0 <= objs[1] < len(task.outputs):
-                output = task.outputs[objs[1]]
-                if Path(output.fileName).suffix.lower() == '.mp4' and (
-                        task.task_type != TaskType.MP4 or task.task_status == TaskStatus.COMPLETED):
-                    self._OpenVideo(output.fileName, task.task_id)
+    def OnRefresh(self, *args, **kwargs):
+        return self.task_list.OnRefresh(*args, **kwargs)
+
+
+    def OnActivatedChanged(self, *args, **kwargs):
+        return self.task_list.OnActivatedChanged(*args, **kwargs)
+
 
     # 窗口把点击位置转换为稳定的任务 UUID；执行规则由 TaskRunner 重新核对。
-    def _SetTaskExpanded(self, item, expanded=None):
-        """统一展开/收缩入口；未指定状态时切换，状态相同则不重复更新。"""
-        if self._closing or not item.IsOk() or not self.model.IsContainer(item):
-            return
-        current = self.mcTree.IsExpanded(item)
-        target = not current if expanded is None else expanded
-        if current == target:
-            return
-        if target:
-            self.mcTree.Expand(item)
-        else:
-            self.mcTree.Collapse(item)
-        self._QueueRowNumbers()
+    def _SetTaskExpanded(self, *args, **kwargs):
+        return self.task_list._SetTaskExpanded(*args, **kwargs)
 
-    def _QueueRowNumbers(self, event=None):
-        self.ClearTaskToolTip()
-        if event is not None:
-            event.Skip()
-        if self._closing or getattr(self, '_rowNumbersPending', False):
-            return
-        self._rowNumbersPending = True
-        # 等原生控件完成展开，并合并“全部展开”等连续操作的通知。
-        wx.CallAfter(self._UpdateRowNumbers)
 
-    def _UpdateRowNumbers(self):
-        self._rowNumbersPending = False
-        if self._closing or not self or self.IsBeingDeleted():
-            return
-        if self.model.UpdateRowNumbers(self.mcTree):
-            self.mcTree.Refresh()
-        if hasattr(self, '_defaultTaskWidth'):
-            self._FitTaskColumns()
+    def _QueueRowNumbers(self, *args, **kwargs):
+        return self.task_list._QueueRowNumbers(*args, **kwargs)
 
-    def OnTaskAction(self, item, action_id='start'):
-        """自定义操作分发入口，不是 wx 自动调用的重写方法。
 
-        行内渲染器识别点击区域后传入 item 和操作 id；“转 MP4”菜单传入 merge。
-        item 指明具体任务行，不依赖当前选中行；默认 start 表示开始/暂停/继续。
-        start 表示开始/暂停/继续，retry 重试失败，delete 删除，more 打开菜单。
-        """
-        if not item.IsOk():
-            return
-        keys = self.model.ParseKey(self.model.ItemToObject(item))
-        if len(keys) == 2:
-            action = next((entry for entry in self.model.FileActions(*keys) if entry['id'] == action_id), None)
-            if action is not None and action['enabled']:
-                task = self.model.fileTree.items[keys[0]]
-                if self._manualActionClicks:
-                    self._QueueTaskPopup(task, action_id)
-                else:
-                    self.OnDeleteTask(task, scope='work' if action_id == 'delete_work' else 'output')
-            return
-        # 分片下载由另一个处理函数负责。
-        if len(keys) != 1:
-            return
-        index = keys[0]
-        task = self.model.fileTree.items[index]
-        info = self.model.TaskInfo(index)
-        # 点击与绘制之间状态可能改变，所以在执行前重新读取当前任务状态。
-        if action_id == 'merge':
-            if task.task_type != TaskType.M3U8:
-                return
-            # 合并位于“更多”菜单内：分片必须完整，不能正在下载/合并或已有输出。
-            if info['pending'] or info['merging'] or task.outputs or not info['total'] or info['done'] != info['total']:
-                return
-            self._CreateMP4File(task.parent.fileName, item)
-        else:
-            # 按稳定的操作 id 匹配，不依赖“开始”“继续”等会随状态变化的显示文字。
-            # 再检查 enabled，防止过期的界面状态触发已不可用的操作。
-            action = next((entry for entry in self.model.TaskActions(index) if entry['id'] == action_id), None)
-            if action is None or not action['enabled']:
-                return
-            if action_id == 'more':
-                if self._manualActionClicks:
-                    self._QueueTaskPopup(task, action_id)
-                else:
-                    self.OnTaskMenu(item)
-                return
-            if action_id == 'delete':
-                # 删除处理函数会再次检查运行状态，并确认是否回收本地文件。
-                if self._manualActionClicks:
-                    self._QueueTaskPopup(task, action_id)
-                else:
-                    self.OnDeleteTask(task)
-                return
-        if action_id in ('start', 'retry'):
-            try:
-                if self.runner.activate(task.task_id, retry=action_id == 'retry'):
-                    self._completion_notified.discard(task.task_id)
-            except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
-                wx.MessageBox(str(error), '任务操作失败', parent=self)
-            self._SyncDownloads()
-        # 通知 wx 重新读取本行数据，使操作文字、置灰状态和任务状态及时更新。
-        self.model.ItemChanged(item)
+    def _UpdateRowNumbers(self, *args, **kwargs):
+        return self.task_list._UpdateRowNumbers(*args, **kwargs)
 
-    def _QueueTaskPopup(self, task, action_id):
-        # Cocoa 必须先结束鼠标事件处理，再进入菜单跟踪或模态对话框循环。
-        identity = task.task_id or task.parent.fileName
-        wx.CallAfter(self._ShowTaskPopup, identity, action_id)
 
-    def _ShowTaskPopup(self, identity, action_id):
-        if self._closing or not self or self.IsBeingDeleted():
-            return
-        # 延迟期间可能刷新或删除任务，按身份重新定位，不能沿用旧行号。
-        for index, task in enumerate(self.model.fileTree.items):
-            if (task.task_id or task.parent.fileName) != identity:
-                continue
-            actions = (self.model.FileActions(index, -4 if action_id == 'delete_work' else 0)
-                       if action_id in ('delete_work', 'delete_output') else self.model.TaskActions(index))
-            action = next((entry for entry in actions
-                           if entry['id'] == action_id), None)
-            if action is None or not action['enabled']:
-                return
-            if action_id == 'more':
-                self.OnTaskMenu(self.model.ObjectToItem(self.model._BuildKey((index,))))
-            elif action_id == 'delete':
-                self.OnDeleteTask(task)
-            elif action_id in ('delete_work', 'delete_output'):
-                self.OnDeleteTask(task, scope='work' if action_id == 'delete_work' else 'output')
-            return
+    def OnTaskAction(self, *args, **kwargs):
+        return self.task_actions.OnTaskAction(*args, **kwargs)
 
-    def OnDeleteTask(self, task, *, scope='task'):
-        """确认是否同时回收任务文件；仅清理明确归属于该任务的路径。"""
-        try:
-            if scope == 'task' and self.runner.busy(task.task_id):
-                raise ValueError('任务仍在下载、检测或合并中，暂时不能删除。')
-        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(str(error), '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
-            return
-        title = {'task': '删除任务', 'work': '删除工作文件夹', 'output': '删除 MP4 文件'}[scope]
-        dialog = wx.RichMessageDialog(self, f'确定{title}？', title,
-                                      wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
-        if scope == 'task':
-            dialog.SetExtendedMessage('将从列表和数据库中删除此任务。勾选下方选项会将任务专属工作文件夹（含全部内容）、视频和对应临时文件移入回收站；工作文件夹以外的另存为副本保留。文件回收失败时保留任务记录。')
-            dialog.ShowCheckBox('同时删除此任务的本地文件（移入回收站）', checked=True)
-        elif scope == 'work':
-            dialog.SetExtendedMessage('将此任务的专属工作文件夹及全部内容移入回收站，包括隐藏文件和临时文件。保留任务记录和文件夹外的 MP4。已暂停的等待队列会移除。')
-        else:
-            dialog.SetExtendedMessage('将此任务的 MP4 和对应临时文件移入回收站。保留任务记录和分片，分片完整时可以重新转 MP4；另存为副本保留。')
-        dialog.SetYesNoLabels('删除任务' if scope == 'task' else '移入回收站', '取消')
-        try:
-            if dialog.ShowModal() != wx.ID_YES:
-                return
-            delete_files = dialog.IsCheckBoxChecked() if scope == 'task' else True
-        finally:
-            dialog.Destroy()
-        try:
-            if scope == 'task':
-                self.runner.delete(task.task_id, delete_files=delete_files)
-            else:
-                # 主动删除产物后不自动合并重建，由用户选择转 MP4 或继续下载。
-                self._completion_notified.add(task.task_id)
-                self.runner.delete(task.task_id, scope=scope)
-            self.model.merge_failed.discard(task.parent.fileName)
-        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(f'删除未完成：{error}', '无法删除', wx.OK | wx.ICON_WARNING, parent=self)
-            return
-        self.OnRefresh(None)
 
-    def _GlobalDownloadActions(self):
-        """固定菜单项各自判定可用状态；混合运行/暂停时两项均可用。"""
-        snapshot = M3U8Downloader.Snapshot()
-        can_pause = not snapshot['paused'] and bool(snapshot['pending'] - snapshot['paused_files'])
-        tasks = self.model.fileTree.items if hasattr(self, 'model') else []
-        can_pause = can_pause or any(task.task_type == TaskType.MP4 and task.task_status in
-                                    (TaskStatus.QUEUED, TaskStatus.DOWNLOADING) for task in tasks)
-        can_resume = snapshot['paused'] or bool(snapshot['pending'] & snapshot['paused_files']) or any(
-            task.task_type == TaskType.M3U8 and task.task_status in (TaskStatus.PAUSED, TaskStatus.INTERRUPTED, TaskStatus.PARTIAL)
-            and any(child.fileSize == '-' for child in task.childs) for task in tasks)
-        can_resume = can_resume or any(task.task_type == TaskType.MP4 and task.task_status in
-                                      (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) for task in tasks)
-        return can_pause, can_resume
+    def _QueueTaskPopup(self, *args, **kwargs):
+        return self.task_actions._QueueTaskPopup(*args, **kwargs)
 
-    def OnPauseAllDownloads(self, event):
-        try:
-            self.runner.pause_all()
-        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(str(error), '暂停失败', parent=self)
-        self._SyncDownloads()
-        self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
 
-    def OnResumeAllDownloads(self, event):
-        try:
-            if self._GlobalDownloadActions()[1]:
-                self._completion_notified.difference_update(self.runner.resume_all())
-        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(str(error), '继续失败', parent=self)
-        self._SyncDownloads()
-        self.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+    def _ShowTaskPopup(self, *args, **kwargs):
+        return self.task_actions._ShowTaskPopup(*args, **kwargs)
 
-    def OnSegmentDownload(self, item):
-        """只由分片的“下载”操作调用，重新核对索引和是否仍需要下载。"""
-        if not item.IsOk():
-            return
-        keys = self.model.ParseKey(self.model.ItemToObject(item))
-        if len(keys) != 2:
-            return
-        if not self.model.CanDownloadSegment(keys[0], keys[1]):
-            return
-        task = self.model.fileTree.items[keys[0]]
-        index = keys[1] - len(task.outputs)
-        if 0 <= index < len(task.childs) and task.childs[index].fileSize == '-' and task.parent:
-            self._DownloadFiles(task.parent.fileName, [(index, item)])
 
-    def OnAllTSDownload(self, event):
-        '''所有TS文件都已经下载完毕，修改操作文本'''
-        payload = event.GetData()
-        if not payload:
-            return
-        fileName = payload.get("fileName", "")
-        if payload.get('task_id') is not None:
-            task = next((task for task in self.model.fileTree.items if task.task_id == payload['task_id']), None)
-            if task is None:
-                return  # 任务已删除，不处理之前排入 wx 队列的完成事件。
-            fileName = task.parent.fileName
-            if task.duration_pending:
-                self._completion_notified.discard(task.task_id)
-                self._QueueDurationCheck(task)
-                return  # 实际时长入库后再重建清单，并执行自动合并。
-        task = next((task for task in self.model.fileTree.items if task.parent.fileName == fileName), None)
-        if task is None:
-            return
-        try:
-            self.runner.complete(task.task_id)
-        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(str(error), '任务处理失败', parent=self)
-        # 方法2：记录上一次的展开折叠状态
-        self._RefreshWithState()
+    def OnDeleteTask(self, *args, **kwargs):
+        return self.task_actions.OnDeleteTask(*args, **kwargs)
 
-    def _QueueDurationCheck(self, task):
-        """展示层只指出哪些行还需检测，去重、线程池及关闭处理由协调对象负责。"""
-        if task.duration_pending and task.task_id:
-            self.runner.queue_duration(task.task_id)
 
-    def _DurationChecked(self, task_id, record, error):
-        manual = task_id in getattr(self, '_manualDurationChecks', set())
-        if manual:
-            self._manualDurationChecks.discard(task_id)
-        if not self or self.IsBeingDeleted() or self.runner.closed.is_set():
-            return
-        if error:
-            self.runner.block_duration(task_id)
-            wx.MessageBox(f'时长检测结果保存失败：{error}\n请刷新后重试。', '检测失败', parent=self)
-            return
-        # 后台快照可能早于其他分片的下载回调，必须重新读取最新记录再更新列表。
-        try:
-            record = self.tasks.repository.get(task_id)
-        except (ValueError, OSError, sqlite3.Error, TaskDataError) as exc:
-            self._DurationChecked(task_id, None, str(exc))
-            return
-        if record is None:
-            return
-        index = self.model.ApplyTaskRecord(record)
-        if index is None:
-            return
-        task = self.model.fileTree.items[index]
-        if task.duration_pending and not manual:
-            self._QueueDurationCheck(task)
-            return
-        playlist_saved = self._CreateM3U8File(task.parent.fileName)
-        failures = sum(s.duration_status == 'failed' for s in record.details.media_segments)
-        if failures:
-            self._SetPrimaryStatusText(f'{task.parent.displayName}：{failures} 个分片时长检测失败，保留原时长。')
-        elif manual and playlist_saved:
-            self._SetPrimaryStatusText('分片时长检测完成，本地播放列表已更新。')
-        if manual:
-            self._completion_notified.add(task_id)
-        pending = M3U8Downloader.Snapshot()['pending']
-        if (not manual and task.task_status == TaskStatus.WAITING_MERGE
-                and task.childs and task.download == len(task.childs) and not task.outputs
-                and task_id not in self._completion_notified
-                and not any(M3U8Downloader.FileKey(child.fileName) in pending for child in task.childs)):
-            self._completion_notified.add(task_id)
-            self.model._SendEvent({'task_id': task_id, 'fileName': task.parent.fileName})
-        self.model.ItemChanged(self.model.ObjectToItem(self.model._BuildKey((index,))))
+    def _GlobalDownloadActions(self, *args, **kwargs):
+        return self.downloads._GlobalDownloadActions(*args, **kwargs)
 
-    def _M3U8Changed(self, task_id):
-        """下载结果已在后台保存；这里只触发时长检测和现有的自动合并流程。"""
-        for task in self.model.fileTree.items:
-            if task.task_id != task_id:
-                continue
-            if task_id in getattr(self, '_manualDurationChecks', set()):
-                break
-            pending = M3U8Downloader.Snapshot()['pending']
-            if (task.task_status == TaskStatus.WAITING_MERGE
-                    and task.childs and task.download == len(task.childs) and not task.outputs
-                    and task_id not in self._completion_notified
-                    and not any(M3U8Downloader.FileKey(child.fileName) in pending for child in task.childs)):
-                if task.duration_pending:
-                    self._QueueDurationCheck(task)
-                    break  # 检测回调负责发送完成事件，避免自动合并早于时长入库。
-                self._completion_notified.add(task_id)
-                self.model._SendEvent({'task_id': task_id, 'fileName': task.parent.fileName})
-            break
 
-    def _DownloadFiles(self, tsSeed: str, tasks: list):
-        """先保存排队状态，再提交带稳定身份的分片请求。"""
-        task = next((task for task in self.model.fileTree.items
-                     if task.parent and task.parent.fileName == tsSeed), None)
-        if task is not None and task.task_type != TaskType.M3U8:
-            return 0  # 单文件任务不能误入 TS 分片下载器。
-        if task is None or any(index < 0 or index >= len(task.childs) for index, _ in tasks):
-            wx.MessageBox('任务不存在或分片已变化，请刷新后重试。', '提示')
-            return 0
-        children = [task.childs[index] for index, _ in tasks]
-        if not children:
-            return 0
-        try:
-            count = self.runner.start(task.task_id, sequences=[child.sequence for child in children])
-            if count:
-                self._completion_notified.discard(task.task_id)
-        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(f'无法启动分片下载：{error}', '下载失败', parent=self)
-            return 0
-        self._SyncDownloads()
-        return count
+    def OnPauseAllDownloads(self, *args, **kwargs):
+        return self.downloads.OnPauseAllDownloads(*args, **kwargs)
 
-    def _CreateM3U8File(self, tsSeed):
-        """本地播放列表是可重建文件，丢失后从任务库恢复。"""
-        task = next((task for task in self.model.fileTree.items
-                     if task.parent and task.parent.fileName == tsSeed), None)
-        try:
-            if task is None:
-                raise ValueError('任务不存在，请刷新后重试。')
-            self.runner.write_playlist(task.task_id)
-            return True
-        except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(f'生成本地播放列表失败：{error}', '提示')
-            return False
 
-    def _CreateMP4File(self, tsSeed: str, item):
-        """菜单事件只定位任务并显示错误；清单准备、合并及结果落库由 TaskRunner 负责。"""
-        task = next((task for task in self.model.fileTree.items if task.parent.fileName == tsSeed), None)
-        if task is None:
-            return
-        try:
-            self.runner.merge(task.task_id)
-        except (ValueError, OSError, RuntimeError, sqlite3.Error, TaskDataError) as error:
-            wx.MessageBox(str(error), '合并失败', parent=self)
-        self._SyncDownloads()
+    def OnResumeAllDownloads(self, *args, **kwargs):
+        return self.downloads.OnResumeAllDownloads(*args, **kwargs)
+
+
+    def OnSegmentDownload(self, *args, **kwargs):
+        return self.task_actions.OnSegmentDownload(*args, **kwargs)
+
+
+    def OnAllTSDownload(self, *args, **kwargs):
+        return self.task_actions.OnAllTSDownload(*args, **kwargs)
+
+
+    def _QueueDurationCheck(self, *args, **kwargs):
+        return self.task_actions._QueueDurationCheck(*args, **kwargs)
+
+
+    def _DurationChecked(self, *args, **kwargs):
+        return self.task_actions._DurationChecked(*args, **kwargs)
+
+
+    def _M3U8Changed(self, *args, **kwargs):
+        return self.task_actions._M3U8Changed(*args, **kwargs)
+
+
+    def _DownloadFiles(self, *args, **kwargs):
+        return self.task_media._DownloadFiles(*args, **kwargs)
+
+
+    def _CreateM3U8File(self, *args, **kwargs):
+        return self.task_media._CreateM3U8File(*args, **kwargs)
+
+
+    def _CreateMP4File(self, *args, **kwargs):
+        return self.task_media._CreateMP4File(*args, **kwargs)

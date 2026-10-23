@@ -33,7 +33,7 @@ class TaskProgressTests(unittest.TestCase):
             patch.object(M3U8Downloader, '_paused_files', set()),
                         patch.object(M3U8Downloader, '_user_paused', threading.Event()),
                         patch.object(FFmpegConverter, '_outputs', set()),
-                        patch('src.views.main_frame.load_tree', return_value=self.tree)):
+                        patch('src.views.controllers.task_list_controller.load_tree', return_value=self.tree)):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.service = Mock()  # 展示测试显式注入服务替身，避免访问用户任务库。
@@ -333,9 +333,11 @@ class TaskProgressTests(unittest.TestCase):
             self.app.ProcessPendingEvents()
 
     def test_unknown_task_notification_does_not_change_rows(self):
+        from src.views.controllers.task_actions_controller import TaskActionsController
         self.tree.items.insert(0, TreeItem(parent=FileItem(fileName='other/download.m3u8'),
                                         childs=[FileItem(fileName='other/a.ts')]))
         receiver = SimpleNamespace(model=self.model)
+        receiver.task_actions = TaskActionsController(receiver)
         MainFrame._M3U8Changed(receiver, 'unknown-task-id')
         self.assertEqual(self.tree.items[0].download, 0)
         self.assertEqual(self.tree.items[1].download, 1)
@@ -462,6 +464,24 @@ class TaskProgressTests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
+    def test_paused_m3u8_can_reach_delete_confirmation_with_queued_files(self):
+        from src.schemas.task import TaskStatus
+        self.task.task_status = TaskStatus.PAUSED
+        M3U8Downloader._pending.add(self.key)
+        M3U8Downloader._paused_files.add(self.key)
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, self.tree)
+        try:
+            with patch.object(frame.runner, 'busy', return_value=True), \
+                 patch('src.views.main_frame.wx.RichMessageDialog') as dialog:
+                dialog.return_value.ShowModal.return_value = wx.ID_NO
+                frame.OnDeleteTask(self.task)
+                dialog.assert_called_once()
+                dialog.return_value.Destroy.assert_called_once()
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
     def test_file_rows_expose_delete_with_independent_busy_rules(self):
         from src.schemas.task import TaskStatus
         self.task.outputs.append(FileItem(fileName='task/output.mp4', fileSize=20))
@@ -531,7 +551,7 @@ class TaskProgressTests(unittest.TestCase):
         with patch.object(MainFrame, 'Show'):
             frame = MainFrame(None, 'test', self.service, self.tree)
         try:
-            with patch('src.views.main_frame.SegmentEditDialog') as dialog, \
+            with patch('src.views.controllers.task_actions_controller.SegmentEditDialog') as dialog, \
                  patch.object(frame.runner, 'update_segment_info') as update, \
                  patch.object(frame, '_SyncDownloads') as sync:
                 dialog.return_value.ShowModal.return_value = wx.ID_CANCEL

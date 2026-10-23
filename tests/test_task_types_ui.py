@@ -121,6 +121,7 @@ class TaskTypesUITests(unittest.TestCase):
             self.app.ProcessPendingEvents()
 
     def test_encryption_operation_validates_password_without_revealing_other_tasks(self):
+        from src.views.controllers.encryption_controller import EncryptionController
         context = {'wrapping_key': b'key', 'salt': b'salt', 'iterations': 1}
         password_store = Mock(is_configured=Mock(return_value=True),
                               unlock_local=Mock(return_value=None),
@@ -129,9 +130,10 @@ class TaskTypesUITests(unittest.TestCase):
         dialog.ShowModal.return_value = wx.ID_OK
         dialog.password.GetValue.return_value = 'secret'
         frame = SimpleNamespace(_encryption_context=None, _encrypted_tasks_unlocked=False)
-        with patch('src.views.main_frame.TaskEncryption', return_value=password_store), \
-             patch('src.views.main_frame.TaskUnlockDialog', return_value=dialog) as prompt:
-            result = MainFrame._GetEncryptionContextForOperation(frame)
+        frame.encryption = EncryptionController(frame)
+        with patch('src.views.controllers.encryption_controller.TaskEncryption', return_value=password_store), \
+             patch('src.views.controllers.encryption_controller.TaskUnlockDialog', return_value=dialog) as prompt:
+            result = frame.encryption._GetEncryptionContextForOperation()
         self.assertEqual(result, context)
         prompt.assert_called_once_with(frame, title='验证加密任务密码')
         password_store.unlock.assert_called_once_with('secret')
@@ -141,18 +143,21 @@ class TaskTypesUITests(unittest.TestCase):
         dialog.Destroy.assert_called_once()
 
     def test_encryption_operation_reuses_protected_local_password(self):
+        from src.views.controllers.encryption_controller import EncryptionController
         context = {'wrapping_key': b'key', 'salt': b'salt', 'iterations': 1}
         password_store = Mock(is_configured=Mock(return_value=True),
                               unlock_local=Mock(return_value=context))
         frame = SimpleNamespace(_encryption_context=None, _encrypted_tasks_unlocked=False)
-        with patch('src.views.main_frame.TaskEncryption', return_value=password_store), \
-             patch('src.views.main_frame.TaskUnlockDialog') as prompt:
-            result = MainFrame._GetEncryptionContextForOperation(frame)
+        frame.encryption = EncryptionController(frame)
+        with patch('src.views.controllers.encryption_controller.TaskEncryption', return_value=password_store), \
+             patch('src.views.controllers.encryption_controller.TaskUnlockDialog') as prompt:
+            result = frame.encryption._GetEncryptionContextForOperation()
         self.assertEqual(result, context)
         password_store.unlock_local.assert_called_once_with()
         prompt.assert_not_called()
 
     def test_encryption_operation_prompts_to_create_missing_password(self):
+        from src.views.controllers.encryption_controller import EncryptionController
         context = {'wrapping_key': b'key', 'salt': b'salt', 'iterations': 1}
         password_store = Mock(is_configured=Mock(return_value=False),
                               unlock=Mock(return_value=context))
@@ -160,10 +165,11 @@ class TaskTypesUITests(unittest.TestCase):
         dialog.ShowModal.return_value = wx.ID_OK
         dialog.GetPassword.return_value = 'new-secret'
         frame = SimpleNamespace(_encryption_context=None, _encrypted_tasks_unlocked=False)
-        with patch('src.views.main_frame.TaskEncryption', return_value=password_store), \
-             patch('src.views.main_frame.TaskPasswordDialog', return_value=dialog) as prompt, \
-             patch('src.views.main_frame.TaskUnlockDialog') as unlock_prompt:
-            result = MainFrame._GetEncryptionContextForOperation(frame)
+        frame.encryption = EncryptionController(frame)
+        with patch('src.views.controllers.encryption_controller.TaskEncryption', return_value=password_store), \
+             patch('src.views.controllers.encryption_controller.TaskPasswordDialog', return_value=dialog) as prompt, \
+             patch('src.views.controllers.encryption_controller.TaskUnlockDialog') as unlock_prompt:
+            result = frame.encryption._GetEncryptionContextForOperation()
         self.assertEqual(result, context)
         prompt.assert_called_once_with(frame, has_existing=False)
         password_store.set_password.assert_called_once_with('new-secret')
@@ -593,12 +599,14 @@ class TaskTypesUITests(unittest.TestCase):
             self.assertEqual(self.repo.get(task.id).status, TaskStatus.NEW)
 
     def test_save_as_dialog_copies_file_and_cancel_leaves_destination_unchanged(self):
+        from src.views.controllers.task_actions_controller import TaskActionsController
         source = self.root / 'source.mp4'
         source.write_bytes(b'complete video')
         directory = self.root / 'export'
         directory.mkdir()
         destination = directory / 'renamed.mp4'
         frame = SimpleNamespace()
+        frame.task_actions = TaskActionsController(frame)
         with patch('src.views.main_frame.wx.FileDialog') as dialog, \
                 patch('src.views.main_frame.wx.ProgressDialog') as progress, \
                 patch('src.views.main_frame.wx.MessageBox') as message:
@@ -619,6 +627,7 @@ class TaskTypesUITests(unittest.TestCase):
             progress.assert_not_called()
 
     def test_completed_video_menu_exports_exact_output_path(self):
+        from src.views.controllers.task_actions_controller import TaskActionsController
         task = self.mp4(status=TaskStatus.COMPLETED)
         target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         target.parent.mkdir(parents=True)
@@ -633,10 +642,12 @@ class TaskTypesUITests(unittest.TestCase):
             menu.ProcessEvent(wx.CommandEvent(wx.EVT_MENU.typeId, entry.GetId()))
         frame = SimpleNamespace(model=model, mcTree=Mock(PopupMenu=select_save),
                                 _SaveFileAs=export, _OpenLocalPath=Mock())
+        frame.task_actions = TaskActionsController(frame)
         MainFrame.OnTaskMenu(frame, item)
         export.assert_called_once_with(target)
 
     def test_single_file_menu_and_dispatch_do_not_offer_merge(self):
+        from src.views.controllers.task_actions_controller import TaskActionsController
         task = self.mp4()
         model = self.model()
         item = model.ObjectToItem(model._BuildKey((0,)))
@@ -650,6 +661,7 @@ class TaskTypesUITests(unittest.TestCase):
                                 _OpenLocalPath=opened, _CreateMP4File=Mock(), _DownloadFiles=Mock(),
                                 runner=Mock(), _completion_notified=set(), _SyncDownloads=Mock(),
                                 _SetTaskExpanded=Mock())
+        frame.task_actions = TaskActionsController(frame)
         MainFrame.OnTaskMenu(frame, item)
         opened.assert_called_once_with(task.save_dir)
         for action in ('merge', 'start', 'retry', 'toggle'):

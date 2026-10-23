@@ -414,11 +414,13 @@ class DownloadSettingsTests(unittest.TestCase):
 
     def test_completion_event_delegates_task_identity_to_runner(self):
         from src.views.main_frame import MainFrame
+        from src.views.controllers.task_actions_controller import TaskActionsController
         event = Mock()
         event.GetData.return_value = {'fileName': 'download.m3u8'}
         task = SimpleNamespace(task_id='task-id', parent=SimpleNamespace(fileName='download.m3u8'), outputs=[])
         model = Mock(fileTree=SimpleNamespace(items=[task]))
         frame = SimpleNamespace(model=model, runner=Mock(), _RefreshWithState=Mock())
+        frame.task_actions = TaskActionsController(frame)
         MainFrame.OnAllTSDownload(frame, event)
         frame.runner.complete.assert_called_once_with('task-id')
 
