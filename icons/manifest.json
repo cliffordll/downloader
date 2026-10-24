@@ -747,6 +747,27 @@
     },
     {
       "category": "files",
+      "name": "hls",
+      "label": "HLS",
+      "origin": "uniform-file-frame",
+      "added": true,
+      "source": "source/files/hls.png",
+      "circle_color": "#AAD4FF",
+      "circle_bounds": [
+        4.5,
+        6.0,
+        19.5,
+        21.0
+      ],
+      "frame_template": "scripts/icon_templates/file-square.png",
+      "text_offset_y": 1.5,
+      "character_gap": 1.0,
+      "font_size": 8.5,
+      "display_label": "HLS",
+      "circle_offset_y": 1.5
+    },
+    {
+      "category": "files",
       "name": "html",
       "label": "HTML",
       "origin": "uniform-file-frame",
@@ -2850,6 +2871,14 @@
       "origin": "task-download-state",
       "added": true,
       "source": "source/tools/task-resume.png"
+    },
+    {
+      "category": "tools",
+      "name": "batch",
+      "label": "批量操作",
+      "origin": "batch-task-actions",
+      "added": true,
+      "source": "source/tools/batch.png"
     }
   ],
   "file_frame": {
@@ -5431,12 +5460,34 @@
         "text_colour": "#444444",
         "canvas_padding": 0,
         "frame_gap_padding": 0
+      },
+      "hls": {
+        "label_left": 4.9375,
+        "label_right": 19.0625,
+        "frame_gaps": true,
+        "character_gap": 1.0,
+        "condensed": false,
+        "label_center": 12.0,
+        "font_size": 8.5,
+        "cap_height": 5.9375,
+        "baseline": 17.5,
+        "text_offset_y": 1.5,
+        "display_label": "HLS",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "font_axes": null,
+        "native_pixel_text": false,
+        "rendering": "supersampled-label",
+        "pixel_aligned_label": false,
+        "text_colour": "#3B3B3B",
+        "canvas_padding": 0,
+        "frame_gap_padding": 2
       }
     },
     "overlap_rule": "If actual label bounds meet either side of the frame, open matching gaps on both sides; otherwise keep both sides complete. Independent of label length.",
     "circle": {
       "x": 4.5,
-      "y": 6.0,
+      "y": 4.5,
       "diameter": 15,
       "base_canvas": 24
     }

@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1] / 'icons'
 SPACING = 1
 FONT_SIZE = 8.5
 GAP_PADDING = 2
+TEXT_COLOUR = '#3B3B3B'
 CIRCLE = (4.5, 4.5, 19.5, 19.5)
 TEXT_CENTER = (CIRCLE[0] + CIRCLE[2]) / 2
 TEMPLATES = Path(__file__).resolve().parent / 'icon_templates'
@@ -63,7 +64,7 @@ def render_frame(size):
     return frame.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def render(original, label, colour, font_path, text_colour='#444444', frame_template=None,
+def render(original, label, colour, font_path, text_colour=TEXT_COLOUR, frame_template=None,
            text_offset_y=1.5, font_axes=None, spacing=SPACING, font_size=FONT_SIZE,
            circle_offset_y=0):
     size = original.height
@@ -164,7 +165,7 @@ def main():
     if not args.font.is_file():
         parser.error('Font file missing; supply --font PATH')
     if not args.all and not args.names:
-        args.names = ['m3u8', 'ts', 'mp4']
+        args.names = ['hls', 'm3u8', 'ts', 'mp4']
     manifest_path = ROOT / 'manifest.json'
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
     if (args.all or args.names and 'new' in args.names) and not any(
@@ -202,7 +203,7 @@ def main():
                 result, metrics = render(original, entry['display_label'],
                                          entry['circle_color'], args.font,
                                          args.text_colour or manifest['file_frame']['text_metrics']
-                                         .get(name, {}).get('text_colour', '#444444'), frame_template,
+                                         .get(name, {}).get('text_colour', TEXT_COLOUR), frame_template,
                                          entry.get('text_offset_y', 1.5), args.font_axes,
                                          entry.get('character_gap', SPACING), entry.get('font_size', FONT_SIZE),
                                          circle_offset_y)
