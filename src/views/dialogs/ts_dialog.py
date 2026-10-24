@@ -11,7 +11,7 @@ from src.views.dialogs.base_dialog import AppDialog
 
 
 class DownloadDialogTS(AppDialog):
-    def __init__(self, parent, work_path, task_service: TaskService, *, title='新建 TS 下载任务'):
+    def __init__(self, parent, work_path, task_service: TaskService, *, title='新建 TS 模板下载'):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。

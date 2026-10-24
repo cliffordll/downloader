@@ -9,7 +9,7 @@ from src.views.dialogs.base_dialog import AppDialog
 
 
 class DownloadDialogMU(AppDialog):
-    def __init__(self, parent, work_path, task_service: TaskService, *, title='新建 M3U8 下载任务', capture=None):
+    def __init__(self, parent, work_path, task_service: TaskService, *, title='新建 M3U8 下载', capture=None):
         # super(ModalDialog, self).__init__(parent, title=title)
         super().__init__(parent=parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.tasks = task_service  # 复用主窗口传入的服务，不创建另一份任务库入口。
