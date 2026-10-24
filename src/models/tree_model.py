@@ -120,6 +120,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         # 首次读取和恢复由启动入口完成；构造模型仅接收展示数据，不访问任务库。
         self.fileTree = tree
         self.selected_task_ids = set()
+        self.deleting_task_ids = set()
         # None 表示全部；筛选只改变根节点可见性，不删任务、不改变下载回调使用的索引。
         self.visible_tasks = None
         # 因为 ObjectToItem(obj) 在库内部维护一张map，key 为 id(obj)，所以 obj 对象不能变
@@ -166,6 +167,23 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         此方法只查询状态，不启动下载或合并。
         """
         task = self.fileTree.items[index]
+        if task.task_id in self.deleting_task_ids:
+            if task.task_type != TaskType.M3U8:
+                info = single_file_info(task)
+                info['status'] = '删除中'
+                return info
+            media_children = [child for child in task.childs if child.entry_type == 'segment']
+            total = len(media_children)
+            done = sum(child.status == SegmentStatus.COMPLETED or child.fileSize != '-'
+                       for child in media_children)
+            output_only = task.work_dir_missing and bool(task.outputs)
+            return {
+                'total': total, 'done': done,
+                'percent': 100 if output_only else (int(done * 100 / total) if total else 0),
+                'status': '删除中', 'failed': set(), 'pending': set(), 'merging': False,
+                'paused': False,
+                'progress': '100%' if output_only else f'{int(done * 100 / total) if total else 0}% · {done}/{total}',
+            }
         if task.task_type != TaskType.M3U8:
             return single_file_info(task)
         media_children = [child for child in task.childs if child.entry_type == 'segment']
@@ -233,6 +251,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     def ChildStatus(self, index, child_index, snapshot=None):
         """文件子行只展示自身状态；MP4 临时文件与任务共享状态。"""
         task = self.fileTree.items[index]
+        if task.task_id in self.deleting_task_ids:
+            return '删除中'
         if child_index < 0:
             return ''
         if task.task_type == TaskType.MP4:
@@ -406,6 +426,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         task = self.fileTree.items[keys[0]]
         if len(keys) == 1:
             lines = ['名称：' + (task.parent.displayName or Path(task.parent.fileName).name)]
+            lines.append('状态：' + self.TaskInfo(keys[0])['status'])
             if task.parent.absUri:
                 lines.append('来源地址：' + task.parent.absUri)
             lines.append('保存目录：' + str(task.save_dir or Path(task.parent.fileName).parent))
@@ -429,6 +450,8 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         else:
             return ''
         lines = ['文件名：' + (file.displayName or Path(file.fileName).name), '本地路径：' + file.fileName]
+        if 0 <= key < len(task.outputs) + len(task.childs):
+            lines.append('状态：' + self.ChildStatus(keys[0], key))
         if source_url:
             lines.append(('密钥地址：' if file.entry_type == 'key' else '下载地址：') + source_url)
         if file.entry_type == 'key':
@@ -446,7 +469,6 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 lines.append('错误：' + file.last_error)
         elif file.encryption and file.encryption.get('method') == 'AES-128':
             lines.append('加密方式：AES-128')
-            lines.append('解密状态：' + self.ChildStatus(keys[0], keys[1]))
             if file.status == SegmentStatus.FAILED and file.last_error:
                 lines.append('错误：' + file.last_error)
         return '\n'.join(lines)
@@ -825,6 +847,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
             # 保留状态文字，颜色只是辅助提示，不作为唯一的识别方式。
             colours = {
                 '检测时长': '#6A35E8',  # 分片已下载，后台正在读取媒体时长。
+                '删除中': '#FF6600',  # 后台正在移除任务记录或文件。
                 '下载中': '#0055FF',  # 鲜蓝：正在下载
                 '录制中': '#8800FF',
                 '停止中': '#FF6600',

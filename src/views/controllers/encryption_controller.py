@@ -16,38 +16,48 @@ from src.views.dialogs.task_password_dialog import TaskPasswordDialog
 from src.views.dialogs.task_unlock_dialog import TaskUnlockDialog
 
 
+class TaskArtifactCleanupWarning(OSError):
+    """任务状态已更新，但转换后的旧文件未能全部清理。"""
+
+
 class EncryptionController:
     """管理密码状态和任务加解密，并通过 MainFrame 更新视图。"""
 
     def __init__(self, frame):
         self.frame = frame
 
-    def _SetTaskEncrypted(self, task_id, encrypted):
+    def _SetTaskEncrypted(self, task_id, encrypted, *, progress_dialog=None, raise_errors=False):
+        def report(message, title, style):
+            if raise_errors:
+                raise ValueError(message)
+            wx.MessageBox(message, title, style, parent=self.frame)
+
         try:
             busy = self.frame.runner.busy(task_id)
         except (ValueError, OSError, sqlite3.Error, TaskDataError, TaskConflictError) as error:
+            if raise_errors:
+                raise
             wx.MessageBox(str(error), '任务加密失败' if encrypted else '任务解密失败',
                           wx.OK | wx.ICON_ERROR, parent=self.frame)
-            return
+            return False
         if busy:
-            wx.MessageBox('任务正在下载、检测或合并，请等待结束后再加密或解密。',
-                          '暂时无法操作', wx.OK | wx.ICON_INFORMATION, parent=self.frame)
-            return
+            report('任务正在下载、检测或合并，请等待结束后再加密或解密。',
+                   '暂时无法操作', wx.OK | wx.ICON_INFORMATION)
+            return False
         task = self.frame.tasks.repository.get(task_id)
         if task is None:
-            wx.MessageBox('任务不存在，请刷新后重试。', '任务加密失败' if encrypted else '任务解密失败',
-                          wx.OK | wx.ICON_ERROR, parent=self.frame)
-            return
+            report('任务不存在，请刷新后重试。', '任务加密失败' if encrypted else '任务解密失败',
+                   wx.OK | wx.ICON_ERROR)
+            return False
         if task.type not in (TaskType.MP4, TaskType.M3U8):
-            wx.MessageBox('当前任务类型不支持加密或解密文件。',
-                          '暂时无法操作', wx.OK | wx.ICON_INFORMATION, parent=self.frame)
-            return
+            report('当前任务类型不支持加密或解密文件。', '暂时无法操作', wx.OK | wx.ICON_INFORMATION)
+            return False
         media_paths = plan_task_artifacts(task, encrypted)
         for media_path, destination, _complete in media_paths:
             if destination != media_path and (destination.exists() or destination.is_symlink()):
-                wx.MessageBox(f'目标文件已存在，未修改原文件：{destination.name}',
-                              '目标文件已存在', wx.OK | wx.ICON_WARNING, parent=self.frame)
-                return
+                report(f'目标文件已存在，未修改原文件：{destination.name}',
+                       '目标文件已存在', wx.OK | wx.ICON_WARNING)
+                return False
         needs_key = encrypted or task.encrypted or any(
             is_encrypted_mp4(path) for path, _destination, _complete in media_paths)
         context = self.frame._encryption_context
@@ -58,12 +68,14 @@ class EncryptionController:
         if encrypted:
             try:
                 if not TaskEncryption().is_configured():
-                    wx.MessageBox('请先从“任务”菜单设置加密任务密码。',
-                                  '尚未设置密码', wx.OK | wx.ICON_INFORMATION, parent=self.frame)
-                    return
+                    report('请先从“任务”菜单设置加密任务密码。',
+                           '尚未设置密码', wx.OK | wx.ICON_INFORMATION)
+                    return False
             except ValueError as error:
+                if raise_errors:
+                    raise
                 wx.MessageBox(str(error), '读取密码失败', wx.OK | wx.ICON_ERROR, parent=self.frame)
-                return
+                return False
         try:
             prepared = []
             metadata_updated = False
@@ -78,15 +90,19 @@ class EncryptionController:
 
                 worker = Thread(target=convert_media, name='task-encryption')
                 action = '加密' if encrypted else '解密'
-                progress = wx.ProgressDialog(f'任务{action}', '正在转换本地任务文件…', parent=self.frame,
-                                             style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME)
+                owns_progress = progress_dialog is None
+                progress = progress_dialog or wx.ProgressDialog(
+                    f'任务{action}', '正在转换本地任务文件…', parent=self.frame,
+                    style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME)
                 try:
                     worker.start()
                     while worker.is_alive():
-                        progress.Pulse()
+                        if task is not None:
+                            progress.Pulse(f'正在转换：{task.name}')
                         worker.join(0.05)
                 finally:
-                    progress.Destroy()
+                    if owns_progress:
+                        progress.Destroy()
                 if failures:
                     raise failures[0]
             self.frame.runner.set_task_encrypted(task_id, encrypted, artifacts_prepared=True)
@@ -100,9 +116,13 @@ class EncryptionController:
                 action = '加密' if encrypted else '解密'
                 names = '、'.join(source.name for source, _destination, _working, _complete in prepared
                                   if source.exists())
-                wx.MessageBox(f'{action}状态已更新，但旧文件未能全部清理：{names}\n'
-                              f'请检查文件占用后手动删除旧文件。',
-                              f'{action}完成但清理未完成', wx.OK | wx.ICON_WARNING, parent=self.frame)
+                message = (f'{action}状态已更新，但旧文件未能全部清理：{names}\n'
+                           '请检查文件占用后手动删除旧文件。')
+                if raise_errors:
+                    raise TaskArtifactCleanupWarning(message)
+                wx.MessageBox(message, f'{action}完成但清理未完成',
+                              wx.OK | wx.ICON_WARNING, parent=self.frame)
+            return True
         except Exception as error:
             if not metadata_updated:
                 for source, destination, working, _complete in prepared:
@@ -113,6 +133,8 @@ class EncryptionController:
                                 artifact.unlink()
                         except OSError:
                             pass
+            if raise_errors:
+                raise
             wx.MessageBox(str(error), '任务加密失败' if encrypted else '任务解密失败',
                           wx.OK | wx.ICON_ERROR, parent=self.frame)
 

@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from queue import Empty
+from threading import Thread
 
 import wx
 
@@ -16,6 +17,7 @@ class DownloadController:
 
     def __init__(self, frame):
         self.frame = frame
+        self._all_download_running = False
 
     def OnTaskProgress(self, event, notify=True):
         """启动只建立缓存；后续只刷新变化的单元格，不反复使整行和全部表头失效。"""
@@ -157,17 +159,79 @@ class DownloadController:
                                       (TaskStatus.PAUSED, TaskStatus.INTERRUPTED) for task in tasks)
         return can_pause, can_resume
 
-    def OnPauseDownloads(self, event):
-        # 工具栏维持单按钮；所有待处理任务都已单独暂停时，也应显示并执行继续。
-        can_pause, can_resume = self.frame._GlobalDownloadActions()
-        if can_pause:
-            self.frame.OnPauseAllDownloads(event)
-        elif can_resume:
-            self.frame.OnResumeAllDownloads(event)
+    def _NewDownloadTargets(self):
+        if self._all_download_running or not hasattr(self.frame, 'model'):
+            return []
+        return [(index, task) for index, task in enumerate(self.frame.model.fileTree.items)
+                if task.task_id and task.task_type in (TaskType.MP4, TaskType.M3U8)
+                and task.task_status == TaskStatus.NEW
+                and not self.frame.runner.is_deleting(task.task_id)
+                and (not task.encrypted or self.frame._encryption_context is not None)]
+
+    def CanDownloadAll(self):
+        return bool(self._NewDownloadTargets())
+
+    def OnDownloadAll(self, _event):
+        targets = self._NewDownloadTargets()
+        if not targets:
+            return
+        self._all_download_running = True
+        total = len(targets)
+        self.frame._SetPrimaryStatusText(f'正在启动全部下载：0/{total}')
+        self.frame.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+
+        def start_tasks():
+            started = []
+            failed = []
+            for ordinal, (_index, task) in enumerate(targets, 1):
+                try:
+                    result = self.frame.runner.start(task.task_id)
+                    if not result:
+                        failed.append(f'{task.name}: 没有可下载内容')
+                    else:
+                        started.append(task)
+                except Exception as error:
+                    failed.append(f'{task.name}: {error}')
+                wx.CallAfter(self.frame._SetPrimaryStatusText,
+                             f'正在启动全部下载：{ordinal}/{total}')
+            wx.CallAfter(self._FinishDownloadAll, started, failed, total)
+
+        worker = Thread(target=start_tasks, name='start-all-new-tasks')
+        self._all_download_thread = worker
+        try:
+            worker.start()
+        except Exception as error:
+            self._all_download_running = False
+            self.frame.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+            wx.MessageBox(str(error), '全部下载失败', wx.OK | wx.ICON_ERROR, parent=self.frame)
+
+    def _FinishDownloadAll(self, started, failed, total):
+        if self.frame._closing or self.frame.IsBeingDeleted():
+            return
+        self._all_download_running = False
+        self.frame._completion_notified.difference_update(task.task_id for task in started)
+        self.frame._SyncDownloads()
+        self.frame.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+        self.frame._SetPrimaryStatusText(f'全部下载已启动：{len(started)}/{total}')
+        if failed:
+            details = '\n'.join(failed[:5])
+            if len(failed) > 5:
+                details += f'\n另有 {len(failed) - 5} 项失败。'
+            wx.MessageBox(f'成功启动 {len(started)} 个，失败 {len(failed)} 个。\n\n{details}',
+                          '全部下载', wx.OK | wx.ICON_WARNING, parent=self.frame)
 
     def OnUpdateGlobalDownloadAction(self, event):
+        download_all = getattr(self.frame, 'downloadAllItem', None)
+        download_tool = getattr(self.frame, '_downloadAllTool', None)
+        if ((download_all is not None and event.GetId() == download_all.GetId())
+                or (download_tool is not None and event.GetId() == download_tool.GetId())):
+            event.Enable(self.CanDownloadAll())
+            return
         can_pause, can_resume = self.frame._GlobalDownloadActions()
-        if event.GetId() == self.frame.pauseAllItem.GetId():
+        pause_tool = getattr(self.frame, '_pauseTool', None)
+        is_pause = event.GetId() == self.frame.pauseAllItem.GetId() or (
+            pause_tool is not None and event.GetId() == pause_tool.GetId())
+        if is_pause:
             event.Enable(can_pause)
         else:
             event.Enable(can_resume)
@@ -177,29 +241,23 @@ class DownloadController:
         busy = M3U8Downloader.IsBusy() or any(task.task_type == TaskType.MP4 and
             self.frame.runner.mp4.busy(task.task_id) for task in self.frame.model.fileTree.items)
         can_pause, can_resume = self.frame._GlobalDownloadActions()
-        event.Enable(can_pause or can_resume)
+        event.Enable(can_pause if event.GetId() == self.frame._pauseTool.GetId() else can_resume)
         self.frame._UpdatePauseTool()
         snapshot = M3U8Downloader.Snapshot()
         self.frame._SetPrimaryStatusText(('暂停中' if snapshot['requesting'] else '已暂停') if paused
                                    else ('正在下载' if busy else '就绪'))
 
     def _UpdatePauseTool(self):
-        """菜单和工具栏共用下载状态；状态未变时不重复设置位图，避免工具栏闪动。"""
+        """更新独立的全局暂停与继续按钮，混合状态下两者都可以使用。"""
         if self.frame.toolBar is None:
             return
         can_pause, can_resume = self.frame._GlobalDownloadActions()
-        paused = not can_pause and can_resume
-        enabled = can_pause or can_resume
-        if self.frame._pauseToolState == (paused, enabled):
+        state = (can_pause, can_resume)
+        if self.frame._pauseToolState == state:
             return
-        label = '全部继续' if paused else '全部暂停'
-        tool_id = self.frame._pauseTool.GetId()
-        self.frame.toolBar.EnableTool(tool_id, enabled)
-        if self.frame._pauseToolState is None or self.frame._pauseToolState[0] != paused:
-            self.frame.toolBar.SetToolNormalBitmap(tool_id, self.frame._pauseIcons[paused])
-            self.frame._pauseTool.SetLabel(label)
-            self.frame.toolBar.SetToolShortHelp(tool_id, label + '（包括筛选隐藏的任务）')
-        self.frame._pauseToolState = (paused, enabled)
+        self.frame.toolBar.EnableTool(self.frame._pauseTool.GetId(), can_pause)
+        self.frame.toolBar.EnableTool(self.frame._resumeTool.GetId(), can_resume)
+        self.frame._pauseToolState = state
 
     def OnPauseAllDownloads(self, event):
         try:

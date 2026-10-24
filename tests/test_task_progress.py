@@ -127,8 +127,12 @@ class TaskProgressTests(unittest.TestCase):
             folder = model.ObjectToItem(model._BuildKey((0, -1)))
             playlist = model.ObjectToItem(model._BuildKey((0, -2)))
             with patch.object(Path, 'stat', side_effect=AssertionError('tooltip must not check files')):
-                self.assertIn(self.task.parent.absUri, model.GetItemToolTip(root))
-                self.assertIn(self.task.childs[1].absUri, model.GetItemToolTip(child))
+                root_tooltip = model.GetItemToolTip(root)
+                self.assertIn('状态：' + model.TaskInfo(0)['status'], root_tooltip)
+                self.assertIn(self.task.parent.absUri, root_tooltip)
+                child_tooltip = model.GetItemToolTip(child)
+                self.assertIn(self.task.childs[1].absUri, child_tooltip)
+                self.assertIn('状态：' + model.ChildStatus(0, 1), child_tooltip)
                 self.assertEqual(model.GetItemToolTip(folder), '目录：' + str(Path('task') / 'segments'))
                 self.assertNotIn('下载地址', model.GetItemToolTip(playlist))
                 self.task.childs = [
@@ -385,9 +389,12 @@ class TaskProgressTests(unittest.TestCase):
             dc.SelectObject(wx.NullBitmap)
             M3U8Downloader._pending.add(self.key)
             M3U8Downloader.Pause()
-            self.assertEqual([a['enabled'] for a in frame.model.TaskActions(0)], [True, False, False, True])
-            for index in (1, 2):
-                self.assertFalse(click(index))
+            self.assertEqual([a['enabled'] for a in frame.model.TaskActions(0)], [True, False, True, True])
+            self.assertFalse(click(1))
+            with patch.object(frame, 'OnDeleteTask') as delete:
+                self.assertTrue(click(2))
+                self.app.ProcessPendingEvents()
+                delete.assert_called_once_with(self.task)
             M3U8Downloader._pending.clear()
             self.task.childs[1].fileSize = '10 B'
             with patch.object(frame, '_CreateMP4File') as merge:
@@ -721,8 +728,8 @@ class TaskProgressTests(unittest.TestCase):
                 view_labels.append('显示工具栏')
             view_labels.extend(('显示状态栏', '本机服务状态…'))
             for index, expected in enumerate((
-                ['打开下载文件夹', '下载 M3U8', '下载 TS', '下载 MP4', '播放加密 MP4…', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
-                ['全部暂停', '全部继续', '设置加密密码…', '显示加密任务…', '隐藏加密任务'],
+                ['打开下载文件夹', '新建 M3U8 下载', '新建 TS 模板下载', '新建直链下载', '播放加密 MP4…', '设置', '选择播放器', '浏览器扩展配对…', '退出'],
+                ['全部下载', '全部暂停', '全部继续', '批量操作', '设置加密密码…', '显示加密任务…', '隐藏加密任务'],
                 view_labels,
                 ['使用说明', '关于'],
             )):
@@ -743,20 +750,29 @@ class TaskProgressTests(unittest.TestCase):
                 return
             tools = [frame.toolBar.GetToolByPos(i).GetLabel()
                      for i in range(frame.toolBar.GetToolsCount())]
-            for label in ('浏览器扩展配对', '全部展开', '全部折叠', '全部暂停', '刷新',
+            for label in ('浏览器扩展配对', '全部下载', '批量操作', '全部展开', '全部折叠', '全部暂停', '全部继续', '刷新',
                           '显示加密任务', '设置'):
                 self.assertIn(label, tools)
+            self.assertLess(tools.index('全部下载'), tools.index('全部暂停'))
+            self.assertLess(tools.index('全部暂停'), tools.index('全部继续'))
+            self.assertLess(tools.index('全部继续'), tools.index('批量操作'))
+            self.assertLess(tools.index('批量操作'), tools.index('全部展开'))
+            self.assertLess(tools.index('显示加密任务'), tools.index('浏览器扩展配对'))
+            self.assertLess(tools.index('选择播放器'), tools.index('设置'))
             self.assertNotIn('设置加密密码', tools)
             self.assertNotIn('隐藏加密任务', tools)
             self.assertEqual(sum(label in ('显示加密任务', '隐藏加密任务') for label in tools), 1)
             self.assertEqual(frame._encryptedTasksTool.GetLabel(), '显示加密任务')
             self.assertFalse(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
+            self.assertFalse(frame.toolBar.GetToolEnabled(frame._resumeTool.GetId()))
             M3U8Downloader._pending.add(self.key)
             frame._UpdatePauseTool()
             self.assertTrue(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
+            self.assertFalse(frame.toolBar.GetToolEnabled(frame._resumeTool.GetId()))
             M3U8Downloader.Pause()
             frame._UpdatePauseTool()
-            self.assertEqual(frame._pauseTool.GetLabel(), '全部继续')
+            self.assertFalse(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
+            self.assertTrue(frame.toolBar.GetToolEnabled(frame._resumeTool.GetId()))
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
@@ -808,11 +824,14 @@ class TaskProgressTests(unittest.TestCase):
             M3U8Downloader.PauseFiles({self.key, other})
             frame._UpdatePauseTool()
             if frame.toolBar is not None:
-                self.assertEqual(frame._pauseTool.GetLabel(), '全部继续')
-            frame.OnPauseDownloads(None)
+                frame._UpdatePauseTool()
+                self.assertFalse(frame.toolBar.GetToolEnabled(frame._pauseTool.GetId()))
+                self.assertTrue(frame.toolBar.GetToolEnabled(frame._resumeTool.GetId()))
+            frame.OnResumeAllDownloads(None)
             self.assertEqual(frame._GlobalDownloadActions(), (True, False))
             self.assertEqual([item.GetItemLabelText() for item in frame.menuBar.GetMenu(1).GetMenuItems()],
-                             ['全部暂停', '全部继续', '', '设置加密密码…', '显示加密任务…', '隐藏加密任务'])
+                             ['全部下载', '全部暂停', '全部继续', '', '批量操作', '',
+                              '设置加密密码…', '显示加密任务…', '隐藏加密任务'])
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
@@ -922,6 +941,7 @@ class TaskProgressTests(unittest.TestCase):
                       for index in range(frame.menuBar.GetMenuCount())
                       for item in frame.menuBar.GetMenu(index).GetMenuItems() if not item.IsSeparator()}
             for label, shortcut in {
+                '全部下载': 'Ctrl-Shift-D',
                 '全部暂停': 'Ctrl-Shift-P', '全部继续': 'Ctrl-Shift-R',
                 '全部展开': 'Ctrl-Shift-E', '全部折叠': 'Ctrl-Shift-C',
                 '使用说明': 'F1', '刷新': 'F5', '查找': 'Ctrl-F',

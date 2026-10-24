@@ -32,6 +32,8 @@ class TaskListController:
         label = f'{prefix}显示 {visible}/{total}'
         if self.frame.filterCount.GetLabel() != label:
             self.frame.filterCount.SetLabel(label)
+        if hasattr(self.frame, 'batch_actions'):
+            self.frame.batch_actions.UpdateActionAvailability()
         filtered = bool(self.frame._filterText) or self.frame.statusFilter.GetSelection() > 0
         # 无任务时保持空列表；仅筛选无匹配结果时显示清除筛选提示。
         empty = total > 0 and visible == 0 and filtered

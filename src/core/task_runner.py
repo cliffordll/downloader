@@ -34,6 +34,7 @@ class TaskRunner:
         self._duration_jobs = set()
         self._duration_blocked = set()
         self._merging = set()
+        self._deleting = set()
         self._encryption_context_provider = None
 
     def set_encryption_context_provider(self, provider):
@@ -59,6 +60,8 @@ class TaskRunner:
         """按任务类型选择引擎；重试仅选择失败且缺失的分片，单片下载按稳定序号选择。"""
         if self.closed.is_set():
             return 0
+        if task_id in self._deleting:
+            raise ValueError('任务正在删除，请稍后重试。')
         task = self._task(task_id)
         if isinstance(task, MP4Task):
             if self.mp4.busy(task_id):
@@ -160,6 +163,8 @@ class TaskRunner:
             return self._activate_locked(task_id, retry=retry)
 
     def _activate_locked(self, task_id, *, retry=False):
+        if task_id in self._deleting:
+            raise ValueError('任务正在删除，请稍后重试。')
         task = self._task(task_id)
         if isinstance(task, MP4Task):
             if self.mp4.busy(task_id):
@@ -223,8 +228,12 @@ class TaskRunner:
         with self._lock:
             return task_id in self._duration_jobs or task_id in self._merging
 
+    def is_deleting(self, task_id):
+        with self._lock:
+            return task_id in self._deleting
+
     def busy(self, task_id):
-        if self.busy_processing(task_id) or self.mp4.busy(task_id):
+        if self.is_deleting(task_id) or self.busy_processing(task_id) or self.mp4.busy(task_id):
             return True
         task = self._task(task_id)
         if isinstance(task, M3U8Task):
@@ -237,6 +246,8 @@ class TaskRunner:
     def rename(self, task_id, name):
         """Serialize rename against task starts and reject work represented in the task record."""
         with self._lock:
+            if task_id in self._deleting:
+                raise ValueError('任务正在删除，请稍后重试。')
             task = self._task(task_id)
             if not can_rename(task):
                 raise ValueError('任务正在下载、检测或合并，暂时不能重命名。')
@@ -245,17 +256,21 @@ class TaskRunner:
     def set_task_encrypted(self, task_id, encrypted, *, artifacts_prepared=False):
         """Serialize task locking against starts, detection and merge operations."""
         with self._lock:
+            if task_id in self._deleting:
+                raise ValueError('任务正在删除，请稍后重试。')
             task = self._task(task_id)
             if not can_rename(task):
                 raise ValueError('任务正在下载、检测或合并，暂时不能加密或解密。')
             return self.tasks.set_task_encrypted(
                 task_id, encrypted, artifacts_prepared=artifacts_prepared)
 
-    def delete(self, task_id, *, delete_files=False, scope='task'):
+    def delete(self, task_id, *, delete_files=False, scope='task', other_tasks=None):
         """统一处理任务、工作文件和 MP4 删除；单删文件保留记录并核对状态。"""
         if scope not in ('task', 'work', 'output'):
             raise ValueError('无效的删除范围。')
         with self._lock:
+            if task_id in self._deleting:
+                raise ValueError('任务正在删除，请稍后重试。')
             task = self._task(task_id)
             merged = output_for(task, 'merged') if isinstance(task, M3U8Task) else None
             output = output_path(task, merged) if merged else None
@@ -274,8 +289,11 @@ class TaskRunner:
                 self.tasks.interrupt(task_id)
             elif not isinstance(task, M3U8Task) and self.busy(task_id):
                 raise ValueError('任务仍在下载，暂时不能删除。')
+            self._deleting.add(task_id)
+        try:
             if delete_files or scope != 'task':
-                others = [other for other in self.tasks.repository.list_tasks() if other.id != task_id]
+                others = (self.tasks.repository.list_tasks() if other_tasks is None else other_tasks)
+                others = [other for other in others if other.id != task_id]
                 try:
                     trash_task_files(task, others, scope='all' if scope == 'task' else scope)
                 finally:
@@ -283,6 +301,9 @@ class TaskRunner:
                         self.check_files(task_id)
             if scope == 'task':
                 self.tasks.repository.delete(task_id)
+        finally:
+            with self._lock:
+                self._deleting.discard(task_id)
 
     def changes(self):
         """合并两种下载器和媒体处理的通知；统一交给界面读取最新记录。"""
@@ -318,6 +339,8 @@ class TaskRunner:
     def queue_duration(self, task_id, *, force=False):
         """每项任务同时只运行一次检测；数据库故障后等待显式刷新再尝试。"""
         with self._lock:
+            if task_id in self._deleting:
+                return
             if (self.closed.is_set() or task_id in self._duration_jobs
                     or task_id in self._duration_blocked):
                 return

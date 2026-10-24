@@ -5,6 +5,7 @@ import ctypes
 import os
 import subprocess
 import sys
+import threading
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
@@ -18,6 +19,7 @@ from src.core.task_service import TaskService
 from src.models.tree_model import MultiColumnTreeModel, to_tree_item
 from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskOutput, TaskProgress, TaskStatus, FileStatus
 from src.views.main_frame import MainFrame, TaskActionRenderer, TaskProgressRenderer
+from src.views.controllers.encryption_controller import TaskArtifactCleanupWarning
 from src.views.dialogs.task_password_dialog import TaskPasswordDialog
 from src.views.dialogs.task_unlock_dialog import TaskUnlockDialog
 
@@ -105,6 +107,150 @@ class TaskTypesUITests(unittest.TestCase):
             action = next(item for item in model.TaskActions(index) if item['id'] == 'start')
             self.assertEqual(action['label'], '下载')
             self.assertTrue(action['enabled'])
+
+    def test_global_download_starts_all_unstarted_tasks_including_filtered_rows(self):
+        mp4 = self.mp4()
+        playlist = self.service.create_m3u8(
+            self.root / 'hls', 'https://example.com/index.m3u8', '#EXTM3U\n#EXTINF:4,\na.ts\n')
+        frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        try:
+            frame.model.visible_tasks = set()
+            self.assertTrue(frame.downloads.CanDownloadAll())
+            with patch.object(frame.runner, 'start', return_value=1) as start:
+                frame.downloads.OnDownloadAll(None)
+                self.assertFalse(frame.downloads.CanDownloadAll())
+                frame.downloads._all_download_thread.join(timeout=5)
+                self.assertFalse(frame.downloads._all_download_thread.is_alive())
+                self.app.ProcessPendingEvents()
+                self.assertCountEqual([call.args[0] for call in start.call_args_list],
+                                      [mp4.id, playlist.id])
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_batch_menu_counts_operations_for_checked_tasks(self):
+        mp4 = self.mp4()
+        playlist = self.service.create_m3u8(
+            self.root / 'hls', 'https://example.com/index.m3u8', '#EXTM3U\n#EXTINF:4,\na.ts\n')
+        frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        menu = None
+        try:
+            frame.model.selected_task_ids.update((mp4.id, playlist.id))
+            frame.batch_actions.UpdateActionAvailability()
+            menu = frame.batch_actions.BuildMenu()
+            actions = {item.GetItemLabelText(): item.IsEnabled() for item in menu.GetMenuItems()
+                       if item.GetItemLabelText()}
+            self.assertTrue(actions['下载 (2)'])
+            self.assertFalse(actions['继续 (0)'])
+            self.assertFalse(actions['暂停 (0)'])
+            self.assertTrue(actions['加密 (2)'])
+            self.assertFalse(actions['解密 (0)'])
+            self.assertTrue(actions['删除 (2)'])
+        finally:
+            if menu is not None:
+                menu.Destroy()
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_batch_menu_opens_with_no_selection_but_actions_are_disabled(self):
+        frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        menu = None
+        try:
+            frame.batch_actions.UpdateActionAvailability()
+            self.assertTrue(frame.batchActionsItem.IsEnabled())
+            if frame.toolBar is not None:
+                self.assertTrue(frame.toolBar.GetToolEnabled(frame._batchActionsTool.GetId()))
+            menu = frame.batch_actions.BuildMenu()
+            actions = [item for item in menu.GetMenuItems() if item.GetItemLabelText()]
+            self.assertEqual(len(actions), len(frame.batch_actions.OPERATIONS))
+            self.assertTrue(all(not item.IsEnabled() for item in actions))
+        finally:
+            if menu is not None:
+                menu.Destroy()
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_batch_success_does_not_show_modal_completion_popup(self):
+        frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        try:
+            with patch('src.views.controllers.batch_actions_controller.wx.MessageBox') as message_box:
+                frame.batch_actions._finish('暂停', 2, [])
+                message_box.assert_not_called()
+                frame.batch_actions._finish('暂停', 1, ['video.mp4: 操作失败'])
+                message_box.assert_called_once()
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_batch_encryption_cleanup_warning_is_not_counted_as_failure(self):
+        record = self.mp4()
+        frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        try:
+            index = next(i for i, item in enumerate(frame.model.fileTree.items)
+                         if item.task_id == record.id)
+            task = frame.model.fileTree.items[index]
+            frame._encryption_context = object()
+
+            def update_then_fail(task_id, encrypted, **_kwargs):
+                frame.runner.set_task_encrypted(task_id, encrypted, artifacts_prepared=True)
+                raise TaskArtifactCleanupWarning('旧文件仍被占用')
+
+            with patch.object(frame, '_SetTaskEncrypted', side_effect=update_then_fail), \
+                    patch('src.views.controllers.batch_actions_controller.wx.ProgressDialog') as dialog, \
+                    patch('src.views.controllers.batch_actions_controller.wx.MessageBox') as message_box:
+                dialog.return_value.Pulse.return_value = (True, False)
+                frame.batch_actions._run_encryption(True, [(index, task)])
+
+            message = message_box.call_args.args[0]
+            self.assertIn('成功 1 个', message)
+            self.assertIn('清理警告 1 个', message)
+            self.assertNotIn('失败 1 个', message)
+            self.assertTrue(self.repo.get(record.id).encrypted)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
+
+    def test_batch_icon_is_registered_in_manifest(self):
+        import json
+
+        manifest = json.loads((Path(__file__).resolve().parents[1] / 'icons' / 'manifest.json')
+                              .read_text(encoding='utf-8'))
+        batch = next(icon for icon in manifest['icons'] if icon['name'] == 'batch')
+        self.assertEqual(batch['category'], 'tools')
+        self.assertTrue((Path(__file__).resolve().parents[1] / 'icons' / batch['source']).is_file())
+
+    def test_batch_delete_runs_off_ui_thread_and_refreshes_afterward(self):
+        record = self.mp4()
+        with patch.object(MainFrame, 'Show'):
+            frame = MainFrame(None, 'test', self.service, load_tree(self.service))
+        try:
+            index = next(i for i, task in enumerate(frame.model.fileTree.items)
+                         if task.task_id == record.id)
+            task = frame.model.fileTree.items[index]
+            main_thread = threading.get_ident()
+            delete_thread_ids = []
+            original_delete = frame.runner.delete
+
+            def capture_delete(*args, **kwargs):
+                delete_thread_ids.append(threading.get_ident())
+                return original_delete(*args, **kwargs)
+
+            frame.runner.delete = capture_delete
+            frame.model.selected_task_ids.add(record.id)
+            frame.batch_actions._delete_in_background([(index, task)], False)
+            self.assertEqual(frame.model.TaskInfo(index)['status'], '删除中')
+            frame.batch_actions._delete_thread.join(timeout=5)
+            self.assertFalse(frame.batch_actions._delete_thread.is_alive())
+            self.app.ProcessPendingEvents()
+
+            self.assertEqual(len(delete_thread_ids), 1)
+            self.assertNotEqual(delete_thread_ids[0], main_thread)
+            self.assertIsNone(self.repo.get(record.id))
+            self.assertNotIn(record.id, frame.model.selected_task_ids)
+            self.assertFalse(frame.batch_actions._delete_running)
+        finally:
+            frame.Destroy()
+            self.app.ProcessPendingEvents()
 
     def test_files_are_projected_from_records_not_directory_contents(self):
         task = self.service.create_m3u8(self.root / 'hls', 'https://example.com/mixed.m3u8',
@@ -636,6 +782,7 @@ class TaskTypesUITests(unittest.TestCase):
         self.assertEqual(model.GetValue(child, 2), '5.00 B')
         self.assertEqual(model.GetValue(child, 6), '已暂停')
         self.assertEqual(model.GetValue(child, 5), '')
+        self.assertIn('状态：已暂停', model.GetItemToolTip(child))
         target = task.save_dir / next(o.output_path for o in task.outputs if o.kind == 'download')
         target.parent.mkdir()
         partial.rename(target)
@@ -643,6 +790,7 @@ class TaskTypesUITests(unittest.TestCase):
         model.ApplyTaskRecord(self.repo.get(task.id))
         self.assertEqual(model.GetValue(child, 1), 'video.mp4')
         self.assertEqual(model.GetValue(child, 6), '已完成')
+        self.assertIn('状态：已完成', model.GetItemToolTip(child))
         self.assertEqual(model.GetValue(child, 5), '')
         import json
         self.assertEqual(json.loads(model.GetValue(child, 4)),

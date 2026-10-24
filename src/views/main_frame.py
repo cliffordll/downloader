@@ -33,6 +33,7 @@ from src.views.controllers.task_actions_controller import TaskActionsController
 from src.views.controllers.task_list_controller import TaskListController
 from src.views.controllers.download_controller import DownloadController
 from src.views.controllers.task_media_controller import TaskMediaController
+from src.views.controllers.batch_actions_controller import BatchActionsController
 
 
 class MainFrame(wx.Frame):
@@ -47,6 +48,7 @@ class MainFrame(wx.Frame):
         self.task_list = TaskListController(self)
         self.downloads = DownloadController(self)
         self.task_media = TaskMediaController(self)
+        self.batch_actions = BatchActionsController(self)
         self._closing = False
         self.browser_bridge = None
         self._capture_dialog_open = False
@@ -120,9 +122,9 @@ class MainFrame(wx.Frame):
         fileMenu = wx.Menu()
         openItem    = fileMenu.Append(wx.ID_OPEN, "打开下载文件夹\tCtrl-O")
         fileMenu.AppendSeparator()
-        addMUItem   = fileMenu.Append(wx.ID_ANY, "&下载 M3U8\tCtrl-M")
-        addTSItem   = fileMenu.Append(wx.ID_ANY, "&下载 TS\tCtrl-T")
-        addMP4Item = fileMenu.Append(wx.ID_ANY, '下载 MP4\tCtrl-P')
+        addMUItem   = fileMenu.Append(wx.ID_ANY, "&新建 M3U8 下载\tCtrl-M")
+        addTSItem   = fileMenu.Append(wx.ID_ANY, "新建 TS 模板下载\tCtrl-T")
+        addMP4Item = fileMenu.Append(wx.ID_ANY, '新建直链下载\tCtrl-P')
         openEncryptedItem = fileMenu.Append(wx.ID_ANY, '播放加密 MP4…')
         fileMenu.AppendSeparator()
         settingItem  = fileMenu.Append(wx.ID_ANY, "设置\tCtrl-,")
@@ -142,15 +144,22 @@ class MainFrame(wx.Frame):
 		
         # 任务菜单负责下载控制，查看菜单负责列表及界面展示。
         taskMenu = wx.Menu()
+        self.downloadAllItem = taskMenu.Append(wx.ID_ANY, '全部下载\tCtrl-Shift-D')
         self.pauseAllItem = taskMenu.Append(wx.ID_ANY, '全部暂停\tCtrl-Shift-P')
         self.resumeAllItem = taskMenu.Append(wx.ID_ANY, '全部继续\tCtrl-Shift-R')
         can_pause, can_resume = self._GlobalDownloadActions()
+        self.downloadAllItem.Enable(self.downloads.CanDownloadAll())
         self.pauseAllItem.Enable(can_pause)
         self.resumeAllItem.Enable(can_resume)
+        self.Bind(wx.EVT_MENU, self.OnDownloadAll, self.downloadAllItem)
         self.Bind(wx.EVT_MENU, self.OnPauseAllDownloads, self.pauseAllItem)
         self.Bind(wx.EVT_MENU, self.OnResumeAllDownloads, self.resumeAllItem)
+        self.Bind(wx.EVT_UPDATE_UI, self.OnUpdateGlobalDownloadAction, self.downloadAllItem)
         self.Bind(wx.EVT_UPDATE_UI, self.OnUpdateGlobalDownloadAction, self.pauseAllItem)
         self.Bind(wx.EVT_UPDATE_UI, self.OnUpdateGlobalDownloadAction, self.resumeAllItem)
+        taskMenu.AppendSeparator()
+        self.batchActionsMenu = self.batch_actions.CreateTaskSubMenu()
+        self.batchActionsItem = taskMenu.AppendSubMenu(self.batchActionsMenu, '批量操作')
         taskMenu.AppendSeparator()
         self.setEncryptedPasswordItem = taskMenu.Append(wx.ID_ANY, '设置加密密码…')
         self.Bind(wx.EVT_MENU, self.OnSetEncryptedPassword, self.setEncryptedPasswordItem)
@@ -199,6 +208,7 @@ class MainFrame(wx.Frame):
         self.menuBar.Append(aboutMenu, "&帮助")
         # 设置菜单栏
         self.SetMenuBar(self.menuBar)
+        self.Bind(wx.EVT_MENU_OPEN, self.batch_actions.OnMenuOpen)
 
     def _createToolBar(self):
         if wx.Platform == '__WXMAC__':
@@ -215,24 +225,31 @@ class MainFrame(wx.Frame):
             return self.toolBar.AddTool(tool_id, label, bundle, shortHelp=label)
 
         openButton = add_tool(wx.ID_OPEN, "打开下载文件夹", "open")
-        muButton = add_tool(wx.ID_ANY, "下载 M3U8", "playlist")
-        tsButton = add_tool(wx.ID_ANY, "下载 TS", "segment")
-        mp4Button = add_tool(wx.ID_ANY, '下载 MP4', 'mp4')
-        browserButton = add_tool(wx.ID_ANY, '浏览器扩展配对', 'browser')
-        self.toolBar.SetToolShortHelp(browserButton.GetId(), '获取浏览器扩展配对码')
+        muButton = add_tool(wx.ID_ANY, "新建 M3U8 下载", "playlist")
+        tsButton = add_tool(wx.ID_ANY, "新建 TS 模板下载", "segment")
+        mp4Button = add_tool(wx.ID_ANY, '新建直链下载', 'mp4')
+        self.toolBar.AddSeparator()
+        self._downloadAllTool = add_tool(wx.ID_ANY, '全部下载', 'task-start')
+        self.toolBar.SetToolShortHelp(self._downloadAllTool.GetId(), '启动所有未开始的任务')
+        self._pauseTool = add_tool(wx.ID_ANY, "全部暂停", "task-pause")
+        self._resumeTool = add_tool(wx.ID_ANY, "全部继续", "task-resume")
+        self._pauseToolState = None
+        self.toolBar.SetToolShortHelp(self._pauseTool.GetId(), '暂停所有正在运行的任务')
+        self.toolBar.SetToolShortHelp(self._resumeTool.GetId(), '继续暂停或未完成的任务')
+        self._batchActionsTool = add_tool(wx.ID_ANY, '批量操作', 'batch')
+        self.toolBar.SetToolShortHelp(self._batchActionsTool.GetId(), '对已勾选任务执行批量操作')
         self.toolBar.AddSeparator()
         expandButton = add_tool(wx.ID_ANY, "全部展开", "expand")
         collapseButton = add_tool(wx.ID_ANY, "全部折叠", "collapse")
+        refreshButton = add_tool(wx.ID_REFRESH, "刷新", "refresh")
+        self._encryptedTasksTool = add_tool(wx.ID_ANY, "显示加密任务", "unlock")
         self.toolBar.SetToolShortHelp(expandButton.GetId(), '展开当前列表中的全部任务')
         self.toolBar.SetToolShortHelp(collapseButton.GetId(), '折叠当前列表中的全部任务')
-        self._pauseTool = add_tool(wx.ID_ANY, "全部暂停", "pause")
-        self._pauseIcons = {False: toolbar_icon('task-pause'), True: toolbar_icon('task-resume')}
-        self._pauseToolState = None
-        refreshButton = add_tool(wx.ID_REFRESH, "刷新", "refresh")
         self.toolBar.AddSeparator()
-        self._encryptedTasksTool = add_tool(wx.ID_ANY, "显示加密任务", "unlock")
-        settingButton = add_tool(wx.ID_ANY, "设置", "settings")
+        browserButton = add_tool(wx.ID_ANY, '浏览器扩展配对', 'browser')
+        self.toolBar.SetToolShortHelp(browserButton.GetId(), '获取浏览器扩展配对码')
         playerButton = add_tool(wx.ID_ANY, '选择播放器', 'player')
+        settingButton = add_tool(wx.ID_ANY, "设置", "settings")
         self.toolBar.AddSeparator()
         helpButton = add_tool(wx.ID_ANY, "帮助", "help")
         aboutButton = add_tool(wx.ID_ANY, "关于", "about")
@@ -243,10 +260,15 @@ class MainFrame(wx.Frame):
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddTS, tsButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnAddMP4, mp4Button)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnBrowserConnect, browserButton)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnDownloadAll, self._downloadAllTool)
+        self.toolBar.Bind(wx.EVT_UPDATE_UI, self.OnUpdateGlobalDownloadAction, self._downloadAllTool)
+        self.toolBar.Bind(wx.EVT_TOOL, self.batch_actions.OnShowBatchActions, self._batchActionsTool)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnExpandAll, expandButton)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnCollapseAll, collapseButton)
-        self.toolBar.Bind(wx.EVT_TOOL, self.OnPauseDownloads, self._pauseTool)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnPauseAllDownloads, self._pauseTool)
         self.toolBar.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads, self._pauseTool)
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnResumeAllDownloads, self._resumeTool)
+        self.toolBar.Bind(wx.EVT_UPDATE_UI, self.OnUpdatePauseDownloads, self._resumeTool)
         self.toolBar.Bind(wx.EVT_TOOL, self.OnRefresh, refreshButton)
         # Bind directly to the tool as well as the frame ID.  wxMSW versions differ
         # in whether toolbar command events bubble to the frame after realization.
@@ -958,9 +980,6 @@ class MainFrame(wx.Frame):
     def OnExit(self, event):
         self.Close()
 
-    def OnPauseDownloads(self, *args, **kwargs):
-        return self.downloads.OnPauseDownloads(*args, **kwargs)
-
 
 
     def OnUpdateGlobalDownloadAction(self, *args, **kwargs):
@@ -969,6 +988,10 @@ class MainFrame(wx.Frame):
 
     def OnUpdatePauseDownloads(self, *args, **kwargs):
         return self.downloads.OnUpdatePauseDownloads(*args, **kwargs)
+
+
+    def OnDownloadAll(self, *args, **kwargs):
+        return self.downloads.OnDownloadAll(*args, **kwargs)
 
 
     def _UpdatePauseTool(self, *args, **kwargs):
@@ -1008,8 +1031,8 @@ class MainFrame(wx.Frame):
     def OnHelp(self, event):
         self._ShowInformation('使用帮助', (
             '1. 添加任务\n'
-            '通过“文件 → 下载M3U8”输入播放列表网址，或通过“下载TS”按分片命名规则创建任务。\n\n'
-            '通过“文件 → 下载 MP4”（Ctrl+P）添加视频直链。三个下载窗口均可选择保存目录和文件名，'
+            '通过“文件 → 新建 M3U8 下载”输入 M3U8 播放列表网址，或通过“新建 TS 模板下载”按分片命名规则创建任务。\n\n'
+            '通过“文件 → 新建直链下载”（Ctrl+P）添加可直接下载的文件地址。三个下载窗口均可选择保存目录和文件名，'
             '默认使用设置中的下载目录，文件名自动生成、可修改，重名自动追加序号。\n'
             'MP4 直接保存在所选目录；M3U8、TS 的分片放入同名子目录，合并后的 MP4 位于外层保存目录。\n\n'
             '筛选区域可按文件名、路径和任务状态筛选；关键词也匹配任务下的 MP4 和分片。'

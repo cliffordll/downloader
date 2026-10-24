@@ -12,6 +12,7 @@ ICON_FILES = {
     "segment": "files/ts.png",
     "mp4": "files/mp4.png",
     "browser": "tools/extension.png",
+    "batch": "tools/batch.png",
     "expand": "tools/expand.png",
     "collapse": "tools/collapse.png",
     "refresh": "tools/refresh.png",

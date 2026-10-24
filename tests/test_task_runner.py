@@ -369,6 +369,39 @@ class TaskRunnerTests(unittest.TestCase):
         self.assertIsNone(self.repo.get(task.id))
         self.assertTrue(path.is_file())
 
+    def test_file_recycling_does_not_hold_runner_lock_and_blocks_restart(self):
+        task = self.m3u8()
+        recycling = threading.Event()
+        finish_recycling = threading.Event()
+        errors = []
+
+        def slow_recycle(*_args, **_kwargs):
+            recycling.set()
+            finish_recycling.wait(timeout=3)
+
+        def delete():
+            try:
+                self.runner.delete(task.id, delete_files=True, other_tasks=[])
+            except Exception as error:
+                errors.append(error)
+
+        with patch('src.core.task_runner.trash_task_files', side_effect=slow_recycle):
+            worker = threading.Thread(target=delete)
+            worker.start()
+            self.assertTrue(recycling.wait(timeout=2))
+            try:
+                self.assertTrue(self.runner.is_deleting(task.id))
+                self.assertTrue(self.runner.busy(task.id))
+                with self.assertRaisesRegex(ValueError, '正在删除'):
+                    self.runner.start(task.id)
+            finally:
+                finish_recycling.set()
+                worker.join(timeout=3)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertIsNone(self.repo.get(task.id))
+
     def recycle(self, paths):
         # 测试只移动临时目录中的文件，不访问用户回收站。
         trash = self.root / 'trash'
