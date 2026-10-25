@@ -20,6 +20,7 @@ from src.models.tree_model import MultiColumnTreeModel, to_tree_item
 from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskOutput, TaskProgress, TaskStatus, FileStatus
 from src.views.main_frame import MainFrame, TaskActionRenderer, TaskProgressRenderer
 from src.views.controllers.encryption_controller import TaskArtifactCleanupWarning
+from src.views.controllers.playback_controller import PlaybackController
 from src.views.dialogs.task_password_dialog import TaskPasswordDialog
 from src.views.dialogs.task_unlock_dialog import TaskUnlockDialog
 
@@ -218,6 +219,34 @@ class TaskTypesUITests(unittest.TestCase):
         batch = next(icon for icon in manifest['icons'] if icon['name'] == 'batch')
         self.assertEqual(batch['category'], 'tools')
         self.assertTrue((Path(__file__).resolve().parents[1] / 'icons' / batch['source']).is_file())
+
+    def test_open_manifest_uses_last_selected_player(self):
+        player = self.root / 'player'
+        player.touch()
+        manifest = self.root / 'download.m3u8'
+        manifest.touch()
+        frame = SimpleNamespace(_OpenWithPlayer=Mock(), _OpenLocalPath=Mock())
+        controller = PlaybackController(frame)
+
+        with patch('src.views.controllers.playback_controller.SysSetting.GetAll',
+                   return_value={'player_path': str(player)}):
+            controller._OpenTaskManifest(SimpleNamespace(encrypted=False), manifest)
+
+        frame._OpenWithPlayer.assert_called_once_with(manifest, str(player))
+        frame._OpenLocalPath.assert_not_called()
+
+    def test_open_manifest_uses_system_default_without_valid_selected_player(self):
+        manifest = self.root / 'download.m3u8'
+        manifest.touch()
+        frame = SimpleNamespace(_OpenWithPlayer=Mock(), _OpenLocalPath=Mock())
+        controller = PlaybackController(frame)
+
+        with patch('src.views.controllers.playback_controller.SysSetting.GetAll',
+                   return_value={'player_path': ''}):
+            controller._OpenTaskManifest(SimpleNamespace(encrypted=False), manifest)
+
+        frame._OpenLocalPath.assert_called_once_with(manifest)
+        frame._OpenWithPlayer.assert_not_called()
 
     def test_batch_delete_runs_off_ui_thread_and_refreshes_afterward(self):
         record = self.mp4()

@@ -198,10 +198,12 @@ class PlaybackController:
     def _OpenTaskManifest(self, task, path, player=None):
         if task.encrypted and is_encrypted_mp4(path):
             self.frame._PlayEncryptedM3U8(task.task_id, player)
-        elif player:
-            self.frame._OpenWithPlayer(path, player)
         else:
-            self.frame._OpenLocalPath(path)
+            selected_player = player or SysSetting.GetAll()['player_path']
+            if selected_player and Path(selected_player).exists():
+                self.frame._OpenWithPlayer(path, selected_player)
+            else:
+                self.frame._OpenLocalPath(path)
 
     def _ChoosePlayerAndOpenManifest(self, task, path):
         player = self.frame._ChoosePlayer()
