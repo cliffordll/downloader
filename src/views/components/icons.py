@@ -36,6 +36,7 @@ ICON_FILES = {
     "eye-off": "tools/eye-off.png",
     "help": "tools/help.png",
     "about": "tools/about.png",
+    "debug": "tools/debug.png",
     "edit": "tools/edit.png",
     "check": "tools/check.png",
     "warning": "tools/warning.png",

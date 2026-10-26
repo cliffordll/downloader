@@ -842,6 +842,16 @@
     },
     {
       "category": "files",
+      "name": "rtmp",
+      "label": "RTMP",
+      "origin": "uniform-file-frame",
+      "added": true,
+      "source": "source/files/rtmp.png",
+      "circle_color": "#F0B2AB",
+      "display_label": "RTMP"
+    },
+    {
+      "category": "files",
       "name": "seed",
       "label": "SEED",
       "origin": "uniform-file-frame",
@@ -1205,6 +1215,15 @@
       "origin": "original:tools/delete.png",
       "added": false,
       "source": "source/tools/delete.png"
+    },
+    {
+      "category": "tools",
+      "name": "debug",
+      "label": "调试",
+      "origin": "additional-tools",
+      "added": true,
+      "source": "source/tools/debug.png",
+      "vector_source": "source/tools/debug.svg"
     },
     {
       "category": "tools",
@@ -1757,8 +1776,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3.1875,
-        "label_right": 20.8125,
+        "label_left": 3.9375,
+        "label_right": 20.0625,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -1771,7 +1790,11 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "AVC",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "AV": 0.25,
+          "VC": 0.25
+        }
       },
       "avi": {
         "font_size": 8.5,
@@ -1779,8 +1802,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4.96875,
-        "label_right": 19.03125,
+        "label_left": 5.34375,
+        "label_right": 18.65625,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -1793,7 +1816,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "AVI",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "AV": 0.25
+        }
       },
       "avif": {
         "font_size": 8.5,
@@ -1801,10 +1827,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2.8125,
-        "label_right": 21.1875,
+        "label_left": 3.4375,
+        "label_right": 20.5625,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -1815,7 +1841,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "AVIF",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "AV": 0.25
+        }
       },
       "avs": {
         "font_size": 8.5,
@@ -1823,8 +1852,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3.5625,
-        "label_right": 20.4375,
+        "label_left": 3.9375,
+        "label_right": 20.0625,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -1837,7 +1866,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "AVS",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "AV": 0.25
+        }
       },
       "bak": {
         "font_size": 8.5,
@@ -1867,8 +1899,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3.9375,
-        "label_right": 20.0625,
+        "label_left": 4.3125,
+        "label_right": 19.6875,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -1881,7 +1913,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "BAT",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "AT": 0.25
+        }
       },
       "bmp": {
         "font_size": 8.5,
@@ -2123,7 +2158,8 @@
         "text_colour": "#3B3B3B",
         "font_axes": null,
         "text_offset_y": 1.5,
-        "display_label": "DOCX"
+        "display_label": "DOCX",
+        "pair_spacing": {}
       },
       "dvd": {
         "font_size": 8.5,
@@ -2175,10 +2211,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2.34375,
-        "label_right": 21.65625,
+        "label_left": 2.71875,
+        "label_right": 21.28125,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -2189,7 +2225,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "EPUB",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "exe": {
         "font_size": 8.5,
@@ -2241,10 +2278,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2.0625,
-        "label_right": 21.9375,
+        "label_left": 2.4375,
+        "label_right": 21.5625,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -2255,7 +2292,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "FLAC",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "flc": {
         "font_size": 8.5,
@@ -2351,10 +2389,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3.5,
-        "label_right": 20.5,
+        "label_left": 3.875,
+        "label_right": 20.125,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -2365,7 +2403,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "HEIC",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "hlp": {
         "font_size": 8.5,
@@ -2417,10 +2456,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.0,
-        "label_right": 23.0,
+        "label_left": 1.28125,
+        "label_right": 22.71875,
         "frame_gaps": true,
-        "character_gap": 0.9375,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -2431,7 +2470,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "HTML",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "ini": {
         "font_size": 8.5,
@@ -2483,10 +2523,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2.84375,
-        "label_right": 21.15625,
+        "label_left": 3.21875,
+        "label_right": 20.78125,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -2497,7 +2537,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "JPEG",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "jpg": {
         "font_size": 8.5,
@@ -2549,10 +2590,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.75,
-        "label_right": 22.25,
+        "label_left": 2.125,
+        "label_right": 21.875,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -2563,7 +2604,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "JSON",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "lib": {
         "font_size": 8.5,
@@ -2659,10 +2701,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.09375,
-        "label_right": 22.90625,
+        "label_left": 1.46875,
+        "label_right": 22.53125,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "frame_gap_padding": 2,
         "label_center": 12.0,
         "canvas_padding": 0,
@@ -2673,7 +2715,8 @@
         "text_colour": "#3B3B3B",
         "font_axes": null,
         "text_offset_y": 1.5,
-        "display_label": "M3U8"
+        "display_label": "M3U8",
+        "pair_spacing": {}
       },
       "m4a": {
         "font_size": 8.5,
@@ -2901,10 +2944,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.03125,
-        "label_right": 22.96875,
+        "label_left": 1.3125,
+        "label_right": 22.6875,
         "frame_gaps": true,
-        "character_gap": 0.9375,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -2915,7 +2958,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "MPEG",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "mpeg-1": {
         "font_size": 8.5,
@@ -2923,10 +2967,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.53125,
-        "label_right": 22.46875,
+        "label_left": 1.90625,
+        "label_right": 22.09375,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -2937,7 +2981,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "MPG1",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "mpeg-2": {
         "font_size": 8.5,
@@ -2945,10 +2990,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.03125,
-        "label_right": 22.96875,
+        "label_left": 1.125,
+        "label_right": 22.875,
         "frame_gaps": true,
-        "character_gap": 0.8125,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -2959,7 +3004,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "MPG2",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "mpeg-4": {
         "font_size": 8.5,
@@ -2981,7 +3027,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "MPG4",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "mpeg1": {
         "font_size": 8.5,
@@ -2989,10 +3036,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.53125,
-        "label_right": 22.46875,
+        "label_left": 1.90625,
+        "label_right": 22.09375,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -3003,7 +3050,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "MPG1",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "mpeg2": {
         "font_size": 8.5,
@@ -3011,10 +3059,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.03125,
-        "label_right": 22.96875,
+        "label_left": 1.125,
+        "label_right": 22.875,
         "frame_gaps": true,
-        "character_gap": 0.8125,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -3025,7 +3073,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "MPG2",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "mpeg4": {
         "font_size": 8.5,
@@ -3047,7 +3096,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "MPG4",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "mpg": {
         "font_size": 8.5,
@@ -3143,10 +3193,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.28125,
-        "label_right": 22.71875,
+        "label_left": 1.65625,
+        "label_right": 22.34375,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -3157,7 +3207,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "OPUS",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "pdf": {
         "font_size": 8.5,
@@ -3253,10 +3304,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.65625,
-        "label_right": 22.34375,
+        "label_left": 2.03125,
+        "label_right": 21.96875,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -3267,7 +3318,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "PPTX",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "psd": {
         "font_size": 8.5,
@@ -3341,8 +3393,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.84375,
-        "label_right": 22.15625,
+        "label_left": 2.21875,
+        "label_right": 21.78125,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -3355,7 +3407,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "RAW",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "AW": 0.25
+        }
       },
       "rm": {
         "font_size": 8.5,
@@ -3399,7 +3454,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "RMVB",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "rtf": {
         "font_size": 8.5,
@@ -3407,8 +3463,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4.78125,
-        "label_right": 19.21875,
+        "label_left": 5.15625,
+        "label_right": 18.84375,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -3421,7 +3477,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "RTF",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "RT": 0.25
+        }
       },
       "seed": {
         "font_size": 8.5,
@@ -3429,10 +3488,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 2.59375,
-        "label_right": 21.40625,
+        "label_left": 2.96875,
+        "label_right": 21.03125,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -3443,7 +3502,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "SEED",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "sh": {
         "font_size": 8.5,
@@ -3539,8 +3599,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3.65625,
-        "label_right": 20.34375,
+        "label_left": 4.03125,
+        "label_right": 19.96875,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -3553,7 +3613,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "TAR",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "TA": 0.25
+        }
       },
       "tgz": {
         "font_size": 8.5,
@@ -3561,8 +3624,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3.875,
-        "label_right": 20.125,
+        "label_left": 4.25,
+        "label_right": 19.75,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -3575,7 +3638,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "TGZ",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "TG": 0.25
+        }
       },
       "tiff": {
         "font_size": 8.5,
@@ -3583,10 +3649,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4.4375,
-        "label_right": 19.5625,
+        "label_left": 4.8125,
+        "label_right": 19.1875,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -3597,7 +3663,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "TIFF",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "tmp": {
         "font_size": 8.5,
@@ -3627,8 +3694,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.0,
-        "label_right": 23.0,
+        "label_left": 1.1875,
+        "label_right": 22.8125,
         "frame_gaps": true,
         "character_gap": 0.625,
         "label_center": 12.0,
@@ -3641,7 +3708,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "TOML",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "TO": 0.25
+        }
       },
       "ts": {
         "font_size": 8.5,
@@ -3671,8 +3741,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 4.25,
-        "label_right": 19.75,
+        "label_left": 4.625,
+        "label_right": 19.375,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -3685,7 +3755,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "TTC",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "TC": 0.25
+        }
       },
       "ttf": {
         "font_size": 8.5,
@@ -3737,6 +3810,31 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
+        "label_left": 3.8125,
+        "label_right": 20.1875,
+        "frame_gaps": true,
+        "character_gap": 1.0,
+        "label_center": 12.0,
+        "frame_gap_padding": 2,
+        "canvas_padding": 0,
+        "rendering": "supersampled-label",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "pixel_aligned_label": false,
+        "text_colour": "#3B3B3B",
+        "text_offset_y": 1.5,
+        "display_label": "VCD",
+        "font_axes": null,
+        "pair_spacing": {
+          "VC": 0.25
+        }
+      },
+      "voc": {
+        "font_size": 8.5,
+        "cap_height": 5.9375,
+        "baseline": 17.5,
+        "native_pixel_text": false,
+        "condensed": false,
         "label_left": 3.4375,
         "label_right": 20.5625,
         "frame_gaps": true,
@@ -3750,30 +3848,11 @@
         "pixel_aligned_label": false,
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
-        "display_label": "VCD",
-        "font_axes": null
-      },
-      "voc": {
-        "font_size": 8.5,
-        "cap_height": 5.9375,
-        "baseline": 17.5,
-        "native_pixel_text": false,
-        "condensed": false,
-        "label_left": 3.0625,
-        "label_right": 20.9375,
-        "frame_gaps": true,
-        "character_gap": 1.0,
-        "label_center": 12.0,
-        "frame_gap_padding": 2,
-        "canvas_padding": 0,
-        "rendering": "supersampled-label",
-        "font_family": "Segoe UI",
-        "font_style": "Semibold",
-        "pixel_aligned_label": false,
-        "text_colour": "#3B3B3B",
-        "text_offset_y": 1.5,
         "display_label": "VOC",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "VO": 0.25
+        }
       },
       "wav": {
         "font_size": 8.5,
@@ -3781,8 +3860,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.46875,
-        "label_right": 22.53125,
+        "label_left": 2.21875,
+        "label_right": 21.78125,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -3795,7 +3874,11 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "WAV",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "WA": 0.25,
+          "AV": 0.25
+        }
       },
       "webm": {
         "font_size": 8.0,
@@ -3817,7 +3900,8 @@
         "text_colour": "#3B3B3B",
         "font_axes": null,
         "text_offset_y": 1.5,
-        "display_label": "WEBM"
+        "display_label": "WEBM",
+        "pair_spacing": {}
       },
       "webp": {
         "font_size": 8.5,
@@ -3839,7 +3923,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "WEBP",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "wma": {
         "font_size": 8.5,
@@ -3957,10 +4042,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.0625,
-        "label_right": 22.9375,
+        "label_left": 1.4375,
+        "label_right": 22.5625,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -3971,7 +4056,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "XLSM",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "xlsx": {
         "font_size": 8.5,
@@ -3979,10 +4065,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.75,
-        "label_right": 22.25,
+        "label_left": 2.125,
+        "label_right": 21.875,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -3993,7 +4079,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "XLSX",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "xltm": {
         "font_size": 8.5,
@@ -4001,10 +4088,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.0625,
-        "label_right": 22.9375,
+        "label_left": 1.15625,
+        "label_right": 22.84375,
         "frame_gaps": true,
-        "character_gap": 0.8125,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -4015,7 +4102,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "XLTM",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "xltx": {
         "font_size": 8.5,
@@ -4023,10 +4111,10 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.46875,
-        "label_right": 22.53125,
+        "label_left": 1.84375,
+        "label_right": 22.15625,
         "frame_gaps": true,
-        "character_gap": 1.0,
+        "character_gap": 0.75,
         "label_center": 12.0,
         "frame_gap_padding": 2,
         "canvas_padding": 0,
@@ -4037,7 +4125,8 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "XLTX",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "xml": {
         "font_size": 8.5,
@@ -4089,8 +4178,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 1.0625,
-        "label_right": 22.9375,
+        "label_left": 1.1875,
+        "label_right": 22.8125,
         "frame_gaps": true,
         "character_gap": 0.5,
         "label_center": 12.0,
@@ -4103,7 +4192,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "YAML",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "YA": 0.25
+        }
       },
       "yml": {
         "font_size": 8.5,
@@ -4111,8 +4203,8 @@
         "baseline": 17.5,
         "native_pixel_text": false,
         "condensed": false,
-        "label_left": 3.59375,
-        "label_right": 20.40625,
+        "label_left": 3.96875,
+        "label_right": 20.03125,
         "frame_gaps": true,
         "character_gap": 1.0,
         "label_center": 12.0,
@@ -4125,7 +4217,10 @@
         "text_colour": "#3B3B3B",
         "text_offset_y": 1.5,
         "display_label": "YML",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {
+          "YM": 0.25
+        }
       },
       "z": {
         "font_size": 8.5,
@@ -4172,10 +4267,10 @@
         "font_axes": null
       },
       "none": {
-        "label_left": 1.03125,
-        "label_right": 22.96875,
+        "label_left": 1.125,
+        "label_right": 22.875,
         "frame_gaps": true,
-        "character_gap": 0.8125,
+        "character_gap": 0.75,
         "condensed": false,
         "label_center": 12.0,
         "frame_gap_padding": 2,
@@ -4191,7 +4286,8 @@
         "baseline": 17.5,
         "text_offset_y": 1.5,
         "display_label": "NONE",
-        "font_axes": null
+        "font_axes": null,
+        "pair_spacing": {}
       },
       "new": {
         "label_left": 8.9375,
@@ -4258,6 +4354,31 @@
         "text_colour": "#3B3B3B",
         "canvas_padding": 0,
         "frame_gap_padding": 2
+      },
+      "rtmp": {
+        "label_left": 1.28125,
+        "label_right": 22.71875,
+        "frame_gaps": true,
+        "character_gap": 0.75,
+        "condensed": false,
+        "label_center": 12.0,
+        "font_size": 8.5,
+        "cap_height": 5.9375,
+        "baseline": 17.5,
+        "text_offset_y": 1.5,
+        "display_label": "RTMP",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "font_axes": null,
+        "native_pixel_text": false,
+        "rendering": "supersampled-label",
+        "pixel_aligned_label": false,
+        "text_colour": "#3B3B3B",
+        "canvas_padding": 0,
+        "frame_gap_padding": 2,
+        "pair_spacing": {
+          "RT": 0.25
+        }
       }
     },
     "overlap_rule": "If actual label bounds meet either side of the frame, open matching gaps on both sides; otherwise keep both sides complete. Independent of label length.",
@@ -4271,11 +4392,36 @@
       "frame_template": "scripts/icon_templates/file-square.png",
       "text_offset_y": 1.5,
       "character_gap": 1.0,
+      "character_gap_by_length": {
+        "4": 0.75
+      },
       "font_size": 8.5,
       "circle_offset_y": 1.5,
       "text_colour": "#3B3B3B",
       "font_family": "Segoe UI",
-      "font_style": "Semibold"
+      "font_style": "Semibold",
+      "pair_spacing": {
+        "AT": 0.25,
+        "AV": 0.25,
+        "AW": 0.25,
+        "RT": 0.25,
+        "RV": 0.25,
+        "RW": 0.25,
+        "TA": 0.25,
+        "TC": 0.25,
+        "TG": 0.25,
+        "TO": 0.25,
+        "TV": 0.25,
+        "TW": 0.25,
+        "VA": 0.25,
+        "VC": 0.25,
+        "VO": 0.25,
+        "WA": 0.25,
+        "YA": 0.25,
+        "YG": 0.25,
+        "YM": 0.25,
+        "YO": 0.25
+      }
     }
   }
 }

@@ -40,6 +40,13 @@ def glyph(character, font):
     return mask.crop(mask.getbbox())
 
 
+def character_gap_units(label, base_gap_units, pair_spacing):
+    """Apply shared optical spacing to listed pairs without changing other gaps."""
+    return [min(base_gap_units, round(pair_spacing[pair] * MASTER_SCALE))
+            if (pair := label[index:index + 2]) in pair_spacing else base_gap_units
+            for index in range(max(0, len(label) - 1))]
+
+
 def render_frame(size):
     """文件与新建图标共用 1.35px 粗线、圆角和折角，按目标尺寸绘制。"""
     unit = max(MASTER_SCALE, size / 24 * 4)
@@ -64,7 +71,7 @@ def render_frame(size):
 
 def render(original, label, colour, font_path, text_colour=TEXT_COLOUR, frame_template=None,
            text_offset_y=1.5, font_axes=None, spacing=SPACING, font_size=FONT_SIZE,
-           circle_bounds=(4.5, 6.0, 19.5, 21.0)):
+           circle_bounds=(4.5, 6.0, 19.5, 21.0), pair_spacing=None):
     size = original.height
     scale = size / 24
     text_center = (circle_bounds[0] + circle_bounds[2]) / 2
@@ -92,7 +99,8 @@ def render(original, label, colour, font_path, text_colour=TEXT_COLOUR, frame_te
         if len(masks) > 1:
             fit_spacing = (available - sum(mask.width for mask in masks)) // (len(masks) - 1)
             spacing_units = min(spacing_units, max(round(0.25 * MASTER_SCALE), fit_spacing))
-        width_units = sum(mask.width for mask in masks) + spacing_units * (len(masks) - 1)
+        gaps_units = character_gap_units(label, spacing_units, pair_spacing or {})
+        width_units = sum(mask.width for mask in masks) + sum(gaps_units)
         if width_units <= available:
             break
         font_size -= 0.25
@@ -125,10 +133,10 @@ def render(original, label, colour, font_path, text_colour=TEXT_COLOUR, frame_te
     result = body
     text = Image.new('L', (24 * MASTER_SCALE, 24 * MASTER_SCALE))
     cursor = (text.width - width_units) // 2
-    for mask in masks:
+    for index, mask in enumerate(masks):
         top = round(baseline * MASTER_SCALE) - cap_height + (cap_height - mask.height) // 2
         text.paste(mask, (cursor, top))
-        cursor += mask.width + round(spacing * MASTER_SCALE)
+        cursor += mask.width + (gaps_units[index] if index < len(gaps_units) else 0)
     text = text.resize(result.size, Image.Resampling.LANCZOS)
     result.paste(text_colour, (0, 0), text)
     return result, dict(label_left=left, label_right=right,
@@ -142,7 +150,10 @@ def render(original, label, colour, font_path, text_colour=TEXT_COLOUR, frame_te
                         pixel_aligned_label=False,
                         text_colour=text_colour,
                         canvas_padding=0,
-                        frame_gap_padding=GAP_PADDING if gaps else 0)
+                        frame_gap_padding=GAP_PADDING if gaps else 0,
+                        pair_spacing={label[index:index + 2]: gap / MASTER_SCALE
+                                      for index, gap in enumerate(gaps_units)
+                                      if index < len(label) - 1 and gap < spacing_units})
 
 
 def main():
@@ -197,6 +208,10 @@ def main():
                 defaults[key] = value
             else:
                 entry[key] = value
+        character_gap = (args.spacing if args.spacing is not None else entry.get(
+            'character_gap',
+            defaults.get('character_gap_by_length', {}).get(
+                str(len(entry['display_label'])), defaults['character_gap'])))
         frame_template_path = entry.get('frame_template', defaults['frame_template'])
         frame_template = ROOT.parent / frame_template_path if frame_template_path else None
         circle_offset_y = entry.get('circle_offset_y', defaults['circle_offset_y'])
@@ -211,8 +226,9 @@ def main():
                                          entry['circle_color'], args.font,
                                          entry.get('text_colour', defaults['text_colour']), frame_template,
                                          entry.get('text_offset_y', defaults['text_offset_y']), args.font_axes,
-                                         entry.get('character_gap', defaults['character_gap']),
-                                         entry.get('font_size', defaults['font_size']), circle_bounds)
+                                         character_gap,
+                                         entry.get('font_size', defaults['font_size']), circle_bounds,
+                                         defaults.get('pair_spacing', {}))
             save_png(result, path)
             if name == 'new':
                 tool_path = ROOT / directory / 'tools/new.png'
