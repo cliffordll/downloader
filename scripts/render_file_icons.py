@@ -16,8 +16,6 @@ SPACING = 1
 FONT_SIZE = 8.5
 GAP_PADDING = 2
 TEXT_COLOUR = '#3B3B3B'
-CIRCLE = (4.5, 4.5, 19.5, 19.5)
-TEXT_CENTER = (CIRCLE[0] + CIRCLE[2]) / 2
 TEMPLATES = Path(__file__).resolve().parent / 'icon_templates'
 MASTER_SCALE = 16
 SHORT_LABELS = {'MPEG-1': 'MPG1', 'MPEG1': 'MPG1',
@@ -66,9 +64,10 @@ def render_frame(size):
 
 def render(original, label, colour, font_path, text_colour=TEXT_COLOUR, frame_template=None,
            text_offset_y=1.5, font_axes=None, spacing=SPACING, font_size=FONT_SIZE,
-           circle_offset_y=0):
+           circle_bounds=(4.5, 6.0, 19.5, 21.0)):
     size = original.height
     scale = size / 24
+    text_center = (circle_bounds[0] + circle_bounds[2]) / 2
     requested_spacing = spacing
     # 画布两侧各留 1 DIP；先缩字距，再按整行缩字号，绝不横向拉伸字符。
     available = 22 * MASTER_SCALE
@@ -101,7 +100,7 @@ def render(original, label, colour, font_path, text_colour=TEXT_COLOUR, frame_te
             raise ValueError(f'Label too long; provide an abbreviation: {label}')
     spacing = spacing_units / MASTER_SCALE
     width = width_units / MASTER_SCALE
-    left = TEXT_CENTER - width / 2
+    left = text_center - width / 2
     right = left + width
     gaps = left <= 5.5 or right >= 18.5
     baseline = 16 + text_offset_y
@@ -112,9 +111,7 @@ def render(original, label, colour, font_path, text_colour=TEXT_COLOUR, frame_te
     draw = ImageDraw.Draw(background)
     unit = MASTER_SCALE
     if colour is not None:
-        circle = (CIRCLE[0], CIRCLE[1] + circle_offset_y,
-                  CIRCLE[2], CIRCLE[3] + circle_offset_y)
-        draw.ellipse(tuple(round(v * unit) for v in circle), fill=colour)
+        draw.ellipse(tuple(round(v * unit) for v in circle_bounds), fill=colour)
     background = background.resize((size, size), Image.Resampling.LANCZOS)
     if frame_template is None or Path(frame_template).resolve() == (TEMPLATES / 'file-square.png').resolve():
         frame = render_frame(size)
@@ -136,7 +133,7 @@ def render(original, label, colour, font_path, text_colour=TEXT_COLOUR, frame_te
     result.paste(text_colour, (0, 0), text)
     return result, dict(label_left=left, label_right=right,
                         frame_gaps=gaps, character_gap=spacing,
-                        condensed=False, label_center=TEXT_CENTER,
+                        condensed=False, label_center=text_center,
                         font_size=font_size, cap_height=cap_height / MASTER_SCALE,
                         baseline=baseline, text_offset_y=text_offset_y, display_label=label,
                         font_family=font.getname()[0], font_style=font.getname()[1],
@@ -165,9 +162,11 @@ def main():
     if not args.font.is_file():
         parser.error('Font file missing; supply --font PATH')
     if not args.all and not args.names:
-        args.names = ['hls', 'm3u8', 'ts', 'mp4']
+        args.names = ['hls', 'm3u8', 'ts', 'mp4', 'url']
     manifest_path = ROOT / 'manifest.json'
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    defaults = manifest['file_frame']['style_defaults']
+    circle = manifest['file_frame']['circle']
     if (args.all or args.names and 'new' in args.names) and not any(
             entry['category'] == 'files' and entry['name'] == 'new' for entry in manifest['icons']):
         manifest['icons'].append(dict(category='files', name='new', label='+',
@@ -182,31 +181,38 @@ def main():
     for entry in entries:
         name = entry['name']
         entry['display_label'] = SHORT_LABELS.get(entry['label'], entry['label'])
-        if args.frame_template:
-            entry['frame_template'] = args.frame_template.resolve().relative_to(ROOT.parent).as_posix()
-        if args.text_offset_y is not None:
-            entry['text_offset_y'] = args.text_offset_y
-        if args.spacing is not None:
-            entry['character_gap'] = args.spacing
-        if args.font_size is not None:
-            entry['font_size'] = args.font_size
-        if args.circle_offset_y is not None:
-            entry['circle_offset_y'] = args.circle_offset_y
-        frame_template = ROOT.parent / entry['frame_template'] if entry.get('frame_template') else None
-        circle_offset_y = entry.get('circle_offset_y', 0)
-        entry['circle_bounds'] = [CIRCLE[0], CIRCLE[1] + circle_offset_y,
-                                  CIRCLE[2], CIRCLE[3] + circle_offset_y]
+        overrides = {
+            'frame_template': (args.frame_template.resolve().relative_to(ROOT.parent).as_posix()
+                               if args.frame_template else None),
+            'text_offset_y': args.text_offset_y,
+            'character_gap': args.spacing,
+            'font_size': args.font_size,
+            'circle_offset_y': args.circle_offset_y,
+            'text_colour': args.text_colour,
+        }
+        for key, value in overrides.items():
+            if value is None:
+                continue
+            if args.all:
+                defaults[key] = value
+            else:
+                entry[key] = value
+        frame_template_path = entry.get('frame_template', defaults['frame_template'])
+        frame_template = ROOT.parent / frame_template_path if frame_template_path else None
+        circle_offset_y = entry.get('circle_offset_y', defaults['circle_offset_y'])
+        circle_bounds = (circle['x'], circle['y'] + circle_offset_y,
+                         circle['x'] + circle['diameter'],
+                         circle['y'] + circle_offset_y + circle['diameter'])
         for directory in ('source', *(str(s) for s in manifest['sizes'])):
             path = ROOT / directory / 'files' / f'{name}.png'
             path.parent.mkdir(parents=True, exist_ok=True)
             with Image.new('RGBA', (384, 384) if directory == 'source' else (int(directory), int(directory))) as original:
                 result, metrics = render(original, entry['display_label'],
                                          entry['circle_color'], args.font,
-                                         args.text_colour or manifest['file_frame']['text_metrics']
-                                         .get(name, {}).get('text_colour', TEXT_COLOUR), frame_template,
-                                         entry.get('text_offset_y', 1.5), args.font_axes,
-                                         entry.get('character_gap', SPACING), entry.get('font_size', FONT_SIZE),
-                                         circle_offset_y)
+                                         entry.get('text_colour', defaults['text_colour']), frame_template,
+                                         entry.get('text_offset_y', defaults['text_offset_y']), args.font_axes,
+                                         entry.get('character_gap', defaults['character_gap']),
+                                         entry.get('font_size', defaults['font_size']), circle_bounds)
             save_png(result, path)
             if name == 'new':
                 tool_path = ROOT / directory / 'tools/new.png'
@@ -222,9 +228,6 @@ def main():
                                      origin='synced:files/new.png', added=True,
                                      source='source/tools/new.png'))
     if not args.names:
-        manifest['file_frame']['circle'].update(x=CIRCLE[0], y=CIRCLE[1])
-        if args.circle_offset_y is not None:
-            manifest['file_frame']['circle']['y'] += args.circle_offset_y
         manifest['file_frame']['label_rule'] = (
             f'{base_metrics["font_family"]} {base_metrics["font_style"]}, '
             '8.5px font, default 1px character gaps at 24px, reduce gaps only to fit. '

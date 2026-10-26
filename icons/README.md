@@ -9,11 +9,11 @@
 - Windows 标题栏单独使用小图；任务栏使用大图。SVG 源文件继续保留，程序当前仍直接从 SVG 绘制应用图标。
 - 任务栏大 Logo 以中心为基准纵向拉高 5%，按 32×32 显示时四周约留 0.5px，图案约占 31×31px；其他尺寸按比例留白。圆角和斜切处仍透明，标题栏小 Logo 使用独立的简化造型和留白设置。
 
-共 167 个命名图标：118 个文件类型、42 个工具操作、7 个应用／导航图标。
+共 172 个命名图标：119 个文件类型、46 个工具操作、7 个应用／导航图标。
 `tools/extension.png` 使用拼图轮廓表示浏览器扩展，矢量源为 `source/tools/extension.svg`。
 `tools/player.png` 使用显示器和齿轮表示播放器设置，矢量源为 `source/tools/player.svg`。
 `tools/retry.png` 使用圆弧连接直角箭头，矢量源为 `source/tools/retry.svg`。
-`tools/task-start.png`、`task-pause.png`、`task-resume.png`、`task-stop.png` 以下载托盘区分任务下载状态，使用相同线宽并对齐中心。
+`tools/task-download.png`、`task-start.png`、`task-resume.png`、`task-pause.png`、`task-stop.png` 和 `download-all.png` 属于同一组下载操作图标；`task-upload.png` 和 `upload-all.png` 属于对应的上传操作图标。具体尺寸规范见下文，SVG 源登记在 `manifest.json` 的 `vector_source`。
 本目录是程序唯一使用的图标库。原图、旧工具栏资源和设计稿已归档到 `../backups/icons-before-consolidation.zip`。
 
 ## 设计规则
@@ -25,6 +25,28 @@
 - 一般图形约占 20 像素；打开图标约 23 像素，双尖括号约 16 像素，按视觉大小调整留白。
 - 应用 logo 保留原有填充造型和蓝色／灰色两个版本，避免把应用标识误当成工具按钮。
 - 全部格式名使用相同字体、默认字号和基线；必要时按统一规则等比例缩小整行字号，不单独压缩字符。长标签应保持可读并适配正方形画布。
+
+### 下载状态图标规范
+
+适用于 `task-download`、`task-start`、`task-resume`、`task-pause`、`task-stop` 和 `download-all`。新增或调整这些图标时，以 SVG 为唯一绘制源，再生成 `source`、24、30、36、48 px PNG；不要只改某一档 PNG。
+
+- 画布使用 `24 × 24`，图形中心线为 `x=12`；线条统一为 `#444444`、`1.35px`，使用圆头端点和圆角连接，不加阴影、底色或边框。
+- 下载状态图标共用托盘路径：`M2.9 15.3v3.85q0 .6.6.6h17q.6 0 .6-.6V15.3`。托盘的线宽、宽度和圆角不得单独调整；当前整组托盘统一下移了 0.2px。
+- 所有 `task-*` 图标只替换托盘上方的操作符号；托盘固定为同一条路径。操作符号的几何中心统一为 `(12, 8.5)`，使用相同的 `1.35px` 描边和约 `10px` 的最大可视尺寸。各图形可以保留自身造型的自然边界，但必须围绕同一中心定位，不得为了某一个图标移动或缩放固定托盘。
+- `task-download` 使用单个向下箭头，几何范围为 `x=8.184–15.816`、`y=4.048–12.952`。`download-all` 复用相同箭头几何，原样平移到 `x=8` 和 `x=16`，两箭头高度、尺寸相同且关于 `x=12` 对称；不要重新描画、错开高度或压缩箭头。
+- `task-start` 使用右向播放三角；`task-resume` 沿用 `retry` 的环形箭头和直角箭头头部，圆弧与箭头必须共用同一变换，避免接合处出现重叠线头；线宽保持 `1.35px`，右下侧圆环开口约为 `32°`。`task-pause` 使用两条竖线，`task-stop` 使用圆角方框。只替换托盘上方的符号，底部托盘始终保持不变。
+- 修改后对照六个 SVG 和 24/30/36/48 px PNG，检查符号高度、水平中心、线宽、托盘边界和透明留白。若整体图标需要调整，六种操作一起核对。
+
+### 上传操作图标规范
+
+适用于 `task-upload` 和 `upload-all`。绘制画布、线条颜色与宽度、圆头端点、托盘尺寸及导出档位均沿用下载状态图标规范；上传箭头朝上，单任务图标使用居中的单箭头，全部上传图标把同一个箭头等距放置在 `x=8` 和 `x=16`，保持左右对称。不要改变共用托盘或单独调整双箭头高度。
+
+### 已调试的打开与密钥图标
+
+- `tools/open.png` 是文件夹打开图标，保留现有单色轮廓和当前视觉占比。384px 源图的可见内容边界约为 `x=28..356`、`y=48..334`，对应 24px 画布约 `x=1.75..22.25`、`y=3..20.9`；水平视觉中心为 `x=12`。修改时保持主体居中和接近画布宽度的展开效果，不额外缩小到普通工具图标的留白比例。
+- `tools/key.png` 是唯一保留的密钥图标，使用 `source/tools/key.svg` 为矢量源。保持圆形钥匙头、右上 45° 轴杆和两道齿位；线条为 `#444444`，原始 `1.08px` 描边经 `1.25` 倍变换后约为 `1.35px`。384px 源图可见边界约为 `x=47..333`、`y=52..330`，即 24px 画布约 `x=2.94..20.81`、`y=3.25..20.63`，视觉中心约为 `(11.9, 11.9)`。
+- `key-classic` 和 `key-horizontal` 已移除，不恢复这两个图标，也不保留运行时映射或清单条目；需要密钥图标时统一使用 `key`。
+- `open`、`key` 和上述下载状态图标均在 `manifest.json` 中登记。对它们做视觉调整时，先更新源素材和边界记录，再检查 24、30、36、48 px 显示效果。
 
 ## 目录与替换
 
@@ -40,14 +62,14 @@ gallery.html                     可搜索、切换分类和显示尺寸的本�
 
 程序统一从本目录读取 PNG，不再使用 `icons/toolbar/`、`icons/unified/` 或旧的根目录图标。
 工具栏读取 24、30、36、48 四档图片；窗口及导航的其他尺寸从 `source` 缩放。路径相对于项目目录解析，不依赖启动时的工作目录。
-替换普通图标时，请同步替换四档 PNG 和 `source` 中的同名 PNG；Logo 仅维护 `source/app` 中的资源。工具栏播放列表对应 `files/m3u8.png`，HLS 文件类型图标仍保留在 `files/hls.png`，TS 对应 `files/ts.png`。
+替换普通图标时，请同步替换四档 PNG 和 `source` 中的同名 PNG；Logo 仅维护 `source/app` 中的资源。工具栏播放列表对应 `files/m3u8.png`，HLS 文件类型图标仍保留在 `files/hls.png`，TS 对应 `files/ts.png`，直链下载对应通用 `files/url.png`。
 
 折叠图标统一使用 `tools/collapse.png`。
 TS 统一保留紫色色块版本，文件名为 `files/ts.png`。
 
 ### 文件图标生成规范
 
-`python scripts/render_file_icons.py` 默认只生成 HLS、M3U8、TS、MP4，使用 8.5px Segoe UI Semibold 和 `#3B3B3B` 文字，需要 Pillow；其他系统可用 `--font` 指定字体文件。这些图标保持正方形及原有工具栏尺寸，脚本更新 source、24、30、36、48 五档资源及对应文字指标。可用 `--names` 指定图标，显式传入 `--all` 可生成全部 118 种文件类型。工具按钮和应用 Logo 不参与生成。
+`python scripts/render_file_icons.py` 默认只生成 HLS、M3U8、TS、MP4、URL，使用 8.5px Segoe UI Semibold 和 `#3B3B3B` 文字，需要 Pillow；其他系统可用 `--font` 指定字体文件。这些图标保持正方形及原有工具栏尺寸，脚本更新 source、24、30、36、48 五档资源及对应文字指标。可用 `--names` 指定图标，显式传入 `--all` 可生成全部 119 种文件类型。工具按钮和应用 Logo 不参与生成。
 
 圆形色块和文字统一以文件轮廓中心对齐（24px 画布下 x=12），圆形直径 15px、顶部 y=4.5 保持不变。原有轮廓单独保存在 `scripts/icon_templates/`，重复生成时不会叠加旧色块。
 
@@ -59,23 +81,29 @@ TS 统一保留紫色色块版本，文件名为 `files/ts.png`。
 密码输入控件使用 `tools/eye.png` 和 `tools/eye-off.png` 切换密码显示状态。
 首页、下载、上传、列表、设置也提供工具目录别名。
 
-文件类型：HLS、M3U、MPD、WEBM、M4A、FLAC、OPUS、WEBP、SVG、HEIC、AVIF、TAR、TGZ、BZ2、XZ、LOG、INI、YAML、YML、TOML、SQL、DB、SQLITE、EPUB、SEED。
+文件类型：HLS、M3U、MPD、WEBM、M4A、FLAC、OPUS、WEBP、SVG、HEIC、AVIF、TAR、TGZ、BZ2、XZ、LOG、INI、YAML、YML、TOML、SQL、DB、SQLITE、EPUB、SEED、URL。
 这些是图标素材，新增图标不代表程序已实现对应操作或格式处理能力。
 
 ## 素材说明
 
 定版文字颜色为 `#3B3B3B`，边框保持 `#444444`。脚本默认保留清单中每个图标的文字颜色，也可通过 `--text-colour` 显式覆盖所选图标。
 
-全部 118 种文件类型统一使用 Segoe UI Semibold 和深灰色 `#3B3B3B`，以 24px 画布下 8.5px 字号、基线 17.5px、字符间距 1px 为基准。在 16 倍分辨率下绘制整行文字，再等比例缩小并保留抗锯齿。所有字符使用相同规则，不单独处理某个字母或数字，不单独调整任何字形的宽高。基础设计 PNG 保存在旧资源备份中。
+全部文件类型共用 `manifest.json` 中 `file_frame.style_defaults` 的绘制参数：文档边框模板、文字颜色、基线偏移、字号、字符间距和圆形背景纵向偏移；圆形背景的位置和直径由 `file_frame.circle` 提供。单个图标只保存格式标签、浅色背景等自身数据，只有确实需要例外时才增加覆盖字段。不要在每个图标条目中重复默认值。
+
+文件类型统一使用 Segoe UI Semibold 和深灰色 `#3B3B3B`，以 24px 画布下 8.5px 字号、基线 17.5px、字符间距 1px 为基准。在 16 倍分辨率下绘制整行文字，再等比例缩小并保留抗锯齿。所有字符使用相同规则，不单独处理某个字母或数字，不单独调整任何字形的宽高。基础设计 PNG 保存在旧资源备份中。
 
 ### 新增文件图标流程
 
 新增文件类型图标时，沿用 `scripts/icon_templates/file-square.png` 的文档轮廓和 `render_file_icons.py` 的排版，不手工绘制单独的 SVG/PNG。按以下步骤操作：
 
-1. 在 `manifest.json` 的 `icons` 中添加 `category: "files"` 项，填写唯一的 `name`、`label`、`source` 和该类型的浅色 `circle_color`；保留统一的 `frame_template`、`text_offset_y`、`character_gap` 和 `font_size` 参数。
+1. 在 `manifest.json` 的 `icons` 中添加 `category: "files"` 项，填写唯一的 `name`、`label`、`source` 和该类型的浅色 `circle_color`。不要复制全局绘制参数；生成脚本会从 `file_frame.style_defaults` 读取它们。
 2. 为新条目选择与格式含义相符、且不与现有图标混淆的浅色圆形底色；文字颜色沿用 `#3B3B3B`，边框沿用 `#444444`。
-3. 运行 `python scripts/render_file_icons.py --names <name>`。脚本会按统一字体、字号、字距、基线和边框缺口规则生成 `source`、24、30、36、48 五档 PNG，并把排版指标写回 `manifest.json`。
+3. 运行 `python scripts/render_file_icons.py --names <name>`。脚本会按统一字体、字号、字距、基线和边框缺口规则生成 `source`、24、30、36、48 五档 PNG，并把排版指标写回 `manifest.json`。调整单个图标时可使用 `--names` 搭配覆盖参数；要统一调整全部文件图标时使用 `--all`，参数会更新全局默认值。
 4. 在图标总览中检查源图和各尺寸，确认圆形与文字水平居中、字重和边框一致、长标签未被压缩或裁切；若图标用于界面入口，再将 `src/views/components/icons.py` 的资源映射指向该文件。
 
 不要用 `--text-colour` 单独改变新图标的颜色；仅在整体图标规范调整时才批量覆盖。新增图标后同步更新本说明中的图标数量和文件类型清单。
 加载入口为 `src/views/main_frame.py`，窗口、导航和工具栏共用相同的资源目录。
+
+- `tools/file.png` 使用与 `tools/new.png` 和所有 `files/*` 图标相同的文档边框；区别只在叠加图案（无叠加、加号或格式文字）。边框应由 `render_file_icons.render_frame` 生成，保持折角、线宽和对齐一致。
+- `tools/edit.png` 的铅笔与边框主体比原稿收小约 4.6%；`tools/check.png` 和 `tools/close.png` 共用居中的 `#444444`、约 `1.35px` 描边，图案在初版基础上略微放大；`tools/more.png` 使用三个等距圆点。`tools/save.png` 和 `tools/delete.png` 主体均相对调整前缩小 3%，并保持居中。从 384px 源图重新生成 24、30、36、48px 版本。
+- `task-download`、`task-start`、`task-resume`、`task-pause`、`task-upload` 以及 `download-all`、`upload-all` 的上方箭头／符号相对原稿统一放大 6%，围绕各自中心保持居中，描边仍为 `1.35px`。全部图标的托盘路径相同并统一下移 `0.2px`；`task-resume` 刷新环和箭头再额外放大 6%，线宽保持不变；`task-stop` 保持已确认的方框尺寸。

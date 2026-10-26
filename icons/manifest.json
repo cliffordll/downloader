@@ -18,18 +18,7 @@
       "added": false,
       "source": "source/files/3gp.png",
       "circle_color": "#F0C1B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "3GP",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "3GP"
     },
     {
       "category": "files",
@@ -39,18 +28,7 @@
       "added": false,
       "source": "source/files/7z.png",
       "circle_color": "#B2B5F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "7Z",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "7Z"
     },
     {
       "category": "files",
@@ -60,18 +38,7 @@
       "added": false,
       "source": "source/files/aac.png",
       "circle_color": "#C7F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "AAC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "AAC"
     },
     {
       "category": "files",
@@ -81,18 +48,7 @@
       "added": false,
       "source": "source/files/ai.png",
       "circle_color": "#F0B2DA",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "AI",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "AI"
     },
     {
       "category": "files",
@@ -102,18 +58,7 @@
       "added": false,
       "source": "source/files/apk.png",
       "circle_color": "#B2ECF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "APK",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "APK"
     },
     {
       "category": "files",
@@ -123,18 +68,7 @@
       "added": false,
       "source": "source/files/avc.png",
       "circle_color": "#F0E3B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "AVC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "AVC"
     },
     {
       "category": "files",
@@ -144,18 +78,7 @@
       "added": false,
       "source": "source/files/avi.png",
       "circle_color": "#D0B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "AVI",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "AVI"
     },
     {
       "category": "files",
@@ -165,18 +88,7 @@
       "added": true,
       "source": "source/files/avif.png",
       "circle_color": "#B2F0BE",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "AVIF",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "AVIF"
     },
     {
       "category": "files",
@@ -186,18 +98,7 @@
       "added": false,
       "source": "source/files/avs.png",
       "circle_color": "#F0B2B8",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "AVS",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "AVS"
     },
     {
       "category": "files",
@@ -207,18 +108,7 @@
       "added": false,
       "source": "source/files/bak.png",
       "circle_color": "#B2CAF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "BAK",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "BAK"
     },
     {
       "category": "files",
@@ -228,18 +118,7 @@
       "added": false,
       "source": "source/files/bat.png",
       "circle_color": "#DCF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "BAT",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "BAT"
     },
     {
       "category": "files",
@@ -249,18 +128,7 @@
       "added": false,
       "source": "source/files/bmp.png",
       "circle_color": "#F0B2EE",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "BMP",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "BMP"
     },
     {
       "category": "files",
@@ -270,18 +138,7 @@
       "added": true,
       "source": "source/files/bz2.png",
       "circle_color": "#B2F0E0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "BZ2",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "BZ2"
     },
     {
       "category": "files",
@@ -291,18 +148,7 @@
       "added": false,
       "source": "source/files/c.png",
       "circle_color": "#F0CEB2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "C",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "C"
     },
     {
       "category": "files",
@@ -312,18 +158,7 @@
       "added": false,
       "source": "source/files/cmd.png",
       "circle_color": "#BCB2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "CMD",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "CMD"
     },
     {
       "category": "files",
@@ -333,18 +168,7 @@
       "added": false,
       "source": "source/files/cpp.png",
       "circle_color": "#BAF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "CPP",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "CPP"
     },
     {
       "category": "files",
@@ -354,18 +178,7 @@
       "added": false,
       "source": "source/files/css.png",
       "circle_color": "#F0B2CD",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "CSS",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "CSS"
     },
     {
       "category": "files",
@@ -375,18 +188,7 @@
       "added": false,
       "source": "source/files/csv.png",
       "circle_color": "#B2DFF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "CSV",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "CSV"
     },
     {
       "category": "files",
@@ -396,18 +198,7 @@
       "added": true,
       "source": "source/files/db.png",
       "circle_color": "#F0F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "DB",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "DB"
     },
     {
       "category": "files",
@@ -417,18 +208,7 @@
       "added": false,
       "source": "source/files/dll.png",
       "circle_color": "#DDB2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "DLL",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "DLL"
     },
     {
       "category": "files",
@@ -438,18 +218,7 @@
       "added": false,
       "source": "source/files/doc.png",
       "circle_color": "#B2F0CB",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "DOC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "DOC"
     },
     {
       "category": "files",
@@ -459,18 +228,7 @@
       "added": false,
       "source": "source/files/docx.png",
       "circle_color": "#F0B9B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "display_label": "DOCX",
-      "circle_offset_y": 1.5
+      "display_label": "DOCX"
     },
     {
       "category": "files",
@@ -480,18 +238,7 @@
       "added": false,
       "source": "source/files/dvd.png",
       "circle_color": "#B2BDF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "DVD",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "DVD"
     },
     {
       "category": "files",
@@ -501,18 +248,7 @@
       "added": false,
       "source": "source/files/env.png",
       "circle_color": "#CFF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "ENV",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "ENV"
     },
     {
       "category": "files",
@@ -522,18 +258,7 @@
       "added": true,
       "source": "source/files/epub.png",
       "circle_color": "#F0B2E2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "EPUB",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "EPUB"
     },
     {
       "category": "files",
@@ -543,18 +268,7 @@
       "added": false,
       "source": "source/files/exe.png",
       "circle_color": "#B2F0ED",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "EXE",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "EXE"
     },
     {
       "category": "files",
@@ -564,18 +278,7 @@
       "added": false,
       "source": "source/files/f4v.png",
       "circle_color": "#F0DBB2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "F4V",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "F4V"
     },
     {
       "category": "files",
@@ -585,18 +288,7 @@
       "added": true,
       "source": "source/files/flac.png",
       "circle_color": "#C8B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "FLAC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "FLAC"
     },
     {
       "category": "files",
@@ -606,18 +298,7 @@
       "added": false,
       "source": "source/files/flc.png",
       "circle_color": "#B2F0B6",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "FLC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "FLC"
     },
     {
       "category": "files",
@@ -627,18 +308,7 @@
       "added": false,
       "source": "source/files/flv.png",
       "circle_color": "#F0B2C0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "FLV",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "FLV"
     },
     {
       "category": "files",
@@ -648,18 +318,7 @@
       "added": false,
       "source": "source/files/gif.png",
       "circle_color": "#B2D2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "GIF",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "GIF"
     },
     {
       "category": "files",
@@ -669,18 +328,7 @@
       "added": false,
       "source": "source/files/gz.png",
       "circle_color": "#E4F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "GZ",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "GZ"
     },
     {
       "category": "files",
@@ -690,18 +338,7 @@
       "added": true,
       "source": "source/files/heic.png",
       "circle_color": "#EAB2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "HEIC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "HEIC"
     },
     {
       "category": "files",
@@ -711,18 +348,7 @@
       "added": false,
       "source": "source/files/hlp.png",
       "circle_color": "#B2F0D8",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "HLP",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "HLP"
     },
     {
       "category": "files",
@@ -732,18 +358,7 @@
       "added": false,
       "source": "source/files/htm.png",
       "circle_color": "#F0C6B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "HTM",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "HTM"
     },
     {
       "category": "files",
@@ -753,18 +368,7 @@
       "added": true,
       "source": "source/files/hls.png",
       "circle_color": "#AAD4FF",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "display_label": "HLS",
-      "circle_offset_y": 1.5
+      "display_label": "HLS"
     },
     {
       "category": "files",
@@ -774,18 +378,7 @@
       "added": false,
       "source": "source/files/html.png",
       "circle_color": "#B4B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "HTML",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "HTML"
     },
     {
       "category": "files",
@@ -795,18 +388,7 @@
       "added": true,
       "source": "source/files/ini.png",
       "circle_color": "#C2F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "INI",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "INI"
     },
     {
       "category": "files",
@@ -816,18 +398,7 @@
       "added": false,
       "source": "source/files/iso.png",
       "circle_color": "#F0B2D5",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "ISO",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "ISO"
     },
     {
       "category": "files",
@@ -837,18 +408,7 @@
       "added": false,
       "source": "source/files/jpeg.png",
       "circle_color": "#B2E7F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "JPEG",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "JPEG"
     },
     {
       "category": "files",
@@ -858,18 +418,7 @@
       "added": false,
       "source": "source/files/jpg.png",
       "circle_color": "#F0E8B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "JPG",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "JPG"
     },
     {
       "category": "files",
@@ -879,18 +428,7 @@
       "added": false,
       "source": "source/files/js.png",
       "circle_color": "#D5B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "JS",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "JS"
     },
     {
       "category": "files",
@@ -900,18 +438,7 @@
       "added": false,
       "source": "source/files/json.png",
       "circle_color": "#B2F0C3",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "JSON",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "JSON"
     },
     {
       "category": "files",
@@ -921,18 +448,7 @@
       "added": false,
       "source": "source/files/lib.png",
       "circle_color": "#F0B2B3",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "LIB",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "LIB"
     },
     {
       "category": "files",
@@ -942,18 +458,7 @@
       "added": true,
       "source": "source/files/log.png",
       "circle_color": "#B2C5F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "LOG",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "LOG"
     },
     {
       "category": "files",
@@ -963,18 +468,7 @@
       "added": false,
       "source": "source/files/lua.png",
       "circle_color": "#D7F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "LUA",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "LUA"
     },
     {
       "category": "files",
@@ -984,18 +478,7 @@
       "added": true,
       "source": "source/files/m3u.png",
       "circle_color": "#F0B2E9",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "M3U",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "M3U"
     },
     {
       "category": "files",
@@ -1005,18 +488,7 @@
       "added": false,
       "source": "source/files/m3u8.png",
       "circle_color": "#AAD4FF",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "display_label": "M3U8",
-      "circle_offset_y": 1.5
+      "display_label": "M3U8"
     },
     {
       "category": "files",
@@ -1026,18 +498,7 @@
       "added": true,
       "source": "source/files/m4a.png",
       "circle_color": "#F0D3B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "M4A",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "M4A"
     },
     {
       "category": "files",
@@ -1047,18 +508,7 @@
       "added": false,
       "source": "source/files/m4v.png",
       "circle_color": "#C0B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "M4V",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "M4V"
     },
     {
       "category": "files",
@@ -1068,18 +518,7 @@
       "added": false,
       "source": "source/files/mac.png",
       "circle_color": "#B6F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MAC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MAC"
     },
     {
       "category": "files",
@@ -1089,18 +528,7 @@
       "added": false,
       "source": "source/files/md.png",
       "circle_color": "#F0B2C8",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MD",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MD"
     },
     {
       "category": "files",
@@ -1110,18 +538,7 @@
       "added": false,
       "source": "source/files/mkv.png",
       "circle_color": "#B2DAF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MKV",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MKV"
     },
     {
       "category": "files",
@@ -1131,18 +548,7 @@
       "added": false,
       "source": "source/files/mod.png",
       "circle_color": "#ECF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MOD",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MOD"
     },
     {
       "category": "files",
@@ -1152,18 +558,7 @@
       "added": false,
       "source": "source/files/mov.png",
       "circle_color": "#E2B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MOV",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MOV"
     },
     {
       "category": "files",
@@ -1173,18 +568,7 @@
       "added": false,
       "source": "source/files/mp3.png",
       "circle_color": "#B2F0D0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MP3",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MP3"
     },
     {
       "category": "files",
@@ -1194,18 +578,7 @@
       "added": false,
       "source": "source/files/mp4.png",
       "circle_color": "#F0BEB2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "display_label": "MP4",
-      "circle_offset_y": 1.5
+      "display_label": "MP4"
     },
     {
       "category": "files",
@@ -1215,18 +588,7 @@
       "added": true,
       "source": "source/files/mpd.png",
       "circle_color": "#B2B8F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MPD",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MPD"
     },
     {
       "category": "files",
@@ -1236,18 +598,7 @@
       "added": false,
       "source": "source/files/mpeg.png",
       "circle_color": "#CAF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MPEG",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MPEG"
     },
     {
       "category": "files",
@@ -1257,18 +608,7 @@
       "added": false,
       "source": "source/files/mpeg-1.png",
       "circle_color": "#F0B2DD",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MPG1",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MPG1"
     },
     {
       "category": "files",
@@ -1278,18 +618,7 @@
       "added": false,
       "source": "source/files/mpeg-2.png",
       "circle_color": "#B2EFF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MPG2",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MPG2"
     },
     {
       "category": "files",
@@ -1299,18 +628,7 @@
       "added": false,
       "source": "source/files/mpeg-4.png",
       "circle_color": "#F0E0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MPG4",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MPG4"
     },
     {
       "category": "files",
@@ -1320,18 +638,7 @@
       "added": false,
       "source": "source/files/mpeg1.png",
       "circle_color": "#CDB2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MPG1",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MPG1"
     },
     {
       "category": "files",
@@ -1341,18 +648,7 @@
       "added": false,
       "source": "source/files/mpeg2.png",
       "circle_color": "#B2F0BB",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MPG2",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MPG2"
     },
     {
       "category": "files",
@@ -1362,18 +658,7 @@
       "added": false,
       "source": "source/files/mpeg4.png",
       "circle_color": "#F0B2BB",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MPG4",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MPG4"
     },
     {
       "category": "files",
@@ -1383,18 +668,7 @@
       "added": false,
       "source": "source/files/mpg.png",
       "circle_color": "#B2CDF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MPG",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MPG"
     },
     {
       "category": "files",
@@ -1404,18 +678,7 @@
       "added": false,
       "source": "source/files/mts.png",
       "circle_color": "#DFF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MTS",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MTS"
     },
     {
       "category": "files",
@@ -1425,18 +688,7 @@
       "added": false,
       "source": "source/files/mux.png",
       "circle_color": "#EFB2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "MUX",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "MUX"
     },
     {
       "category": "files",
@@ -1446,18 +698,7 @@
       "added": false,
       "source": "source/files/none.png",
       "circle_color": "#B2F0DD",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "NONE",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "NONE"
     },
     {
       "category": "files",
@@ -1467,18 +708,7 @@
       "added": false,
       "source": "source/files/ogg.png",
       "circle_color": "#F0CBB2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "OGG",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "OGG"
     },
     {
       "category": "files",
@@ -1488,18 +718,7 @@
       "added": true,
       "source": "source/files/opus.png",
       "circle_color": "#B9B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "OPUS",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "OPUS"
     },
     {
       "category": "files",
@@ -1509,18 +728,7 @@
       "added": false,
       "source": "source/files/pdf.png",
       "circle_color": "#BDF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "PDF",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "PDF"
     },
     {
       "category": "files",
@@ -1530,18 +738,7 @@
       "added": false,
       "source": "source/files/pic.png",
       "circle_color": "#F0B2D0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "PIC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "PIC"
     },
     {
       "category": "files",
@@ -1551,18 +748,7 @@
       "added": false,
       "source": "source/files/png.png",
       "circle_color": "#B2E2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "PNG",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "PNG"
     },
     {
       "category": "files",
@@ -1572,18 +758,7 @@
       "added": false,
       "source": "source/files/ppt.png",
       "circle_color": "#F0ECB2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "PPT",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "PPT"
     },
     {
       "category": "files",
@@ -1593,18 +768,7 @@
       "added": false,
       "source": "source/files/pptx.png",
       "circle_color": "#DAB2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "PPTX",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "PPTX"
     },
     {
       "category": "files",
@@ -1614,18 +778,7 @@
       "added": false,
       "source": "source/files/psd.png",
       "circle_color": "#B2F0C8",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "PSD",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "PSD"
     },
     {
       "category": "files",
@@ -1635,18 +788,7 @@
       "added": false,
       "source": "source/files/py.png",
       "circle_color": "#F0B6B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "PY",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "PY"
     },
     {
       "category": "files",
@@ -1656,18 +798,7 @@
       "added": false,
       "source": "source/files/rar.png",
       "circle_color": "#B2C0F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "RAR",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "RAR"
     },
     {
       "category": "files",
@@ -1677,18 +808,7 @@
       "added": false,
       "source": "source/files/raw.png",
       "circle_color": "#D2F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "RAW",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "RAW"
     },
     {
       "category": "files",
@@ -1698,18 +818,7 @@
       "added": false,
       "source": "source/files/rm.png",
       "circle_color": "#F0B2E5",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "RM",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "RM"
     },
     {
       "category": "files",
@@ -1719,18 +828,7 @@
       "added": false,
       "source": "source/files/rmvb.png",
       "circle_color": "#B2F0EA",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "RMVB",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "RMVB"
     },
     {
       "category": "files",
@@ -1740,18 +838,7 @@
       "added": false,
       "source": "source/files/rtf.png",
       "circle_color": "#F0D8B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "RTF",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "RTF"
     },
     {
       "category": "files",
@@ -1761,18 +848,7 @@
       "added": true,
       "source": "source/files/seed.png",
       "circle_color": "#C5B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "SEED",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "SEED"
     },
     {
       "category": "files",
@@ -1782,18 +858,7 @@
       "added": false,
       "source": "source/files/sh.png",
       "circle_color": "#B2F0B3",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "SH",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "SH"
     },
     {
       "category": "files",
@@ -1803,18 +868,7 @@
       "added": true,
       "source": "source/files/sql.png",
       "circle_color": "#F0B2C3",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "SQL",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "SQL"
     },
     {
       "category": "files",
@@ -1824,18 +878,7 @@
       "added": true,
       "source": "source/files/sqlite.png",
       "circle_color": "#B2D5F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "SQL",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "SQL"
     },
     {
       "category": "files",
@@ -1845,18 +888,7 @@
       "added": true,
       "source": "source/files/svg.png",
       "circle_color": "#E7F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "SVG",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "SVG"
     },
     {
       "category": "files",
@@ -1866,18 +898,7 @@
       "added": true,
       "source": "source/files/tar.png",
       "circle_color": "#E7B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "TAR",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "TAR"
     },
     {
       "category": "files",
@@ -1887,18 +908,7 @@
       "added": true,
       "source": "source/files/tgz.png",
       "circle_color": "#B2F0D5",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "TGZ",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "TGZ"
     },
     {
       "category": "files",
@@ -1908,18 +918,7 @@
       "added": false,
       "source": "source/files/tiff.png",
       "circle_color": "#F0C3B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "TIFF",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "TIFF"
     },
     {
       "category": "files",
@@ -1929,18 +928,7 @@
       "added": false,
       "source": "source/files/tmp.png",
       "circle_color": "#B2B3F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "TMP",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "TMP"
     },
     {
       "category": "files",
@@ -1950,18 +938,7 @@
       "added": true,
       "source": "source/files/toml.png",
       "circle_color": "#C5F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "TOML",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "TOML"
     },
     {
       "category": "files",
@@ -1971,18 +948,7 @@
       "added": false,
       "source": "source/files/ts.png",
       "circle_color": "#D4AAFF",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "display_label": "TS",
-      "circle_offset_y": 1.5
+      "display_label": "TS"
     },
     {
       "category": "files",
@@ -1992,18 +958,7 @@
       "added": false,
       "source": "source/files/ttc.png",
       "circle_color": "#B2EAF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "TTC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "TTC"
     },
     {
       "category": "files",
@@ -2013,18 +968,7 @@
       "added": false,
       "source": "source/files/ttf.png",
       "circle_color": "#F0E5B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "TTF",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "TTF"
     },
     {
       "category": "files",
@@ -2034,18 +978,17 @@
       "added": false,
       "source": "source/files/txt.png",
       "circle_color": "#D2B2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "TXT",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "TXT"
+    },
+    {
+      "category": "files",
+      "name": "url",
+      "label": "URL",
+      "origin": "uniform-file-frame",
+      "added": true,
+      "source": "source/files/url.png",
+      "circle_color": "#B8E0D7",
+      "display_label": "URL"
     },
     {
       "category": "files",
@@ -2055,18 +998,7 @@
       "added": false,
       "source": "source/files/vcd.png",
       "circle_color": "#B2F0C0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "VCD",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "VCD"
     },
     {
       "category": "files",
@@ -2076,18 +1008,7 @@
       "added": false,
       "source": "source/files/voc.png",
       "circle_color": "#F0B2B6",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "VOC",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "VOC"
     },
     {
       "category": "files",
@@ -2097,18 +1018,7 @@
       "added": false,
       "source": "source/files/wav.png",
       "circle_color": "#B2C8F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "WAV",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "WAV"
     },
     {
       "category": "files",
@@ -2118,18 +1028,7 @@
       "added": true,
       "source": "source/files/webm.png",
       "circle_color": "#DAF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "display_label": "WEBM",
-      "circle_offset_y": 1.5
+      "display_label": "WEBM"
     },
     {
       "category": "files",
@@ -2139,18 +1038,7 @@
       "added": true,
       "source": "source/files/webp.png",
       "circle_color": "#F0B2ED",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "WEBP",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "WEBP"
     },
     {
       "category": "files",
@@ -2160,18 +1048,7 @@
       "added": false,
       "source": "source/files/wma.png",
       "circle_color": "#B2F0E2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "WMA",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "WMA"
     },
     {
       "category": "files",
@@ -2181,18 +1058,7 @@
       "added": false,
       "source": "source/files/wmf.png",
       "circle_color": "#F0D0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "WMF",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "WMF"
     },
     {
       "category": "files",
@@ -2202,18 +1068,7 @@
       "added": false,
       "source": "source/files/wmv.png",
       "circle_color": "#BDB2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "WMV",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "WMV"
     },
     {
       "category": "files",
@@ -2223,18 +1078,7 @@
       "added": false,
       "source": "source/files/wps.png",
       "circle_color": "#B9F0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "WPS",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "WPS"
     },
     {
       "category": "files",
@@ -2244,18 +1088,7 @@
       "added": false,
       "source": "source/files/xls.png",
       "circle_color": "#F0B2CB",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "XLS",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "XLS"
     },
     {
       "category": "files",
@@ -2265,18 +1098,7 @@
       "added": false,
       "source": "source/files/xlsm.png",
       "circle_color": "#B2DDF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "XLSM",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "XLSM"
     },
     {
       "category": "files",
@@ -2286,18 +1108,7 @@
       "added": false,
       "source": "source/files/xlsx.png",
       "circle_color": "#EFF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "XLSX",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "XLSX"
     },
     {
       "category": "files",
@@ -2307,18 +1118,7 @@
       "added": false,
       "source": "source/files/xltm.png",
       "circle_color": "#DFB2F0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "XLTM",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "XLTM"
     },
     {
       "category": "files",
@@ -2328,18 +1128,7 @@
       "added": false,
       "source": "source/files/xltx.png",
       "circle_color": "#B2F0CD",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "XLTX",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "XLTX"
     },
     {
       "category": "files",
@@ -2349,18 +1138,7 @@
       "added": false,
       "source": "source/files/xml.png",
       "circle_color": "#F0BBB2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "XML",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "XML"
     },
     {
       "category": "files",
@@ -2370,18 +1148,7 @@
       "added": true,
       "source": "source/files/xz.png",
       "circle_color": "#B2BBF0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "XZ",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "XZ"
     },
     {
       "category": "files",
@@ -2391,18 +1158,7 @@
       "added": true,
       "source": "source/files/yaml.png",
       "circle_color": "#CDF0B2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "YAML",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "YAML"
     },
     {
       "category": "files",
@@ -2412,18 +1168,7 @@
       "added": true,
       "source": "source/files/yml.png",
       "circle_color": "#F0B2E0",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "YML",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "YML"
     },
     {
       "category": "files",
@@ -2433,18 +1178,7 @@
       "added": false,
       "source": "source/files/z.png",
       "circle_color": "#B2F0EF",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "Z",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "Z"
     },
     {
       "category": "files",
@@ -2454,18 +1188,7 @@
       "added": false,
       "source": "source/files/zip.png",
       "circle_color": "#F0DDB2",
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "display_label": "ZIP",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_offset_y": 1.5
+      "display_label": "ZIP"
     },
     {
       "category": "tools",
@@ -2546,6 +1269,15 @@
       "origin": "approved-toolbar",
       "added": false,
       "source": "source/tools/open.png"
+    },
+    {
+      "category": "tools",
+      "name": "key",
+      "label": "密钥",
+      "origin": "approved-toolbar",
+      "added": false,
+      "source": "source/tools/key.png",
+      "vector_source": "source/tools/key.svg"
     },
     {
       "category": "tools",
@@ -2697,7 +1429,17 @@
       "label": "全部下载",
       "origin": "additional-tools",
       "added": true,
-      "source": "source/tools/download-all.png"
+      "source": "source/tools/download-all.png",
+      "vector_source": "source/tools/download-all.svg"
+    },
+    {
+      "category": "tools",
+      "name": "upload-all",
+      "label": "全部上传",
+      "origin": "additional-tools",
+      "added": true,
+      "source": "source/tools/upload-all.png",
+      "vector_source": "source/tools/upload-all.svg"
     },
     {
       "category": "tools",
@@ -2828,25 +1570,34 @@
       "source": "source/files/new.png",
       "circle_color": null,
       "display_label": "+",
-      "frame_template": "scripts/icon_templates/file-square.png",
-      "text_offset_y": 1.5,
-      "character_gap": 1.0,
-      "font_size": 8.5,
-      "circle_bounds": [
-        4.5,
-        6.0,
-        19.5,
-        21.0
-      ],
-      "circle_offset_y": 1.5
+      "text_colour": "#444444"
     },
     {
       "category": "tools",
       "name": "task-start",
-      "label": "下载任务开始",
-      "origin": "task-download-state",
+      "label": "开始任务",
+      "origin": "task-start-action",
       "added": true,
-      "source": "source/tools/task-start.png"
+      "source": "source/tools/task-start.png",
+      "vector_source": "source/tools/task-start.svg"
+    },
+    {
+      "category": "tools",
+      "name": "task-download",
+      "label": "下载任务",
+      "origin": "task-download-action",
+      "added": true,
+      "source": "source/tools/task-download.png",
+      "vector_source": "source/tools/task-download.svg"
+    },
+    {
+      "category": "tools",
+      "name": "task-upload",
+      "label": "上传任务",
+      "origin": "task-upload-state",
+      "added": true,
+      "source": "source/tools/task-upload.png",
+      "vector_source": "source/tools/task-upload.svg"
     },
     {
       "category": "tools",
@@ -2854,7 +1605,8 @@
       "label": "下载任务暂停",
       "origin": "task-download-state",
       "added": true,
-      "source": "source/tools/task-pause.png"
+      "source": "source/tools/task-pause.png",
+      "vector_source": "source/tools/task-pause.svg"
     },
     {
       "category": "tools",
@@ -2862,15 +1614,17 @@
       "label": "下载任务停止",
       "origin": "task-download-state",
       "added": true,
-      "source": "source/tools/task-stop.png"
+      "source": "source/tools/task-stop.png",
+      "vector_source": "source/tools/task-stop.svg"
     },
     {
       "category": "tools",
       "name": "task-resume",
-      "label": "下载任务继续",
-      "origin": "task-download-state",
+      "label": "继续下载任务",
+      "origin": "task-resume-action",
       "added": true,
-      "source": "source/tools/task-resume.png"
+      "source": "source/tools/task-resume.png",
+      "vector_source": "source/tools/task-resume.svg"
     },
     {
       "category": "tools",
@@ -5482,6 +4236,28 @@
         "text_colour": "#3B3B3B",
         "canvas_padding": 0,
         "frame_gap_padding": 2
+      },
+      "url": {
+        "label_left": 4.625,
+        "label_right": 19.375,
+        "frame_gaps": true,
+        "character_gap": 1.0,
+        "condensed": false,
+        "label_center": 12.0,
+        "font_size": 8.5,
+        "cap_height": 5.9375,
+        "baseline": 17.5,
+        "text_offset_y": 1.5,
+        "display_label": "URL",
+        "font_family": "Segoe UI",
+        "font_style": "Semibold",
+        "font_axes": null,
+        "native_pixel_text": false,
+        "rendering": "supersampled-label",
+        "pixel_aligned_label": false,
+        "text_colour": "#3B3B3B",
+        "canvas_padding": 0,
+        "frame_gap_padding": 2
       }
     },
     "overlap_rule": "If actual label bounds meet either side of the frame, open matching gaps on both sides; otherwise keep both sides complete. Independent of label length.",
@@ -5490,6 +4266,16 @@
       "y": 4.5,
       "diameter": 15,
       "base_canvas": 24
+    },
+    "style_defaults": {
+      "frame_template": "scripts/icon_templates/file-square.png",
+      "text_offset_y": 1.5,
+      "character_gap": 1.0,
+      "font_size": 8.5,
+      "circle_offset_y": 1.5,
+      "text_colour": "#3B3B3B",
+      "font_family": "Segoe UI",
+      "font_style": "Semibold"
     }
   }
 }
