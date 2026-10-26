@@ -20,6 +20,7 @@ from src.models.tree_model import MultiColumnTreeModel, to_tree_item
 from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskOutput, TaskProgress, TaskStatus, FileStatus
 from src.views.main_frame import MainFrame, TaskActionRenderer, TaskProgressRenderer
 from src.views.components.renderers import TaskSelectionRenderer
+from src.views.components.icons import ICON_FILES
 from src.views.controllers.encryption_controller import TaskArtifactCleanupWarning
 from src.views.controllers.playback_controller import PlaybackController
 from src.views.dialogs.task_password_dialog import TaskPasswordDialog
@@ -236,6 +237,19 @@ class TaskTypesUITests(unittest.TestCase):
         batch = next(icon for icon in manifest['icons'] if icon['name'] == 'batch')
         self.assertEqual(batch['category'], 'tools')
         self.assertTrue((Path(__file__).resolve().parents[1] / 'icons' / batch['source']).is_file())
+
+    def test_direct_download_toolbar_uses_standard_url_file_icon(self):
+        icon_root = Path(__file__).resolve().parents[1] / 'icons'
+        self.assertEqual(ICON_FILES['url'], 'files/url.png')
+        for directory in ('source', '24', '30', '36', '48'):
+            self.assertTrue((icon_root / directory / 'files' / 'url.png').is_file())
+
+    def test_all_download_toolbar_uses_dedicated_icon(self):
+        icon_root = Path(__file__).resolve().parents[1] / 'icons'
+        self.assertEqual(ICON_FILES['download-all'], 'tools/download-all.png')
+        for directory in ('source', '24', '30', '36', '48'):
+            download_all = icon_root / directory / 'tools' / 'download-all.png'
+            self.assertTrue(download_all.is_file())
 
     def test_open_manifest_uses_last_selected_player(self):
         player = self.root / 'player'
