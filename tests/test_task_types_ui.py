@@ -19,6 +19,7 @@ from src.core.task_service import TaskService
 from src.models.tree_model import MultiColumnTreeModel, to_tree_item
 from src.schemas.task import MP4Task, MP4Details, RTMPTask, RTMPDetails, TaskOutput, TaskProgress, TaskStatus, FileStatus
 from src.views.main_frame import MainFrame, TaskActionRenderer, TaskProgressRenderer
+from src.views.components.renderers import TaskSelectionRenderer
 from src.views.controllers.encryption_controller import TaskArtifactCleanupWarning
 from src.views.controllers.playback_controller import PlaybackController
 from src.views.dialogs.task_password_dialog import TaskPasswordDialog
@@ -97,6 +98,22 @@ class TaskTypesUITests(unittest.TestCase):
         finally:
             frame.Destroy()
             self.app.ProcessPendingEvents()
+
+    def test_mac_task_selection_renderer_leaves_nonselectable_rows_blank(self):
+        renderer = TaskSelectionRenderer(SimpleNamespace(FromDIP=lambda value: value))
+        renderer.SetValue(None)
+        self.assertTrue(renderer.Render(wx.Rect(0, 0, 42, 28), Mock(), 0))
+
+        model = Mock()
+        model.GetValue.return_value = None
+        item = object()
+        self.assertFalse(renderer.ActivateCell(wx.Rect(0, 0, 42, 28), model, item, 7, None))
+        model.SetValue.assert_not_called()
+
+        model.GetValue.return_value = True
+        model.SetValue.return_value = True
+        self.assertTrue(renderer.ActivateCell(wx.Rect(0, 0, 42, 28), model, item, 7, None))
+        model.SetValue.assert_called_once_with(False, item, 7)
 
     def test_unstarted_download_actions_are_labeled_download(self):
         mp4 = self.mp4()

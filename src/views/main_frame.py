@@ -24,7 +24,9 @@ from src.models.file_base import TreeData
 from src.schemas.task import TaskStatus
 
 from src.views.components.icons import app_icons, toolbar_icon, set_titlebar_icon
-from src.views.components.renderers import TaskProgressRenderer, TaskActionRenderer
+from src.views.components.renderers import (
+    TaskProgressRenderer, TaskActionRenderer, TaskSelectionRenderer,
+)
 from src.views.controllers.encryption_controller import EncryptionController
 from src.views.controllers.playback_controller import PlaybackController
 from src.views.controllers.service_controller import ServiceController
@@ -356,8 +358,14 @@ class MainFrame(wx.Frame):
         self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
         self._UpdateFilterCount()
         # 添加多列
-        self.mcTree.AppendToggleColumn('选择', 7, mode=dv.DATAVIEW_CELL_ACTIVATABLE,
-                                       width=self.FromDIP(42), align=wx.ALIGN_CENTER)
+        if wx.Platform == '__WXMAC__':
+            selection_renderer = TaskSelectionRenderer(self)
+            selection_column = dv.DataViewColumn('选择', selection_renderer, 7,
+                                                 width=self.FromDIP(42), align=wx.ALIGN_CENTER)
+            self.mcTree.AppendColumn(selection_column)
+        else:
+            self.mcTree.AppendToggleColumn('选择', 7, mode=dv.DATAVIEW_CELL_ACTIVATABLE,
+                                           width=self.FromDIP(42), align=wx.ALIGN_CENTER)
         self.mcTree.AppendTextColumn("序列", 0, width=self.FromDIP(60))
         # # 自定义列
         # renderer = dv.DataViewTextRenderer()

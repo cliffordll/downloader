@@ -3,6 +3,46 @@ import json
 import wx
 import wx.dataview as dv
 
+
+class TaskSelectionRenderer(dv.DataViewCustomRenderer):
+    """macOS 选择列：只为任务行绘制原生复选框，子行留空。"""
+
+    def __init__(self, frame):
+        super().__init__('bool', dv.DATAVIEW_CELL_ACTIVATABLE, wx.ALIGN_CENTER)
+        self.frame = frame
+        self.value = None
+
+    def SetValue(self, value):
+        self.value = value
+        return True
+
+    def GetValue(self):
+        return self.value
+
+    def GetSize(self):
+        return wx.Size(self.frame.FromDIP(24), self.frame.FromDIP(24))
+
+    def Render(self, cell, dc, state):
+        if self.value is None:
+            return True
+        window = self.frame.mcTree.GetMainWindow()
+        size = wx.RendererNative.Get().GetCheckBoxSize(window)
+        rect = wx.Rect(cell)
+        rect.width = min(size.width, rect.width)
+        rect.height = min(size.height, rect.height)
+        rect.x += (cell.width - rect.width) // 2
+        rect.y += (cell.height - rect.height) // 2
+        flags = wx.CONTROL_CHECKED if self.value else 0
+        wx.RendererNative.Get().DrawCheckBox(window, dc, rect, flags)
+        return True
+
+    def ActivateCell(self, cell, model, item, col, mouse_event):
+        value = model.GetValue(item, col)
+        if value is None:
+            return False
+        return model.SetValue(not bool(value), item, col)
+
+
 class TaskProgressRenderer(dv.DataViewCustomRenderer):
     """在任务行内绘制进度条及居中的进度文字，不创建独立的 wx.Gauge 控件。"""
 
