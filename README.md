@@ -49,6 +49,10 @@ M3U8 添加界面使用 `m3u8_dialog.py`、`panels/m3u8_form.py`，FFmpeg 合并
 `media/m3u8/ffmpeg_converter.py`，由 `FFmpegConverter` 类统一封装清单生成、分片时长检测与后台转换。
 两个具体下载器共用 `media/downloader.py` 中的两层队列与限流逻辑：先按入队顺序分配任务名额，再按每任务上限分配请求。等待中的请求不占工作线程；时长检测与合并不占下载名额。
 
+## 图标资源
+
+`icons/` 中的通用图标仅保留当前界面使用的资源副本；需要新图标时，从独立 icons 项目复制对应 source 和四档 PNG，更新界面的资源映射即可。`icons/logo/` 下的 Logo 是 downloader 专属资源，其原稿、临时及历史文件均留在本项目，不进入通用图标库。具体步骤见 [icons/README.md](icons/README.md)。
+
 ## 安装与运行
 
 已验证环境：Windows、Python 3.10.11。数据库拆列升级需要 Python 链接的 SQLite 版本不低于 3.35（本地验证为 3.40.1），可用 `python -c "import sqlite3; print(sqlite3.sqlite_version)"` 查看。建议使用 Python 3.10 创建独立环境，在项目根目录执行：

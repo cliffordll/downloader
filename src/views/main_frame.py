@@ -226,7 +226,7 @@ class MainFrame(wx.Frame):
             bundle = toolbar_icon(icon)
             return self.toolBar.AddTool(tool_id, label, bundle, shortHelp=label)
 
-        openButton = add_tool(wx.ID_OPEN, "打开下载文件夹", "open")
+        openButton = add_tool(wx.ID_OPEN, "打开下载文件夹", "folder-open")
         muButton = add_tool(wx.ID_ANY, "新建 M3U8 下载", "playlist")
         tsButton = add_tool(wx.ID_ANY, "新建 TS 模板下载", "segment")
         directButton = add_tool(wx.ID_ANY, '新建直链下载', 'url')
@@ -250,7 +250,7 @@ class MainFrame(wx.Frame):
         self.toolBar.AddSeparator()
         browserButton = add_tool(wx.ID_ANY, '浏览器扩展配对', 'browser')
         self.toolBar.SetToolShortHelp(browserButton.GetId(), '获取浏览器扩展配对码')
-        playerButton = add_tool(wx.ID_ANY, '选择播放器', 'player')
+        playerButton = add_tool(wx.ID_ANY, '选择播放器', 'player-setting')
         settingButton = add_tool(wx.ID_ANY, "设置", "settings")
         self.toolBar.AddSeparator()
         helpButton = add_tool(wx.ID_ANY, "帮助", "help")

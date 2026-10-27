@@ -6,60 +6,28 @@ import wx.adv
 import wx.svg
 
 ICON_ROOT = Path(__file__).resolve().parents[3] / "icons"
+LOGO_ROOT = ICON_ROOT / "logo"
 ICON_FILES = {
-    "open": "tools/open.png",
+    "folder-open": "tools/folder-open.png",
     "playlist": "files/m3u8.png",
     "segment": "files/ts.png",
-    "mp4": "files/mp4.png",
     "url": "files/url.png",
     "browser": "tools/extension.png",
     "batch": "tools/batch.png",
     "expand": "tools/expand.png",
     "collapse": "tools/collapse.png",
     "refresh": "tools/refresh.png",
-    "pause": "tools/pause.png",
-    "start": "tools/start.png",
-    "task-start": "tools/task-start.png",
-    "task-download": "tools/task-download.png",
     "download-all": "tools/download-all.png",
-    "upload-all": "tools/upload-all.png",
-    "task-upload": "tools/task-upload.png",
     "task-resume": "tools/task-resume.png",
     "task-pause": "tools/task-pause.png",
-    "task-stop": "tools/task-stop.png",
     "settings": "tools/settings.png",
-    "player": "tools/player.png",
+    "player-setting": "tools/player-setting.png",
     "lock": "tools/lock.png",
-    "key": "tools/key.png",
     "unlock": "tools/unlock.png",
     "eye": "tools/eye.png",
     "eye-off": "tools/eye-off.png",
     "help": "tools/help.png",
-    "about": "tools/about.png",
-    "debug": "tools/debug.png",
-    "edit": "tools/edit.png",
-    "check": "tools/check.png",
-    "warning": "tools/warning.png",
-    "external": "tools/external.png",
-    "sort": "tools/sort.png",
-    "upload": "tools/upload.png",
-    "close": "tools/close.png",
-    "copy": "tools/copy.png",
-    "delete": "tools/delete.png",
-    "download": "tools/download.png",
-    "file": "tools/file.png",
-    "filter": "tools/filter.png",
-    "home": "tools/home.png",
-    "link": "tools/link.png",
-    "list": "tools/list.png",
-    "load": "tools/load.png",
-    "merge": "tools/merge.png",
-    "more": "tools/more.png",
-    "new": "tools/new.png",
-    "retry": "tools/retry.png",
-    "save": "tools/save.png",
-    "search": "tools/search.png",
-    "stop": "tools/stop.png",
+    "about": "tools/about.png"
 }
 ICON_SIZES = (24, 30, 36, 48)
 
@@ -86,7 +54,7 @@ def _app_icon_bitmap(vector, size):
 def app_icons():
     """为标题栏、任务栏和任务切换提供不同尺寸的应用 Logo。"""
     # 标题栏和任务栏共用完整版本；Windows 标题栏另按实际 DPI 设置尺寸。
-    image = wx.svg.SVGimage.CreateFromFile(str(ICON_ROOT / 'source/app/logo.svg'))
+    image = wx.svg.SVGimage.CreateFromFile(str(LOGO_ROOT / 'logo.svg'))
     bundle = wx.IconBundle()
     for size in (16, 20, 24, 28, 32, 40, 48, 64, 128, 256):
         bundle.AddIcon(wx.Icon(_app_icon_bitmap(image, size)))
@@ -95,7 +63,7 @@ def app_icons():
 
 def app_logo(size=64):
     """对话框正文使用的应用 Logo，提供高分辨率版本。"""
-    vector = wx.svg.SVGimage.CreateFromFile(str(ICON_ROOT / 'source/app/logo.svg'))
+    vector = wx.svg.SVGimage.CreateFromFile(str(LOGO_ROOT / 'logo.svg'))
     return wx.BitmapBundle.FromBitmaps([_app_icon_bitmap(vector, size),
                                       _app_icon_bitmap(vector, size * 2)])
 
@@ -104,7 +72,7 @@ def create_dock_icon():
     """源码运行时替换 Mac 的 Python Dock 图标；调用方持有对象直到退出。"""
     if sys.platform != 'darwin':
         return None
-    vector = wx.svg.SVGimage.CreateFromFile(str(ICON_ROOT / 'source/app/logo.svg'))
+    vector = wx.svg.SVGimage.CreateFromFile(str(LOGO_ROOT / 'logo.svg'))
     # Dock 画布保留透明边距，避免几乎铺满画布的 Logo 比邻近应用显得更大。
     size = 512
     content_size = round(size * 0.82)
@@ -132,7 +100,7 @@ def set_titlebar_icon(window):
     metric.argtypes = [ctypes.c_int, ctypes.c_uint]
     metric.restype = ctypes.c_int
     size = metric(49, get_dpi(window.GetHandle()))  # SM_CXSMICON
-    vector = wx.svg.SVGimage.CreateFromFile(str(ICON_ROOT / 'source/app/logo.svg'))
+    vector = wx.svg.SVGimage.CreateFromFile(str(LOGO_ROOT / 'logo.svg'))
     icon = wx.Icon(_app_icon_bitmap(vector, size))
     send = user32.SendMessageW
     send.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]

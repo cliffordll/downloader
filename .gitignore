@@ -8,3 +8,6 @@
 /scripts/ffmpeg
 /scripts/ffprobe.exe
 /scripts/ffprobe
+
+# 本地预览、验证和迁移中间文件
+/.tmp-test/

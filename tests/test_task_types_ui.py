@@ -229,14 +229,11 @@ class TaskTypesUITests(unittest.TestCase):
             frame.Destroy()
             self.app.ProcessPendingEvents()
 
-    def test_batch_icon_is_registered_in_manifest(self):
-        import json
-
-        manifest = json.loads((Path(__file__).resolve().parents[1] / 'icons' / 'manifest.json')
-                              .read_text(encoding='utf-8'))
-        batch = next(icon for icon in manifest['icons'] if icon['name'] == 'batch')
-        self.assertEqual(batch['category'], 'tools')
-        self.assertTrue((Path(__file__).resolve().parents[1] / 'icons' / batch['source']).is_file())
+    def test_batch_toolbar_icon_is_available(self):
+        icon_root = Path(__file__).resolve().parents[1] / 'icons'
+        self.assertEqual(ICON_FILES['batch'], 'tools/batch.png')
+        for directory in ('source', '24', '30', '36', '48'):
+            self.assertTrue((icon_root / directory / ICON_FILES['batch']).is_file())
 
     def test_direct_download_toolbar_uses_standard_url_file_icon(self):
         icon_root = Path(__file__).resolve().parents[1] / 'icons'
