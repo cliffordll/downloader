@@ -8,26 +8,26 @@ import wx.svg
 ICON_ROOT = Path(__file__).resolve().parents[3] / "icons"
 LOGO_ROOT = ICON_ROOT / "logo"
 ICON_FILES = {
-    "folder-open": "tools/folder-open.png",
-    "playlist": "files/m3u8.png",
-    "segment": "files/ts.png",
-    "url": "files/url.png",
-    "browser": "tools/extension.png",
-    "batch": "tools/batch.png",
-    "expand": "tools/expand.png",
-    "collapse": "tools/collapse.png",
-    "refresh": "tools/refresh.png",
-    "download-all": "tools/download-all.png",
-    "task-resume": "tools/task-resume.png",
-    "task-pause": "tools/task-pause.png",
-    "settings": "tools/settings.png",
-    "player-setting": "tools/player-setting.png",
-    "lock": "tools/lock.png",
-    "unlock": "tools/unlock.png",
-    "eye": "tools/eye.png",
-    "eye-off": "tools/eye-off.png",
-    "help": "tools/help.png",
-    "about": "tools/about.png"
+    "folder-open": "tools/file-folder-open.png",
+    "playlist": "files/live-m3u8.png",
+    "segment": "files/video-ts.png",
+    "url": "files/live-url.png",
+    "browser": "tools/sys-extension.png",
+    "batch": "tools/task-batch.png",
+    "expand": "tools/view-expand.png",
+    "collapse": "tools/view-collapse.png",
+    "refresh": "tools/sys-refresh.png",
+    "download-all": "tools/task-download-all.png",
+    "task-resume": "tools/task-task-resume.png",
+    "task-pause": "tools/task-task-pause.png",
+    "settings": "tools/sys-settings.png",
+    "player-setting": "tools/play-player-setting.png",
+    "lock": "tools/lock-lock.png",
+    "unlock": "tools/lock-unlock.png",
+    "eye": "tools/lock-eye.png",
+    "eye-off": "tools/lock-eye-off.png",
+    "help": "tools/info-help.png",
+    "about": "tools/info-about.png"
 }
 ICON_SIZES = (24, 30, 36, 48)
 
