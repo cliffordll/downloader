@@ -13,7 +13,7 @@
 ## 增加或更新图标
 
 1. 在 icons 项目中选择或维护图标。
-2. 将通用图标的 source PNG 和 24、30、36、48 四档 PNG 复制到本目录的相同相对位置。downloader 专属应用图标在本项目自己的 `icons/logo/` 目录维护。
+2. 将通用图标的 source PNG 和 24、30、36、48 四档 PNG 复制到本目录的相同相对位置，保留图标库中的分类前缀文件名（例如 `tools/sys-refresh.png`、`files/live-m3u8.png`）。downloader 专属应用图标在本项目自己的 `icons/logo/` 目录维护。
 3. 在 `ICON_FILES` 中登记资源，并在对应界面中使用；本项目不依赖图标库的绝对路径或 Git 子模块。
 4. 运行 `python -m pytest tests/test_icon_resources.py`，检查资源完整性、尺寸和运行时加载。
 

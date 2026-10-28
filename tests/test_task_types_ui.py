@@ -231,21 +231,21 @@ class TaskTypesUITests(unittest.TestCase):
 
     def test_batch_toolbar_icon_is_available(self):
         icon_root = Path(__file__).resolve().parents[1] / 'icons'
-        self.assertEqual(ICON_FILES['batch'], 'tools/batch.png')
+        self.assertEqual(ICON_FILES['batch'], 'tools/task-batch.png')
         for directory in ('source', '24', '30', '36', '48'):
             self.assertTrue((icon_root / directory / ICON_FILES['batch']).is_file())
 
     def test_direct_download_toolbar_uses_standard_url_file_icon(self):
         icon_root = Path(__file__).resolve().parents[1] / 'icons'
-        self.assertEqual(ICON_FILES['url'], 'files/url.png')
+        self.assertEqual(ICON_FILES['url'], 'files/live-url.png')
         for directory in ('source', '24', '30', '36', '48'):
-            self.assertTrue((icon_root / directory / 'files' / 'url.png').is_file())
+            self.assertTrue((icon_root / directory / 'files' / 'live-url.png').is_file())
 
     def test_all_download_toolbar_uses_dedicated_icon(self):
         icon_root = Path(__file__).resolve().parents[1] / 'icons'
-        self.assertEqual(ICON_FILES['download-all'], 'tools/download-all.png')
+        self.assertEqual(ICON_FILES['download-all'], 'tools/task-download-all.png')
         for directory in ('source', '24', '30', '36', '48'):
-            download_all = icon_root / directory / 'tools' / 'download-all.png'
+            download_all = icon_root / directory / 'tools' / 'task-download-all.png'
             self.assertTrue(download_all.is_file())
 
     def test_open_manifest_uses_last_selected_player(self):
