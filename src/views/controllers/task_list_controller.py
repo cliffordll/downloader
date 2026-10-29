@@ -24,9 +24,15 @@ class TaskListController:
         self.frame._ApplyTaskFilter()
 
     def _UpdateFilterCount(self):
-        total = len(self.frame.model.fileTree.items)
-        visible = total if self.frame.model.visible_tasks is None else len(self.frame.model.visible_tasks)
-        selected = sum(1 for task in self.frame.model.fileTree.items
+        tasks = [task for task in self.frame.model.fileTree.items
+                 if self.frame._encrypted_tasks_unlocked or not task.encrypted]
+        total = len(tasks)
+        visible = (total if self.frame.model.visible_tasks is None else
+                   sum(1 for index in self.frame.model.visible_tasks
+                       if index < len(self.frame.model.fileTree.items)
+                       and (self.frame._encrypted_tasks_unlocked
+                            or not self.frame.model.fileTree.items[index].encrypted)))
+        selected = sum(1 for task in tasks
                        if (task.task_id or task.parent.fileName) in self.frame.model.selected_task_ids)
         prefix = f'已选 {selected} · ' if selected else ''
         label = f'{prefix}显示 {visible}/{total}'

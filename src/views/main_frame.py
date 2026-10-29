@@ -369,14 +369,10 @@ class MainFrame(wx.Frame):
         self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
         self._UpdateFilterCount()
         # 添加多列
-        if wx.Platform == '__WXMAC__':
-            selection_renderer = TaskSelectionRenderer(self)
-            selection_column = dv.DataViewColumn('选择', selection_renderer, 7,
-                                                 width=self.FromDIP(42), align=wx.ALIGN_CENTER)
-            self.mcTree.AppendColumn(selection_column)
-        else:
-            self.mcTree.AppendToggleColumn('选择', 7, mode=dv.DATAVIEW_CELL_ACTIVATABLE,
-                                           width=self.FromDIP(42), align=wx.ALIGN_CENTER)
+        selection_renderer = TaskSelectionRenderer(self)
+        selection_column = dv.DataViewColumn('选择', selection_renderer, 7,
+                                             width=self.FromDIP(42), align=wx.ALIGN_CENTER)
+        self.mcTree.AppendColumn(selection_column)
         self.mcTree.AppendTextColumn("序列", 0, width=self.FromDIP(60))
         # # 自定义列
         # renderer = dv.DataViewTextRenderer()

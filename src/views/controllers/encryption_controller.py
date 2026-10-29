@@ -223,6 +223,10 @@ class EncryptionController:
         if not self.frame._encrypted_tasks_unlocked:
             return
         self.frame._encrypted_tasks_unlocked = False
+        for task in self.frame.model.fileTree.items:
+            if task.encrypted:
+                self.frame.model.selected_task_ids.discard(
+                    task.task_id or task.parent.fileName)
         self.frame._encryption_context = None
         self.frame._ClosePlaybackServers()
         self.frame._SyncLockEncryptedTasksEnabled()

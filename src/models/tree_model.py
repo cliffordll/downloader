@@ -514,16 +514,16 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         """重写：wx 查询模型列数，模型列编号与界面显示顺序不一定相同。
 
         0 序列、1 文件名、2 文件大小、3 修改时间、4 操作、5 下载进度、6 状态、7 批量选择。
-        界面通过 DataViewColumn 的 model_column 参数绑定这些编号。
+        选择列用 0/1/2 表示未选、全选和部分选中，由自定义渲染器显示三态框。
         """
         return 8  # 原有列、进度、状态和任务选择
     
     def GetColumnType(self, col):
-        """重写：wx 查询指定模型列的数据类型；选择列为 bool，其余列为 string。
+        """重写：wx 查询指定模型列的数据类型；选择列为状态整数，其余列为 string。
 
         操作列虽然包含多个操作，也以 JSON 字符串传给自定义渲染器。
         """
-        return "bool" if col == 7 else "string"
+        return "long" if col == 7 else "string"
     
     # 父类函数
     def IsContainer(self, item):
@@ -655,28 +655,42 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         objs = self.ParseKey(keys)
         # print("GetValue keys:", keys)
         if self.IsGroupKey(objs):
+            group = self.groups_by_key.get(objs[1]) if objs[0] == -1 else None
             if col == 0:
                 return self.row_numbers.get(keys, '')
             if col == 1:
-                group = self.groups_by_key.get(objs[1]) if objs[0] == -1 else None
                 name = group.name if group else '未分组'
                 count = self._GroupTaskCount(group.id if group else None)
                 return f'{name}  ({count})'
+            if col == 4 and group is not None:
+                group_index = next(index for index, item in enumerate(self.groups)
+                                   if item.id == group.id)
+                return json.dumps([
+                    dict(id='move_group_up', label='上移', enabled=group_index > 0),
+                    dict(id='move_group_down', label='下移', enabled=group_index < len(self.groups) - 1),
+                    dict(id='delete_group', label='删除', enabled=True),
+                    dict(id='rename_group', label='重命名', enabled=True),
+                ], ensure_ascii=False)
             if col == 7:
-                children = []
-                self.GetChildren(item, children)
-                identities = []
-                for child in children:
-                    index = self.ParseKey(self.ItemToObject(child))[0]
+                group_id = group.id if group else None
+                count = 0
+                selected = 0
+                for index in self._VisibleTaskIndexes():
                     task = self.fileTree.items[index]
-                    identities.append(task.task_id or task.parent.fileName)
-                return bool(identities) and all(key in self.selected_task_ids for key in identities)
+                    if task.group_id != group_id:
+                        continue
+                    count += 1
+                    key = task.task_id or task.parent.fileName
+                    selected += key in self.selected_task_ids
+                if not count or not selected:
+                    return 0
+                return 1 if selected == count else 2
             return ''
         if col == 7:
             if len(objs) != 1:
                 return None
             task = self.fileTree.items[objs[0]]
-            return (task.task_id or task.parent.fileName) in self.selected_task_ids
+            return int((task.task_id or task.parent.fileName) in self.selected_task_ids)
         if col == 0:
             return self.row_numbers.get(keys, '')
         if len(objs) == 2 and objs[1] < 0:
@@ -792,32 +806,42 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         if col == 7:
+            value = variant.GetLong() if hasattr(variant, 'GetLong') else int(variant)
+            checked = value != 0
             if self.IsGroupKey(objs):
-                children = []
-                self.GetChildren(item, children)
-                for child in children:
-                    index = self.ParseKey(self.ItemToObject(child))[0]
+                group = self.groups_by_key.get(objs[1]) if objs[0] == -1 else None
+                group_id = group.id if group else None
+                for index in self._VisibleTaskIndexes():
                     task = self.fileTree.items[index]
+                    if task.group_id != group_id:
+                        continue
                     key = task.task_id or task.parent.fileName
-                    if bool(variant):
+                    if checked:
                         self.selected_task_ids.add(key)
                     else:
                         self.selected_task_ids.discard(key)
                 self.ValueChanged(item, col)
                 if self.parent and hasattr(self.parent, '_UpdateFilterCount'):
                     self.parent._UpdateFilterCount()
+                if self.parent and hasattr(self.parent, 'mcTree'):
+                    self.parent.mcTree.Refresh()
                 return True
             if len(objs) != 1:
                 return False
             task = self.fileTree.items[objs[0]]
             key = task.task_id or task.parent.fileName
-            if bool(variant):
+            if checked:
                 self.selected_task_ids.add(key)
             else:
                 self.selected_task_ids.discard(key)
             self.ValueChanged(item, col)
+            group_item = self.ObjectToItem(
+                self._BuildKey(self._TaskGroupKey(task)))
+            self.ValueChanged(group_item, col)
             if self.parent and hasattr(self.parent, '_UpdateFilterCount'):
                 self.parent._UpdateFilterCount()
+            if self.parent and hasattr(self.parent, 'mcTree'):
+                self.parent.mcTree.Refresh()
             return True
         # print(f"MultiColumnTreeModel.SetValue", keys, col)
         if len(objs) == 1:

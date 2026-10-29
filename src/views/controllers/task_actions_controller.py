@@ -13,6 +13,7 @@ from src.schemas.task import FileStatus, TaskStatus, TaskType
 from src.storage.task_repository import TaskDataError, TaskConflictError
 from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
 from src.views.dialogs.task_rename_dialog import TaskRenameDialog
+from src.views.dialogs.task_group_dialog import delete_task_group, rename_task_group
 
 
 class TaskActionsController:
@@ -253,7 +254,7 @@ class TaskActionsController:
 
     def _MoveTaskToGroup(self, task_id, group_id):
         try:
-            self.frame.tasks.move_task_to_group(task_id, group_id)
+            self.frame.runner.move_task_to_group(task_id, group_id)
             self.frame.OnRefresh(None)
             if (self.frame._groupFilter == 'all'
                     or self.frame._groupFilter == group_id
@@ -294,6 +295,25 @@ class TaskActionsController:
         if not item.IsOk():
             return
         keys = self.frame.model.ParseKey(self.frame.model.ItemToObject(item))
+        if self.frame.model.IsGroupKey(keys):
+            group = self.frame.model.groups_by_key.get(keys[1]) if keys[0] == -1 else None
+            if group is None:
+                return
+            try:
+                if action_id in ('move_group_up', 'move_group_down'):
+                    offset = -1 if action_id == 'move_group_up' else 1
+                    if self.frame.tasks.repository.move_group(group.id, offset):
+                        self.frame.OnRefresh(None)
+                elif action_id == 'rename_group':
+                    if rename_task_group(self.frame, self.frame.tasks.repository, group) is not None:
+                        self.frame.OnRefresh(None)
+                elif action_id == 'delete_group':
+                    delete_task_group(self.frame, self.frame.tasks.repository,
+                                      self.frame.tasks, self.frame.runner, group)
+            except Exception as error:
+                wx.MessageBox(f'分组操作失败：{error}', '分组操作失败',
+                              wx.OK | wx.ICON_WARNING, parent=self.frame)
+            return
         if len(keys) == 2:
             action = next((entry for entry in self.frame.model.FileActions(*keys) if entry['id'] == action_id), None)
             if action is not None and action['enabled']:

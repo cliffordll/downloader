@@ -46,6 +46,10 @@ class TaskService:
         self.repository = repository
         self._recovered = False
 
+    def list_groups(self):
+        """Return the current task groups for creation and management views."""
+        return self.repository.list_groups()
+
     @staticmethod
     def _renamed_output_path(relative_path, old_name, new_name):
         path = PurePosixPath(relative_path)
@@ -279,6 +283,95 @@ class TaskService:
                     pass
             raise
 
+    def move_tasks_to_group(self, task_ids, group_id):
+        """Move multiple tasks as one guarded operation, rolling back on failure."""
+        task_ids = list(dict.fromkeys(task_ids))
+        if not task_ids:
+            return []
+        tasks_by_id = {task.id: task for task in self.repository.list_tasks()}
+        missing = [task_id for task_id in task_ids if task_id not in tasks_by_id]
+        if missing:
+            raise ValueError('部分选中任务已不存在，请刷新任务列表后重试。')
+        tasks = [tasks_by_id[task_id] for task_id in task_ids]
+        if any(not can_rename(task) for task in tasks):
+            busy = next(task for task in tasks if not can_rename(task))
+            raise ValueError(f'任务“{busy.name}”正在运行或处理中，无法移动分组。')
+        group = self.repository.get_group(group_id) if group_id is not None else None
+        if group_id is not None and group is None:
+            raise ValueError('目标分组不存在，请刷新后重试。')
+        target_group_id = group.id if group else None
+        destination_root = (Path(group.folder_path) if group
+                            else Path(SysSetting.GetWorkPath()))
+        if destination_root.is_symlink():
+            raise ValueError('目标文件夹是符号链接，不能移动任务。')
+        destination_root = destination_root.expanduser().resolve()
+
+        moving = [task for task in tasks if task.group_id != target_group_id]
+        if not moving:
+            return tasks
+        moving_ids = {task.id for task in moving}
+        all_tasks = list(tasks_by_id.values())
+        reserved = set()
+        for other in all_tasks:
+            if other.id in moving_ids:
+                continue
+            for output in other.outputs:
+                output_path_key = PathManager.GetPathKey(output_path(other, output))
+                reserved.add(output_path_key)
+                if output.kind == 'merged':
+                    reserved.add(PathManager.GetPathKey(
+                        Path(str(output_path(other, output)) + '.part.mp4')))
+            if isinstance(other, MP4Task):
+                reserved.add(PathManager.GetPathKey(
+                    other.save_dir / other.details.temporary_path))
+            if isinstance(other, M3U8Task):
+                reserved.add(PathManager.GetPathKey(work_dir(other)))
+
+        separator = os.sep
+
+        def overlaps(first, second):
+            return (first == second or first.startswith(second + separator)
+                    or second.startswith(first + separator))
+
+        planned_targets = []
+        for task in moving:
+            updated = task.model_copy(deep=True)
+            updated.group_id = target_group_id
+            updated.save_dir = destination_root
+            for source, destination, _is_directory in _task_relocation_pairs(task, updated):
+                if source.resolve() == destination.resolve():
+                    continue
+                if source.is_symlink() or any(parent.is_symlink() for parent in source.parents):
+                    raise ValueError(f'任务文件路径包含符号链接，无法安全移动：{source}')
+                if destination.exists() or destination.is_symlink():
+                    raise FileExistsError(f'目标路径已存在：{destination}')
+                target_key = PathManager.GetPathKey(destination)
+                if any(overlaps(target_key, key) for key in reserved):
+                    raise ValueError(f'目标路径与其他任务冲突：{destination}')
+                if any(overlaps(target_key, key) for key in planned_targets):
+                    raise ValueError(f'选中任务的目标路径互相冲突：{destination}')
+                planned_targets.append(target_key)
+
+        moved = []
+        try:
+            for task in moving:
+                self.move_task_to_group(task.id, target_group_id)
+                moved.append(task)
+        except Exception as error:
+            rollback_errors = []
+            for task in reversed(moved):
+                try:
+                    self.move_task_to_group(task.id, task.group_id)
+                except Exception as rollback_error:
+                    rollback_errors.append(f'{task.name}: {rollback_error}')
+            if rollback_errors:
+                raise RuntimeError(
+                    '批量移动失败，部分任务未能自动移回原分组：'
+                    + '; '.join(rollback_errors)
+                ) from error
+            raise
+        return [self.repository.get(task_id) for task_id in task_ids]
+
     def delete_group_preserving_tasks(self, group_id):
         """Remove the group after moving its task records and owned files to the default root."""
         group = self.repository.get_group(group_id)
@@ -444,8 +537,13 @@ class TaskService:
                     pass
             raise
 
-    def _create_named(self, save_dir, filename, source_url, build):
+    def _create_named(self, save_dir, filename, source_url, build, *, group_id=None):
         """文件、同名工作目录及数据库记录共同参与重名检查。"""
+        group = self.repository.get_group(group_id) if group_id is not None else None
+        if group_id is not None and group is None:
+            raise ValueError('所选分组不存在，请刷新后重试。')
+        if group is not None:
+            save_dir = group.folder_path
         directory = Path(save_dir).expanduser()
         if not directory.is_absolute():
             raise ValueError('保存目录必须是绝对路径。')
@@ -476,7 +574,7 @@ class TaskService:
                 if any(PathManager.GetPathKey(path) in occupied or path.exists() or path.is_symlink() for path in candidates):
                     index += 1
                     continue
-                task = build(directory, stem, target)
+                task = build(directory, stem, target, group.id if group else None)
                 try:
                     if isinstance(task, M3U8Task):
                         work = directory / task.name
@@ -505,17 +603,19 @@ class TaskService:
                 path.rmdir()
             raise
 
-    def create_mp4(self, save_dir, source_url, *, filename=None, request_headers=None):
+    def create_mp4(self, save_dir, source_url, *, filename=None, request_headers=None, group_id=None):
         """直链保存在所选目录；正式名称和 .part 名称在创建时确定。"""
-        def build(directory, stem, target):
-            return MP4Task(name=stem, save_dir=directory, source_url=source_url.strip(),
+        def build(directory, stem, target, assigned_group_id):
+            return MP4Task(name=stem, save_dir=directory, group_id=assigned_group_id,
+                           source_url=source_url.strip(),
                            details=MP4Details(temporary_path=target + '.part',
                                               request_headers=request_headers or {}),
                            outputs=[TaskOutput(output_path=target, kind='download')])
-        return self._create_named(save_dir, filename, source_url, build)
+        return self._create_named(save_dir, filename, source_url, build, group_id=group_id)
 
     def create_m3u8(self, save_dir, source_url, content, base_path='', *, filename=None,
-                    source_type=SourceType.M3U8, ts_pattern=None, detect_duration=False, request_headers=None):
+                    source_type=SourceType.M3U8, ts_pattern=None, detect_duration=False, request_headers=None,
+                    group_id=None):
         """分片写入同名工作目录，最终 MP4 位于保存目录；两个入口共用命名规则。"""
         if not content.strip():
             raise ValueError('请先获取播放列表或添加 TS 分片。')
@@ -567,15 +667,16 @@ class TaskService:
                                         source_url=resolved.absUri, encryption=encryption,
                                         duration=parsed.duration))
             sequence += 1
-        def build(directory, stem, target):
-            return M3U8Task(name=stem, save_dir=directory, source_type=source_type,
+        def build(directory, stem, target, assigned_group_id):
+            return M3U8Task(name=stem, save_dir=directory, group_id=assigned_group_id,
+                           source_type=source_type,
                            source_url=source_url or None,
                            details=M3U8Details(playlist_path='download.m3u8', ts_pattern=ts_pattern,
                                                detect_duration=detect_duration,
                                                request_headers=request_headers or {}, segments=segments),
                            progress=TaskProgress(total_segments=sum(item.entry_type == 'segment' for item in segments)),
                            outputs=[TaskOutput(output_path=target, kind='merged')])
-        return self._create_named(save_dir, filename, source_url, build)
+        return self._create_named(save_dir, filename, source_url, build, group_id=group_id)
 
     @staticmethod
     def local_playlist(task):

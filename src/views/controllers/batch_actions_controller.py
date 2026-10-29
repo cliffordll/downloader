@@ -7,6 +7,7 @@ import wx
 
 from src.schemas.task import TaskStatus, TaskType
 from src.views.controllers.encryption_controller import TaskArtifactCleanupWarning
+from src.views.dialogs.task_group_dialog import MoveTasksToGroupDialog
 
 
 class BatchActionsController:
@@ -18,6 +19,7 @@ class BatchActionsController:
         ('pause', '暂停'),
         ('encrypt', '加密'),
         ('decrypt', '解密'),
+        ('move', '移动到分组'),
         ('delete', '删除'),
     )
     DOWNLOADABLE_TYPES = (TaskType.MP4, TaskType.M3U8)
@@ -34,7 +36,8 @@ class BatchActionsController:
     def _selected_tasks(self):
         selected_ids = self.frame.model.selected_task_ids
         return [(index, task) for index, task in enumerate(self.frame.model.fileTree.items)
-                if (task.task_id or task.parent.fileName) in selected_ids]
+                if (task.task_id or task.parent.fileName) in selected_ids
+                and (self.frame._encrypted_tasks_unlocked or not task.encrypted)]
 
     def _is_busy(self, task):
         try:
@@ -48,6 +51,10 @@ class BatchActionsController:
         selected = self._selected_tasks()
         if operation == 'delete':
             return selected
+        if operation == 'move':
+            return [(index, task) for index, task in selected
+                    if task.task_id and task.rename_allowed
+                    and self.frame.runner.can_move(task.task_id)]
 
         eligible = []
         for index, task in selected:
@@ -173,6 +180,9 @@ class BatchActionsController:
         if operation in ('encrypt', 'decrypt'):
             self._run_encryption(operation == 'encrypt', targets)
             return
+        if operation == 'move':
+            self._move_to_group(targets)
+            return
 
         succeeded = 0
         failed = []
@@ -194,6 +204,33 @@ class BatchActionsController:
         self.frame.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
         self._finish('下载' if operation == 'download' else ('继续' if operation == 'continue' else '暂停'),
                      succeeded, failed)
+
+    def _move_to_group(self, targets):
+        try:
+            groups = self.frame.tasks.repository.list_groups()
+        except Exception as error:
+            wx.MessageBox(f'无法读取分组列表：{error}', '分组操作失败',
+                          wx.OK | wx.ICON_WARNING, parent=self.frame)
+            return
+        dialog = MoveTasksToGroupDialog(self.frame, groups, len(targets))
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            group_id = dialog.GetGroupId()
+        finally:
+            dialog.Destroy()
+        try:
+            moved = self.frame.runner.move_tasks_to_group(
+                [task.task_id for _index, task in targets], group_id)
+            self.frame.OnRefresh(None)
+            self.frame._SyncDownloads()
+            self.frame.UpdateWindowUI(wx.UPDATE_UI_RECURSE)
+            self._finish('移动分组', len(moved), [])
+        except Exception as error:
+            self.frame.OnRefresh(None)
+            self.frame._SyncDownloads()
+            wx.MessageBox(f'批量移动任务失败：{error}', '分组操作失败',
+                          wx.OK | wx.ICON_WARNING, parent=self.frame)
 
     def _run_encryption(self, encrypted, targets):
         context_before = self.frame._encryption_context
