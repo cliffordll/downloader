@@ -19,9 +19,10 @@ from sqlalchemy.pool import NullPool
 
 from src.core.app_paths import database_path
 from src.schemas.task import TASK_ADAPTER, Task
+from src.schemas.task_group import TaskGroup
 from src.storage.errors import TaskConflictError, TaskDataError
 from src.storage.migrations import upgrade_database
-from src.storage.schema import tasks, detail_tables, segments, outputs, PROGRESS_COLUMNS
+from src.storage.schema import tasks, task_groups, detail_tables, segments, outputs, PROGRESS_COLUMNS
 
 
 class TaskRepository:
@@ -232,6 +233,63 @@ class TaskRepository:
         with self._transaction() as connection:
             rows = connection.execute(sa.select(tasks).order_by(tasks.c.created_at, tasks.c.id)).mappings()
             return [self._read(connection, row) for row in rows]
+
+    @staticmethod
+    def _read_group(row) -> TaskGroup:
+        return TaskGroup.model_validate(dict(row))
+
+    def list_groups(self) -> list[TaskGroup]:
+        """按用户排序位置读取分组；不创建或检查磁盘目录。"""
+        with self._transaction() as connection:
+            rows = connection.execute(sa.select(task_groups).order_by(
+                task_groups.c.position, task_groups.c.name.collate('NOCASE'), task_groups.c.id
+            )).mappings()
+            return [self._read_group(row) for row in rows]
+
+    def get_group(self, group_id: UUID) -> TaskGroup | None:
+        with self._transaction() as connection:
+            row = connection.execute(sa.select(task_groups).where(
+                task_groups.c.id == str(group_id))).mappings().first()
+            return None if row is None else self._read_group(row)
+
+    def create_group(self, name: str, folder_path: Path, *, position: int = 0) -> TaskGroup:
+        """保存分组元数据；目录创建由上层文件服务负责。"""
+        group = TaskGroup(name=name, folder_path=Path(folder_path).expanduser().resolve(),
+                          position=position)
+        values = group.model_dump(mode='json')
+        with self._transaction(write=True) as connection:
+            connection.execute(task_groups.insert().values(**values))
+        return group
+
+    def update_group(self, group: TaskGroup) -> TaskGroup:
+        """保存重命名、目录变更或排序，并用更新时间检测陈旧快照。"""
+        saved_group = TaskGroup.model_validate(group.model_dump(mode='json'))
+        saved_group.updated_at = max(datetime.now(timezone.utc),
+                                     group.updated_at + timedelta(microseconds=1))
+        original = group.model_dump(mode='json')
+        expected = original['updated_at']
+        values = saved_group.model_dump(mode='json')
+        values.pop('id')
+        with self._transaction(write=True) as connection:
+            cursor = connection.execute(task_groups.update().where(
+                task_groups.c.id == str(group.id),
+                task_groups.c.updated_at == expected
+            ).values(**values))
+            if cursor.rowcount != 1:
+                raise TaskConflictError('分组不存在或已更新，请重新读取后再修改。')
+            if original['folder_path'] != values['folder_path']:
+                connection.execute(tasks.update().where(
+                    tasks.c.group_id == str(group.id)
+                ).values(save_dir=values['folder_path'],
+                         updated_at=max(datetime.now(timezone.utc), saved_group.updated_at)
+                         .isoformat(timespec='microseconds')))
+        return saved_group
+
+    def delete_group(self, group_id: UUID) -> bool:
+        """删除分组元数据；外键将其任务设为未分组，磁盘文件不受影响。"""
+        with self._transaction(write=True) as connection:
+            return connection.execute(task_groups.delete().where(
+                task_groups.c.id == str(group_id))).rowcount == 1
 
     def delete(self, task_id: UUID) -> bool:
         """只删除记录及关联详情，返回是否存在；磁盘文件由后续业务层单独处理。"""

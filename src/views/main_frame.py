@@ -12,6 +12,7 @@ from src.views.ui_metrics import (
 )
 
 from src.views.dialogs.information_dialog import InformationDialog
+from src.views.dialogs.task_group_dialog import TaskGroupManagerDialog
 from src.core.task_runner import TaskRunner
 from src.core.http_service import LocalHTTPService
 from src.core.services.browser_pairing import load_or_create_pairing, pairing_path
@@ -81,6 +82,7 @@ class MainFrame(wx.Frame):
 
         self._searchText = ''
         self._filterText = ''
+        self._groupFilter = 'all'
         self._searchTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnSearchTimer, self._searchTimer)
         self._createMainPanel(initial_tree)
@@ -146,6 +148,9 @@ class MainFrame(wx.Frame):
 		
         # 任务菜单负责下载控制，查看菜单负责列表及界面展示。
         taskMenu = wx.Menu()
+        manageGroupsItem = taskMenu.Append(wx.ID_ANY, '管理分组…')
+        self.Bind(wx.EVT_MENU, self.OnManageGroups, manageGroupsItem)
+        taskMenu.AppendSeparator()
         self.downloadAllItem = taskMenu.Append(wx.ID_ANY, '全部下载\tCtrl-Shift-D')
         self.pauseAllItem = taskMenu.Append(wx.ID_ANY, '全部暂停\tCtrl-Shift-P')
         self.resumeAllItem = taskMenu.Append(wx.ID_ANY, '全部继续\tCtrl-Shift-R')
@@ -227,6 +232,8 @@ class MainFrame(wx.Frame):
             return self.toolBar.AddTool(tool_id, label, bundle, shortHelp=label)
 
         openButton = add_tool(wx.ID_OPEN, "打开下载文件夹", "folder-open")
+        self._manageGroupsTool = add_tool(wx.ID_ANY, '管理分组', 'folder-settings')
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnManageGroups, self._manageGroupsTool)
         muButton = add_tool(wx.ID_ANY, "新建 M3U8 下载", "playlist")
         tsButton = add_tool(wx.ID_ANY, "新建 TS 模板下载", "segment")
         directButton = add_tool(wx.ID_ANY, '新建直链下载', 'url')
@@ -307,6 +314,8 @@ class MainFrame(wx.Frame):
         self.searchCtrl = wx.SearchCtrl(panel, style=wx.TE_PROCESS_ENTER)
         self.searchCtrl.SetDescriptiveText('筛选文件名或路径')
         self.searchCtrl.ShowCancelButton(True)
+        self.groupFilter = wx.Choice(panel, choices=[])
+        self.task_list.RefreshGroupFilter()
         self.statusFilter = wx.Choice(panel, choices=[
             '全部状态', '未开始', '等待下载', '下载中', '暂停中', '已暂停', '已中断', '录制中', '停止中', '录制失败',
             '部分完成', '待继续', '下载失败', '检测时长', '待合并', '合并中', '合并失败', '已完成'])
@@ -314,6 +323,7 @@ class MainFrame(wx.Frame):
         self.filterCount = wx.StaticText(panel, label='')
         self.filterCount.SetMinSize(self.FromDIP(wx.Size(140, -1)))
         uriSizer.Add(self.searchCtrl, proportion=1, flag=wx.EXPAND|wx.RIGHT, border=self.FromDIP(5))
+        uriSizer.Add(self.groupFilter, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(8))
         uriSizer.Add(self.statusFilter, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(10))
         uriSizer.Add(self.filterCount, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(5))
         self.searchCtrl.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnSearch)
@@ -322,6 +332,7 @@ class MainFrame(wx.Frame):
         self.searchCtrl.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN, self.OnClearSearch)
         self.searchCtrl.Bind(wx.EVT_CHAR_HOOK, self.OnSearchKey)
         self.statusFilter.Bind(wx.EVT_CHOICE, self.OnStatusFilter)
+        self.groupFilter.Bind(wx.EVT_CHOICE, self.OnGroupFilter)
 
         self.emptyPanel = wx.Panel(panel)
         emptySizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -390,6 +401,11 @@ class MainFrame(wx.Frame):
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_EXPANDED, self._QueueRowNumbers)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_COLLAPSED, self._QueueRowNumbers)
         self.mcTree.GetMainWindow().Bind(wx.EVT_SIZE, self.OnTaskListSize)
+        group_items = []
+        self.model.GetChildren(dv.NullDataViewItem, group_items)
+        for group_item in group_items:
+            if self.model.IsContainer(group_item):
+                self.mcTree.Expand(group_item)
         for index in range(self.mcTree.GetColumnCount()):
             column = self.mcTree.GetColumn(index)
             column.GetRenderer().EnableEllipsize(wx.ELLIPSIZE_END)
@@ -834,6 +850,15 @@ class MainFrame(wx.Frame):
     def OnTaskMenu(self, *args, **kwargs):
         return self.task_actions.OnTaskMenu(*args, **kwargs)
 
+    def OnManageGroups(self, event=None):
+        dialog = TaskGroupManagerDialog(self, self.tasks.repository, SysSetting.GetWorkPath(),
+                                       self.tasks, self.runner)
+        try:
+            dialog.ShowModal()
+        finally:
+            dialog.Destroy()
+        self.OnRefresh(None)
+
 
     def _RenameTask(self, *args, **kwargs):
         return self.task_actions._RenameTask(*args, **kwargs)
@@ -1107,6 +1132,10 @@ class MainFrame(wx.Frame):
 
     def OnStatusFilter(self, *args, **kwargs):
         return self.task_list.OnStatusFilter(*args, **kwargs)
+
+
+    def OnGroupFilter(self, *args, **kwargs):
+        return self.task_list.OnGroupFilter(*args, **kwargs)
 
 
     def OnSearchTimer(self, *args, **kwargs):

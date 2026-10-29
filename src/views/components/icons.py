@@ -8,6 +8,8 @@ import wx.svg
 ICON_ROOT = Path(__file__).resolve().parents[3] / "icons"
 LOGO_ROOT = ICON_ROOT / "logo"
 ICON_FILES = {
+    "folder-plus": "tools/file-folder-plus.png",
+    "folder-settings": "tools/file-folder-settings.png",
     "folder-open": "tools/file-folder-open.png",
     "playlist": "files/live-m3u8.png",
     "segment": "files/video-ts.png",

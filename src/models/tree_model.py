@@ -37,7 +37,8 @@ def to_tree_item(task, previous=None):
         elif task.type == TaskType.MP4 and not task.details.file_missing:
             partial = task.save_dir / task.details.temporary_path
             outputs = [_file(partial, partial.name, size=task.progress.downloaded_bytes)]
-        return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+        return TreeItem(task_id=task.id, group_id=task.group_id,
+                        task_type=task.type, save_dir=task.save_dir,
                         encrypted=task.encrypted,
                         rename_allowed=can_rename(task),
                         progress=task.progress, task_status=task.status,
@@ -66,7 +67,8 @@ def to_tree_item(task, previous=None):
     outputs = [_file(output_path(task, output), Path(output.output_path).name,
                      size=output.size_bytes, status=output.status)
                for output in task.outputs if output.status == FileStatus.COMPLETED]
-    return TreeItem(task_id=task.id, task_type=task.type, save_dir=task.save_dir,
+    return TreeItem(task_id=task.id, group_id=task.group_id,
+                    task_type=task.type, save_dir=task.save_dir,
                     encrypted=task.encrypted,
                     rename_allowed=can_rename(task),
                     manifests={-2: _file(playlist, playlist.name)},
@@ -83,7 +85,8 @@ def to_tree_item(task, previous=None):
 
 def load_tree(service):
     """读取恢复后的任务记录，再转换成列表行；核心服务不依赖界面结构。"""
-    return TreeData(items=[to_tree_item(task) for task in service.load_tasks()])
+    return TreeData(items=[to_tree_item(task) for task in service.load_tasks()],
+                    groups=service.repository.list_groups())
 
 
 
@@ -119,6 +122,9 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         super().__init__()
         # 首次读取和恢复由启动入口完成；构造模型仅接收展示数据，不访问任务库。
         self.fileTree = tree
+        self.groups = list(tree.groups)
+        self.groups_by_key = {group.id.int: group for group in self.groups}
+        self.group_filter = 'all'
         self.selected_task_ids = set()
         self.deleting_task_ids = set()
         # None 表示全部；筛选只改变根节点可见性，不删任务、不改变下载回调使用的索引。
@@ -135,13 +141,20 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     def UpdateRowNumbers(self, tree=None):
         """按展开顺序缓存可见行序号；不改变节点身份，也不访问磁盘。"""
         numbers = {}
+        row_number = 0
 
         def visit(parent):
+            nonlocal row_number
             children = []
             self.GetChildren(parent, children)
             for item in children:
                 key = self.ItemToObject(item)
-                numbers[key] = str(len(numbers) + 1)
+                parsed = self.ParseKey(key)
+                if self.IsGroupKey(parsed):
+                    numbers[key] = ''
+                else:
+                    row_number += 1
+                    numbers[key] = str(row_number)
                 if tree is not None and self.IsContainer(item) and tree.IsExpanded(item):
                     visit(item)
 
@@ -418,11 +431,35 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         """自定义方法：例如将 '2.3' 还原为 (2, 3)，用于定位任务和子节点。"""
         return tuple(map(int, keyStr.split(".")))
 
+    @staticmethod
+    def IsGroupKey(objs):
+        return len(objs) == 2 and objs[0] in (-1, -2)
+
+    def _GroupKey(self, group_id=None):
+        return (-1, group_id.int) if group_id is not None else (-2, 0)
+
+    def _TaskGroupKey(self, task):
+        return self._GroupKey(task.group_id)
+
+    def _VisibleTaskIndexes(self):
+        if self.visible_tasks is None:
+            return range(len(self.fileTree.items))
+        return sorted(self.visible_tasks)
+
+    def _GroupTaskCount(self, group_id):
+        return sum(self.fileTree.items[index].group_id == group_id
+                   for index in self._VisibleTaskIndexes())
+
     def GetItemToolTip(self, item):
         """从现有任务快照生成提示，不查询磁盘或网络。"""
         if not item.IsOk():
             return ''
         keys = self.ParseKey(self.ItemToObject(item))
+        if self.IsGroupKey(keys):
+            group = self.groups_by_key.get(keys[1]) if keys[0] == -1 else None
+            name = group.name if group else '未分组'
+            count = self._GroupTaskCount(group.id if group else None)
+            return f'分组：{name}\n任务数：{count}'
         task = self.fileTree.items[keys[0]]
         if len(keys) == 1:
             lines = ['名称：' + (task.parent.displayName or Path(task.parent.fileName).name)]
@@ -490,12 +527,15 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     
     # 父类函数
     def IsContainer(self, item):
-        """重写：M3U8 和 MP4 的文件可展开；RTMP 保持单行。"""
+        """分组、M3U8 和 MP4 节点可展开；RTMP 保持单行。"""
         if not item.IsOk():
             return True
         
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
+        if self.IsGroupKey(objs):
+            group = self.groups_by_key.get(objs[1]) if objs[0] == -1 else None
+            return self._GroupTaskCount(group.id if group else None) > 0
         # print("IsContainer", keys)
         if len(objs) == 1:
             task = self.fileTree.items[objs[0]]
@@ -521,16 +561,31 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         无效 parent 表示不可见的虚拟根，此时返回符合筛选条件的任务；任务下面则返回
         输出、清单和 segments；分片只在 segments 下显示。
         """
-        if not parent.IsOk():  # 根节点
-            for idx, mu in enumerate(self.fileTree.items):
-                if self.visible_tasks is not None and idx not in self.visible_tasks:
-                    continue
-                _key = self._BuildKey((idx,))
-                children.append(self.ObjectToItem(_key))
+        if not parent.IsOk():  # 根节点下始终显示分组节点。
+            if self.group_filter == 'all':
+                group_keys = [self._GroupKey(group.id) for group in self.groups]
+                if self._GroupTaskCount(None):
+                    group_keys.append(self._GroupKey())
+            elif self.group_filter == 'ungrouped':
+                group_keys = [self._GroupKey()]
+            else:
+                group_keys = ([self._GroupKey(self.group_filter)]
+                              if self.group_filter.int in self.groups_by_key else [])
+            for key in group_keys:
+                children.append(self.ObjectToItem(self._BuildKey(key)))
             return len(children)
 
         keys = self.ItemToObject(parent)
         objs = self.ParseKey(keys)
+        if self.IsGroupKey(objs):
+            group = self.groups_by_key.get(objs[1]) if objs[0] == -1 else None
+            group_id = group.id if group else None
+            for index in self._VisibleTaskIndexes():
+                task = self.fileTree.items[index]
+                if task.group_id != group_id:
+                    continue
+                children.append(self.ObjectToItem(self._BuildKey((index,))))
+            return len(children)
         # print("GetChildren parent:", keys)
         if len(objs) == 1:
             idxi = objs[0]
@@ -571,16 +626,16 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
     def ItemChanged(self, item):
         """隐藏任务仍可更新数据，但不用通知视图重绘不存在的行。"""
         if item.IsOk() and self.visible_tasks is not None:
-            index = self.ParseKey(self.ItemToObject(item))[0]
-            if index not in self.visible_tasks:
+            objs = self.ParseKey(self.ItemToObject(item))
+            if not self.IsGroupKey(objs) and objs[0] not in self.visible_tasks:
                 return True
         return super().ItemChanged(item)
 
     def ValueChanged(self, item, col):
         """筛选隐藏的行不发送单元格重绘通知，数据仍保留在完整任务列表中。"""
         if item.IsOk() and self.visible_tasks is not None:
-            index = self.ParseKey(self.ItemToObject(item))[0]
-            if index not in self.visible_tasks:
+            objs = self.ParseKey(self.ItemToObject(item))
+            if not self.IsGroupKey(objs) and objs[0] not in self.visible_tasks:
                 return True
         return super().ValueChanged(item, col)
 
@@ -599,6 +654,24 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         # print("GetValue keys:", keys)
+        if self.IsGroupKey(objs):
+            if col == 0:
+                return self.row_numbers.get(keys, '')
+            if col == 1:
+                group = self.groups_by_key.get(objs[1]) if objs[0] == -1 else None
+                name = group.name if group else '未分组'
+                count = self._GroupTaskCount(group.id if group else None)
+                return f'{name}  ({count})'
+            if col == 7:
+                children = []
+                self.GetChildren(item, children)
+                identities = []
+                for child in children:
+                    index = self.ParseKey(self.ItemToObject(child))[0]
+                    task = self.fileTree.items[index]
+                    identities.append(task.task_id or task.parent.fileName)
+                return bool(identities) and all(key in self.selected_task_ids for key in identities)
+            return ''
         if col == 7:
             if len(objs) != 1:
                 return None
@@ -694,8 +767,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         if len(objs) == 1:
-            return dv.NullDataViewItem
+            return self.ObjectToItem(self._BuildKey(self._TaskGroupKey(self.fileTree.items[objs[0]])))
         elif len(objs) == 2:
+            if self.IsGroupKey(objs):
+                return dv.NullDataViewItem
             idxi = objs[0]
             task = self.fileTree.items[idxi]
             parent = (idxi, -1) if objs[1] >= len(task.outputs) else (
@@ -717,6 +792,21 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         keys = self.ItemToObject(item)
         objs = self.ParseKey(keys)
         if col == 7:
+            if self.IsGroupKey(objs):
+                children = []
+                self.GetChildren(item, children)
+                for child in children:
+                    index = self.ParseKey(self.ItemToObject(child))[0]
+                    task = self.fileTree.items[index]
+                    key = task.task_id or task.parent.fileName
+                    if bool(variant):
+                        self.selected_task_ids.add(key)
+                    else:
+                        self.selected_task_ids.discard(key)
+                self.ValueChanged(item, col)
+                if self.parent and hasattr(self.parent, '_UpdateFilterCount'):
+                    self.parent._UpdateFilterCount()
+                return True
             if len(objs) != 1:
                 return False
             task = self.fileTree.items[objs[0]]
@@ -770,9 +860,13 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         return False
 
     def IsEnabled(self, item, col):
-        """选择复选框只对根任务启用；文件和目录行不参与批量任务选择。"""
+        """选择框对任务和分组启用；文件与目录行不参与批量任务选择。"""
         if col == 7:
-            return len(self.ParseKey(self.ItemToObject(item))) == 1
+            objs = self.ParseKey(self.ItemToObject(item))
+            if self.IsGroupKey(objs):
+                group = self.groups_by_key.get(objs[1]) if objs[0] == -1 else None
+                return self._GroupTaskCount(group.id if group else None) > 0
+            return len(objs) == 1
         return True
 
     # 动态插入数据的方法
@@ -839,6 +933,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         if not keys:
             return False
         objs = self.ParseKey(keys)
+        if self.IsGroupKey(objs):
+            attr.SetBold(True)
+            attr.SetColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT))
+            return col in (0, 1)
         if col == 6 and len(objs) == 1:
             # 模型第 6 列是“状态”；长度为 1 的节点键表示任务行，分片行不走此分支。
             # 单独返回状态样式，避免继续执行下方任务行的统一蓝色粗体设置。

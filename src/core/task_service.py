@@ -13,10 +13,30 @@ from src.media.m3u8.aes128 import parse_iv, sequence_iv
 from src.media.encrypted_file import is_encrypted_mp4, read_metadata
 from src.core.task_encryption import encrypted_artifact_name
 from src.core.path_manager import PathManager
+from src.core.sys_setting import SysSetting
 from src.core.task_files import output_for, output_path, playlist_path, segment_path, work_dir
 from src.core.task_rules import can_rename
 from src.storage.task_repository import TaskRepository
 from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus, SegmentStatus
+
+
+def _task_relocation_pairs(task, updated):
+    old_work = work_dir(task) if isinstance(task, M3U8Task) else None
+    new_work = work_dir(updated) if isinstance(updated, M3U8Task) else None
+    moves = []
+    if old_work is not None and new_work is not None and old_work.resolve() != new_work.resolve():
+        moves.append((old_work, new_work, True))
+    for output in task.outputs:
+        old_path, new_path = output_path(task, output), output_path(updated, output)
+        if old_work is None or not old_path.resolve().is_relative_to(old_work.resolve()):
+            moves.append((old_path, new_path, False))
+            if output.kind == 'merged':
+                moves.append((Path(str(old_path) + '.part.mp4'),
+                              Path(str(new_path) + '.part.mp4'), False))
+    if isinstance(task, MP4Task):
+        moves.append((task.save_dir / task.details.temporary_path,
+                      updated.save_dir / updated.details.temporary_path, False))
+    return moves
 
 
 class TaskService:
@@ -159,6 +179,190 @@ class TaskService:
                 except OSError:
                     pass
             raise
+
+    def move_task_to_group(self, task_id, group_id):
+        """Move a task's owned files and record into a group folder, or back to root."""
+        task = self.repository.get(task_id)
+        if task is None:
+            raise ValueError('任务不存在，请刷新后重试。')
+        if not can_rename(task):
+            raise ValueError('任务正在运行，暂时不能移动分组。')
+        group = self.repository.get_group(group_id) if group_id is not None else None
+        if group_id is not None and group is None:
+            raise ValueError('目标分组不存在，请刷新后重试。')
+        target_group_id = group.id if group else None
+        if task.group_id == target_group_id:
+            return task
+        raw_destination_root = Path(group.folder_path) if group else Path(SysSetting.GetWorkPath())
+        if raw_destination_root.is_symlink():
+            raise ValueError('目标文件夹是符号链接，不能移动任务。')
+        destination_root = raw_destination_root.expanduser().resolve()
+
+        updated = task.model_copy(deep=True)
+        updated.group_id = target_group_id
+        updated.save_dir = destination_root
+        if updated.group_id == task.group_id and Path(task.save_dir).resolve() == destination_root:
+            return task
+
+        moves = _task_relocation_pairs(task, updated)
+
+        other_tasks = [other for other in self.repository.list_tasks() if other.id != task.id]
+        reserved = set()
+        directories = set()
+        for other in other_tasks:
+            for output in other.outputs:
+                reserved.add(PathManager.GetPathKey(output_path(other, output)))
+                if output.kind == 'merged':
+                    reserved.add(PathManager.GetPathKey(
+                        Path(str(output_path(other, output)) + '.part.mp4')))
+            if isinstance(other, MP4Task):
+                reserved.add(PathManager.GetPathKey(other.save_dir / other.details.temporary_path))
+            if isinstance(other, M3U8Task):
+                directories.add(PathManager.GetPathKey(work_dir(other)))
+        separator = os.sep
+
+        def overlaps(first, second):
+            return (first == second or first.startswith(second + separator)
+                    or second.startswith(first + separator))
+
+        target_keys = []
+        for source, destination, is_directory in moves:
+            source_key = PathManager.GetPathKey(source)
+            target_key = PathManager.GetPathKey(destination)
+            if source_key == target_key:
+                continue
+            if any(overlaps(target_key, prior) for prior in target_keys):
+                raise ValueError(f'任务自身的目标路径互相冲突：{destination}')
+            target_keys.append(target_key)
+            if destination.exists() or destination.is_symlink():
+                raise FileExistsError(f'目标路径已存在：{destination}')
+            if source.is_symlink() or any(parent.is_symlink() for parent in source.parents):
+                raise ValueError(f'检测到符号链接，不能移动任务文件：{source}')
+            if is_directory:
+                if any(overlaps(target_key, key) for key in reserved | directories):
+                    raise ValueError(f'目标工作目录与其他任务路径冲突：{destination}')
+            elif (any(overlaps(target_key, key) for key in reserved)
+                  or any(overlaps(target_key, key) for key in directories)):
+                raise ValueError(f'目标文件路径与其他任务冲突：{destination}')
+
+        changed = []
+        created_dirs = set()
+        try:
+            destination_root.mkdir(parents=True, exist_ok=True)
+            for source, destination, is_directory in moves:
+                if not source.exists():
+                    continue
+                if source.resolve() == destination.resolve():
+                    continue
+                parents = []
+                parent = destination.parent
+                while parent != destination_root.parent and not parent.exists():
+                    parents.append(parent)
+                    parent = parent.parent
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                created_dirs.update(path for path in parents if path.exists())
+                source.rename(destination)
+                changed.append((destination, source))
+            return self.repository.update(updated)
+        except Exception:
+            for destination, source in reversed(changed):
+                try:
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    if destination.exists() and not source.exists():
+                        destination.rename(source)
+                except OSError:
+                    pass
+            for directory in sorted(created_dirs, key=lambda path: len(path.parts), reverse=True):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
+            raise
+
+    def delete_group_preserving_tasks(self, group_id):
+        """Remove the group after moving its task records and owned files to the default root."""
+        group = self.repository.get_group(group_id)
+        if group is None:
+            raise ValueError('分组不存在，请刷新后重试。')
+        all_tasks = self.repository.list_tasks()
+        group_tasks = [task for task in all_tasks if task.group_id == group.id]
+        if not group_tasks:
+            if not self.repository.delete_group(group.id):
+                raise ValueError('分组已不存在，请刷新后重试。')
+            try:
+                group.folder_path.rmdir()
+            except OSError:
+                pass
+            return group
+
+        root = Path(SysSetting.GetWorkPath()).expanduser().resolve()
+        group_task_ids = {task.id for task in group_tasks}
+        reserved = set()
+        for other in all_tasks:
+            if other.id in group_task_ids:
+                continue
+            for output in other.outputs:
+                path = output_path(other, output)
+                reserved.add(PathManager.GetPathKey(path))
+                if output.kind == 'merged':
+                    reserved.add(PathManager.GetPathKey(Path(str(path) + '.part.mp4')))
+            if isinstance(other, MP4Task):
+                reserved.add(PathManager.GetPathKey(other.save_dir / other.details.temporary_path))
+            if isinstance(other, M3U8Task):
+                reserved.add(PathManager.GetPathKey(work_dir(other)))
+
+        separator = os.sep
+
+        def overlaps(first, second):
+            return (first == second or first.startswith(second + separator)
+                    or second.startswith(first + separator))
+
+        planned_targets = []
+        for task in group_tasks:
+            if not can_rename(task):
+                raise ValueError(f'任务“{task.name}”正在运行或处理中，无法删除分组。')
+            updated = task.model_copy(deep=True)
+            updated.group_id = None
+            updated.save_dir = root
+            for source, destination, _is_directory in _task_relocation_pairs(task, updated):
+                if source.resolve() == destination.resolve():
+                    continue
+                if source.is_symlink() or any(parent.is_symlink() for parent in source.parents):
+                    raise ValueError(f'任务文件路径包含符号链接，无法安全移动：{source}')
+                if destination.exists() or destination.is_symlink():
+                    raise FileExistsError(f'默认下载目录中已有同名文件或文件夹：{destination}')
+                target_key = PathManager.GetPathKey(destination)
+                if any(overlaps(target_key, key) for key in reserved):
+                    raise ValueError(f'目标路径与其他任务冲突：{destination}')
+                if any(overlaps(target_key, key) for key in planned_targets):
+                    raise ValueError(f'组内任务目标路径互相冲突：{destination}')
+                planned_targets.append(target_key)
+
+        moved_ids = []
+        try:
+            for task in group_tasks:
+                self.move_task_to_group(task.id, None)
+                moved_ids.append(task.id)
+            if not self.repository.delete_group(group.id):
+                raise ValueError('分组已不存在，请刷新后重试。')
+        except Exception as error:
+            rollback_errors = []
+            for task_id in reversed(moved_ids):
+                try:
+                    self.move_task_to_group(task_id, group.id)
+                except Exception as rollback_error:
+                    rollback_errors.append(str(rollback_error))
+            if rollback_errors:
+                raise RuntimeError(
+                    '删除分组失败，部分任务未能自动移回原分组，请检查任务路径：'
+                    + '; '.join(rollback_errors)
+                ) from error
+            raise
+        try:
+            group.folder_path.rmdir()
+        except OSError:
+            pass  # Preserve files that are not owned by tasks.
+        return group
 
     def set_task_encrypted(self, task_id, encrypted, *, artifacts_prepared=False):
         """Persist encryption state and relative paths for prepared task artifacts.

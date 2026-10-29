@@ -4,6 +4,7 @@ from typing import Union, List, Optional
 from uuid import UUID
 from pathlib import Path
 from src.schemas.task import FileStatus, SegmentStatus, TaskStatus, TaskType, TaskProgress
+from src.schemas.task_group import TaskGroup
 
 class FileItem(BaseModel):
     fileName: str
@@ -44,6 +45,7 @@ class FileItem(BaseModel):
 class TreeItem(BaseModel):
     rename_allowed: bool = False
     encrypted: bool = False
+    group_id: UUID | None = None
     duration_pending: bool = False
     task_type: TaskType = TaskType.M3U8
     save_dir: Optional[Path] = None
@@ -63,3 +65,4 @@ class TreeItem(BaseModel):
 
 class TreeData(BaseModel):
     items: List[TreeItem]       = []
+    groups: list[TaskGroup] = []

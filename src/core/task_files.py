@@ -56,8 +56,8 @@ def _files(task, scope='all'):
     return paths
 
 
-def trash_task_files(task, other_tasks, *, scope='all'):
-    """先校验全部路径再移入回收站；失败时由调用方保留数据库记录。"""
+def collect_task_trash_paths(task, other_tasks, *, scope='all'):
+    """Validate task-owned paths and return existing files plus empty dirs to clean."""
     root = task.save_dir.resolve()
     paths = _files(task, scope)
     other_tasks = list(other_tasks)
@@ -99,6 +99,12 @@ def trash_task_files(task, other_tasks, *, scope='all'):
         directories.update(parent for parent in path.parents if parent != root and parent.is_relative_to(root))
     if work is not None and work.exists():
         existing.insert(0, str(work))
+    return existing, directories
+
+
+def trash_task_files(task, other_tasks, *, scope='all'):
+    """先校验全部路径再移入回收站；失败时由调用方保留数据库记录。"""
+    existing, directories = collect_task_trash_paths(task, other_tasks, scope=scope)
     if existing:
         try:
             send2trash(existing)

@@ -114,6 +114,8 @@ class TaskActionsController:
         if not item.IsOk():
             return
         keys = self.frame.model.ParseKey(self.frame.model.ItemToObject(item))
+        if self.frame.model.IsGroupKey(keys):
+            return
         if len(keys) not in (1, 2):
             return
         index = keys[0]
@@ -187,6 +189,24 @@ class TaskActionsController:
 
         info = self.frame.model.TaskInfo(index)
         parent_item = self.frame.model.ObjectToItem(self.frame.model._BuildKey((index,)))
+        record = self.frame.tasks.repository.get(task.task_id) if task.task_id else None
+        if record is not None:
+            group_menu = wx.Menu()
+            ungrouped = group_menu.AppendRadioItem(wx.ID_ANY, '未分组')
+            ungrouped.Check(record.group_id is None)
+            ungrouped.Enable(task.rename_allowed and record.group_id is not None)
+            group_menu.Bind(wx.EVT_MENU,
+                            lambda event: self._MoveTaskToGroup(task.task_id, None), ungrouped)
+            for group in self.frame.tasks.repository.list_groups():
+                entry = group_menu.AppendRadioItem(wx.ID_ANY, group.name)
+                entry.Check(group.id == record.group_id)
+                entry.Enable(task.rename_allowed and group.id != record.group_id)
+                group_menu.Bind(wx.EVT_MENU,
+                                lambda event, group_id=group.id:
+                                    self._MoveTaskToGroup(task.task_id, group_id), entry)
+            if group_menu.GetMenuItemCount():
+                menu.AppendSeparator()
+                menu.AppendSubMenu(group_menu, '移动到分组')
         add('重命名…', lambda: self.frame._RenameTask(task.task_id, task.parent.displayName),
             task.rename_allowed)
         add('解密任务' if task.encrypted else '加密任务',
@@ -230,6 +250,23 @@ class TaskActionsController:
             self.frame.mcTree.PopupMenu(menu)
         finally:
             menu.Destroy()
+
+    def _MoveTaskToGroup(self, task_id, group_id):
+        try:
+            self.frame.tasks.move_task_to_group(task_id, group_id)
+            self.frame.OnRefresh(None)
+            if (self.frame._groupFilter == 'all'
+                    or self.frame._groupFilter == group_id
+                    or (self.frame._groupFilter == 'ungrouped' and group_id is None)):
+                group_key = self.frame.model._BuildKey(self.frame.model._GroupKey(group_id))
+                group_item = self.frame.model.ObjectToItem(group_key)
+                if self.frame.model.IsContainer(group_item):
+                    self.frame._SetTaskExpanded(group_item, True)
+            self.frame._SyncDownloads()
+        except (ValueError, OSError, RuntimeError, sqlite3.Error,
+                TaskDataError, TaskConflictError) as error:
+            wx.MessageBox(f'移动任务失败：{error}', '分组操作失败',
+                          wx.OK | wx.ICON_WARNING, parent=self.frame)
 
     def _RenameTask(self, task_id, current_name):
         dialog = TaskRenameDialog(self.frame, current_name)

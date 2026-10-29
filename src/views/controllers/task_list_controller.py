@@ -34,7 +34,8 @@ class TaskListController:
             self.frame.filterCount.SetLabel(label)
         if hasattr(self.frame, 'batch_actions'):
             self.frame.batch_actions.UpdateActionAvailability()
-        filtered = bool(self.frame._filterText) or self.frame.statusFilter.GetSelection() > 0
+        filtered = (bool(self.frame._filterText) or self.frame.statusFilter.GetSelection() > 0
+                    or self.frame.groupFilter.GetSelection() > 0)
         # 无任务时保持空列表；仅筛选无匹配结果时显示清除筛选提示。
         empty = total > 0 and visible == 0 and filtered
         self.frame.clearFiltersButton.Show(filtered)
@@ -49,13 +50,19 @@ class TaskListController:
         """只筛选根任务，保持原始任务索引，避免筛选后暂停、删除或下载回调操作错行。"""
         text = self.frame._filterText
         status = self.frame.statusFilter.GetStringSelection()
+        group_filter = self.frame._groupFilter
+        group_changed = self.frame.model.group_filter != group_filter
         visible = None
         locked_encrypted = {index for index, task in enumerate(self.frame.model.fileTree.items)
                             if task.encrypted and not self.frame._encrypted_tasks_unlocked}
-        if text or status != '全部状态' or locked_encrypted:
+        if text or status != '全部状态' or group_filter != 'all' or locked_encrypted:
             visible = set()
             for index, task in enumerate(self.frame.model.fileTree.items):
                 if index in locked_encrypted:
+                    continue
+                if group_filter == 'ungrouped' and task.group_id is not None:
+                    continue
+                if group_filter not in ('all', 'ungrouped') and task.group_id != group_filter:
                     continue
                 if text and not (
                     (task.parent and (text in task.parent.fileName.casefold()
@@ -67,11 +74,20 @@ class TaskListController:
                 if status != '全部状态' and self.frame.model.TaskInfo(index)['status'].split(' · ', 1)[0] != status:
                     continue
                 visible.add(index)
-        if force or visible != self.frame.model.visible_tasks:
+        if force or group_changed or visible != self.frame.model.visible_tasks:
             expanded = set() if expanded_keys is None else set(expanded_keys)
             root = dv.NullDataViewItem
             if expanded_keys is None:
                 self.frame._SaveExpandState(root, expanded)
+            if group_changed:
+                if group_filter == 'all':
+                    expanded.update(self.frame.model._BuildKey(self.frame.model._GroupKey(group.id))
+                                    for group in self.frame.model.groups)
+                    expanded.add(self.frame.model._BuildKey(self.frame.model._GroupKey()))
+                else:
+                    selected_group = None if group_filter == 'ungrouped' else group_filter
+                    expanded.add(self.frame.model._BuildKey(
+                        self.frame.model._GroupKey(selected_group)))
             # 刷新时只给新任务应用默认值，已存在任务保留用户手动展开/折叠的状态。
             if SysSetting.GetAll()['default_expand_tasks']:
                 for index, task in enumerate(self.frame.model.fileTree.items):
@@ -81,6 +97,7 @@ class TaskListController:
             selected_key = self.frame.model.ItemToObject(selected) if selected.IsOk() else None
             self.frame.mcTree.Freeze()
             try:
+                self.frame.model.group_filter = group_filter
                 self.frame.model.visible_tasks = visible
                 self.frame.model.Cleared()
                 self.frame._RestoreExpandState(root, expanded)
@@ -95,6 +112,23 @@ class TaskListController:
         self.frame._knownTaskPaths = {task.parent.fileName for task in self.frame.model.fileTree.items if task.parent}
         if hasattr(self.frame, '_defaultTaskWidth'):
             self.frame._FitTaskColumns()
+
+    def RefreshGroupFilter(self):
+        """Reload group labels while preserving the selected group when it still exists."""
+        groups = self.frame.tasks.repository.list_groups()
+        selected = self.frame._groupFilter
+        options = ['all', 'ungrouped']
+        self.frame.groupFilter.Clear()
+        self.frame.groupFilter.Append('全部任务')
+        self.frame.groupFilter.Append('未分组')
+        for group in groups:
+            options.append(group.id)
+            self.frame.groupFilter.Append(group.name)
+        if selected not in options:
+            selected = 'all'
+        self.frame._groupFilter = selected
+        self.frame._groupFilterOptions = options
+        self.frame.groupFilter.SetSelection(options.index(selected))
 
     def _RecursiveExpand(self, item, expand):
         """递归展开/折叠"""
@@ -167,11 +201,20 @@ class TaskListController:
     def OnClearAllFilters(self, event):
         """空结果提示中的恢复入口，同时清除关键词、状态及尚未执行的筛选。"""
         self.frame.statusFilter.SetSelection(0)
+        self.frame.groupFilter.SetSelection(0)
+        self.frame._groupFilter = 'all'
         self.frame.OnClearSearch(event)
 
     def OnStatusFilter(self, event):
         self.frame._searchTimer.Stop()
         self.frame._SearchItems(self.frame.searchCtrl.GetValue())
+
+    def OnGroupFilter(self, event):
+        selection = self.frame.groupFilter.GetSelection()
+        options = getattr(self.frame, '_groupFilterOptions', ['all', 'ungrouped'])
+        if 0 <= selection < len(options):
+            self.frame._groupFilter = options[selection]
+            self.frame._ApplyTaskFilter()
 
     def OnSearchTimer(self, event):
         """计时结束时只搜索最新输入；清空输入或关闭窗口会取消计时。"""
@@ -200,9 +243,22 @@ class TaskListController:
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'读取任务失败：{error}', '刷新失败', wx.OK | wx.ICON_WARNING, parent=self.frame)
             return
+        self.RefreshGroupFilter()
         # 删除或新增记录会改变行号，先按任务身份保存展开状态，再映射到新行。
         expanded_ids = set()
         expanded_folders = set()
+        expanded_groups = set()
+        expanded_ungrouped = False
+        old_task_groups = {task.task_id: task.group_id for task in self.frame.model.fileTree.items
+                           if task.task_id is not None}
+        for group in self.frame.model.groups:
+            group_key = self.frame.model._BuildKey(self.frame.model._GroupKey(group.id))
+            group_item = self.frame.model.ObjectToItem(group_key)
+            if self.frame.mcTree.IsExpanded(group_item):
+                expanded_groups.add(group.id)
+        ungrouped_item = self.frame.model.ObjectToItem(
+            self.frame.model._BuildKey(self.frame.model._GroupKey()))
+        expanded_ungrouped = self.frame.mcTree.IsExpanded(ungrouped_item)
         for index, task in enumerate(self.frame.model.fileTree.items):
             item = self.frame.model.ObjectToItem(self.frame.model._BuildKey((index,)))
             if self.frame.mcTree.IsExpanded(item):
@@ -212,10 +268,22 @@ class TaskListController:
                     if self.frame.model.IsContainer(folder) and self.frame.mcTree.IsExpanded(folder):
                         expanded_folders.add((task.task_id or task.parent.fileName, key))
         self.frame.model.fileTree = tree
+        self.frame.model.groups = list(tree.groups)
+        self.frame.model.groups_by_key = {group.id.int: group for group in tree.groups}
         expanded = {self.frame.model._BuildKey((index,)) for index, task in enumerate(tree.items)
                     if (task.task_id or task.parent.fileName) in expanded_ids}
+        expanded.update(self.frame.model._BuildKey(self.frame.model._GroupKey(group.id))
+                        for group in tree.groups if group.id in expanded_groups)
+        if expanded_ungrouped:
+            expanded.add(self.frame.model._BuildKey(self.frame.model._GroupKey()))
         expanded.update(self.frame.model._BuildKey((index, key)) for index, task in enumerate(tree.items)
                         for key in (-4, -1) if (task.task_id or task.parent.fileName, key) in expanded_folders)
+        for task in tree.items:
+            if (task.task_id is not None
+                    and (task.task_id not in old_task_groups
+                         or old_task_groups[task.task_id] != task.group_id)):
+                expanded.add(self.frame.model._BuildKey(
+                    self.frame.model._TaskGroupKey(task)))
         self.frame._ApplyTaskFilter(force=True, expanded_keys=expanded)
 
     def OnActivatedChanged(self, event):
