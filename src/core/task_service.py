@@ -6,6 +6,8 @@ import os
 import tempfile
 import subprocess
 import stat
+import errno
+import shutil
 from src.media.m3u8.ffmpeg_converter import FFmpegConverter
 
 from src.media.m3u8.m3u8_parser import M3U8Parser
@@ -18,6 +20,35 @@ from src.core.task_files import output_for, output_path, playlist_path, segment_
 from src.core.task_rules import can_rename
 from src.storage.task_repository import TaskRepository
 from src.schemas.task import M3U8Task, M3U8Details, MP4Task, MP4Details, SourceType, TaskOutput, TaskProgress, TaskSegment, TaskStatus, FileStatus, SegmentStatus
+
+
+def _move_group_artifact(source, destination):
+    """同盘重命名；跨盘先完整复制，再发布目标并删除源文件。"""
+    try:
+        source.rename(destination)
+        return
+    except OSError as error:
+        if error.errno != errno.EXDEV and getattr(error, 'winerror', None) != 17:
+            raise
+    # 在目标盘临时目录复制，失败时仅清理临时副本，源文件保持完整。
+    with tempfile.TemporaryDirectory(prefix='.task-move-', dir=destination.parent) as staging:
+        staged = Path(staging) / source.name
+        if source.is_dir():
+            shutil.copytree(source, staged, symlinks=True)
+        else:
+            shutil.copy2(source, staged)
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError(f'目标路径已存在：{destination}')
+        staged.rename(destination)
+    try:
+        if source.is_dir():
+            shutil.rmtree(source)
+        else:
+            source.unlink()
+    except OSError as error:
+        # 删除目录可能已经完成一部分，保留完整目标副本，不冒险删除它。
+        raise RuntimeError(f'文件已复制到 {destination}，但未能完全删除源路径 {source}；'
+                           f'任务记录未更新，请检查两处文件：{error}') from error
 
 
 def _task_relocation_pairs(task, updated):
@@ -265,22 +296,33 @@ class TaskService:
                     parent = parent.parent
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 created_dirs.update(path for path in parents if path.exists())
-                source.rename(destination)
+                _move_group_artifact(source, destination)
                 changed.append((destination, source))
             return self.repository.update(updated)
-        except Exception:
+        except Exception as error:
+            rollback_errors = []
             for destination, source in reversed(changed):
                 try:
                     source.parent.mkdir(parents=True, exist_ok=True)
-                    if destination.exists() and not source.exists():
-                        destination.rename(source)
-                except OSError:
-                    pass
+                    if source.exists() or source.is_symlink():
+                        if destination.exists():
+                            raise FileExistsError('原路径已被占用，不能覆盖恢复')
+                    elif destination.exists():
+                        _move_group_artifact(destination, source)
+                    else:
+                        raise FileNotFoundError('原路径和目标路径均不存在')
+                except Exception as rollback_error:
+                    rollback_errors.append(f'原路径：{source}；目标路径：{destination}；'
+                                           f'回滚失败：{rollback_error}')
             for directory in sorted(created_dirs, key=lambda path: len(path.parts), reverse=True):
                 try:
                     directory.rmdir()
                 except OSError:
                     pass
+            if rollback_errors:
+                raise RuntimeError(f'移动任务失败：{error}。部分文件未能回滚，'
+                                   '任务记录仍保留移动前的路径，请检查以下位置：\n'
+                                   + '\n'.join(rollback_errors)) from error
             raise
 
     def move_tasks_to_group(self, task_ids, group_id):
