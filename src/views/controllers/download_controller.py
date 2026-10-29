@@ -23,6 +23,9 @@ class DownloadController:
         """启动只建立缓存；后续只刷新变化的单元格，不反复使整行和全部表头失效。"""
         if self.frame._closing:
             return
+        if (getattr(getattr(self.frame, 'task_list', None), '_task_drag_active', False)
+                and wx.GetMouseState().LeftIsDown()):
+            return  # 原生拖放期间保留当前快照，松手后由下一次定时刷新追上。
         self.frame._SyncDownloads()
         self.frame._CheckBrowserInbox()
         display = {}

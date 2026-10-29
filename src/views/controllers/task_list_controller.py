@@ -1,7 +1,9 @@
 """任务列表的筛选、刷新、展开状态和行布局控制器。"""
 
 import sqlite3
+import ctypes
 from pathlib import Path
+from uuid import uuid4
 
 import wx
 import wx.dataview as dv
@@ -17,6 +19,118 @@ class TaskListController:
 
     def __init__(self, frame):
         self.frame = frame
+        self._dragged_task_id = None
+        self._dragged_source_group_id = None
+        self._drag_payload = None
+        self._task_drag_active = False
+        self._drag_refresh_timer = None
+        self.task_drag_format = wx.DataFormat('application/x-avdownloader-task-id')
+
+    def OnTaskBeginDrag(self, event):
+        """Start an internal drag only from a visible root task row."""
+        self.frame.ClearTaskToolTip()
+        item = event.GetItem()
+        if not item.IsOk():
+            event.Veto()
+            return
+        key = self.frame.model.ItemToObject(item)
+        indexes = self.frame.model.ParseKey(key)
+        if len(indexes) != 1:
+            event.Veto()
+            return
+        task = self.frame.model.fileTree.items[indexes[0]]
+        if (not task.task_id
+                or (task.encrypted and not self.frame._encrypted_tasks_unlocked)):
+            event.Veto()
+            return
+        self._dragged_task_id = task.task_id
+        self._dragged_source_group_id = task.group_id
+        self._drag_payload = f'{task.task_id}:{uuid4().hex}'
+        self._task_drag_active = True
+        drag_data = wx.CustomDataObject(self.task_drag_format)
+        drag_data.SetData(self._drag_payload.encode('ascii'))
+        event.SetDataObject(drag_data)
+        event.SetDragFlags(wx.Drag_AllowMove)
+
+    def _DropTargetGroup(self, item):
+        if not item.IsOk():
+            return False, None
+        key = self.frame.model.ItemToObject(item)
+        indexes = self.frame.model.ParseKey(key)
+        if not self.frame.model.IsGroupKey(indexes):
+            return False, None
+        if indexes[0] == -2:
+            return True, None
+        group = self.frame.model.groups_by_key.get(indexes[1])
+        return (group is not None), (group.id if group is not None else None)
+
+    def OnTaskDropPossible(self, event):
+        valid, target_group_id = self._DropTargetGroup(event.GetItem())
+        task_id = self._dragged_task_id
+        if valid and task_id:
+            valid = self._dragged_source_group_id != target_group_id
+        event.SetDropEffect(wx.DragMove if valid else wx.DragNone)
+
+    def OnTaskDrop(self, event):
+        task_id = self._dragged_task_id
+        self._dragged_task_id = None
+        source_group_id = self._dragged_source_group_id
+        self._dragged_source_group_id = None
+        expected_payload = self._drag_payload
+        self._drag_payload = None
+        self._task_drag_active = False
+        valid, target_group_id = self._DropTargetGroup(event.GetItem())
+        if not valid or not task_id or source_group_id == target_group_id:
+            self._ScheduleTaskDragRefresh()
+            return
+        try:
+            buffer = event.GetDataBuffer()
+            size = event.GetDataSize()
+            if isinstance(buffer, (bytes, bytearray, memoryview)):
+                raw_data = bytes(buffer)[:size]
+            else:
+                address = buffer.value if isinstance(buffer, ctypes.c_void_p) else buffer
+                raw_data = ctypes.string_at(address, size)
+            dropped_payload = raw_data.decode('ascii').rstrip('\x00')
+        except (AttributeError, UnicodeDecodeError, RuntimeError, TypeError, ValueError):
+            self._ScheduleTaskDragRefresh()
+            return
+        if not expected_payload or dropped_payload != expected_payload:
+            self._ScheduleTaskDragRefresh()
+            return
+        event.SetDropEffect(wx.DragMove)
+        # 原生拖放结束时会恢复拖动图像下的像素；回调内重建列表会被旧像素覆盖。
+        wx.CallAfter(self._MoveTaskAfterDrop, task_id, target_group_id)
+
+    def _MoveTaskAfterDrop(self, task_id, target_group_id):
+        if not self.frame or self.frame._closing or self.frame.IsBeingDeleted():
+            return
+        self.frame.task_actions._MoveTaskToGroup(task_id, target_group_id)
+        self._ScheduleTaskDragRefresh()
+
+    def OnTaskDragMouseUp(self, event):
+        """拖放被取消时清理源行的原生拖动残影。"""
+        event.Skip()
+        if not self._task_drag_active:
+            return
+        self._task_drag_active = False
+        self._dragged_task_id = None
+        self._dragged_source_group_id = None
+        self._drag_payload = None
+        self._ScheduleTaskDragRefresh()
+
+    def _ScheduleTaskDragRefresh(self):
+        # Windows 的原生拖放反馈会在 drop 回调返回后才清理；立即刷新可能被它覆盖。
+        if self._drag_refresh_timer is not None:
+            self._drag_refresh_timer.Stop()
+        self._drag_refresh_timer = wx.CallLater(80, self._RefreshAfterTaskDrag)
+
+    def _RefreshAfterTaskDrag(self):
+        self._drag_refresh_timer = None
+        if not self.frame or self.frame._closing or self.frame.IsBeingDeleted():
+            return
+        window = self.frame.mcTree.GetMainWindow()
+        window.Refresh(True)
 
     def _SearchItems(self, text):
         """应用关键词筛选；命中任务、MP4 或分片路径均保留整个任务。"""

@@ -36,6 +36,10 @@ class TaskTypesUITests(unittest.TestCase):
         temp = TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
+        from src.core.sys_setting import SysSetting
+        settings_path = patch.object(SysSetting, 'ConfigPath', return_value=self.root / 'settings.json')
+        settings_path.start()
+        self.addCleanup(settings_path.stop)
         self.repo = TaskRepository(self.root / 'downloads.db')
         self.service = TaskService(self.repo)
 

@@ -355,7 +355,10 @@ class MainFrame(wx.Frame):
         if encrypted_indexes:
             self.model.visible_tasks = set(range(len(initial_tree.items))) - encrypted_indexes
         # 创建DataViewCtrl
-        self.mcTree = dv.DataViewCtrl(panel, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
+        self.mcTree = dv.DataViewCtrl(
+            panel, -1,
+            style=(wx.BORDER_THEME | dv.DV_ROW_LINES | dv.DV_VERT_RULES
+                   | dv.DV_VARIABLE_LINE_HEIGHT))
         if wx.Platform == '__WXMAC__':
             # 列表采用略小的字号；自绘进度与操作文字同样读取此字体。
             font = wx.Font(self.mcTree.GetFont())
@@ -366,6 +369,9 @@ class MainFrame(wx.Frame):
         if wx.Platform == '__WXMSW__':
             self.mcTree.GetMainWindow().Bind(wx.EVT_PAINT, self.OnTaskListPaint)
         self.mcTree.AssociateModel(self.model)
+        task_drag_format = self.task_list.task_drag_format
+        self.mcTree.EnableDragSource(task_drag_format)
+        self.mcTree.EnableDropTarget(task_drag_format)
         self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
         self._UpdateFilterCount()
         # 添加多列
@@ -396,7 +402,13 @@ class MainFrame(wx.Frame):
         self.mcTree.AppendColumn(actionColumn)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_EXPANDED, self._QueueRowNumbers)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_COLLAPSED, self._QueueRowNumbers)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_BEGIN_DRAG, self.task_list.OnTaskBeginDrag)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_DROP_POSSIBLE,
+                         self.task_list.OnTaskDropPossible)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_DROP, self.task_list.OnTaskDrop)
         self.mcTree.GetMainWindow().Bind(wx.EVT_SIZE, self.OnTaskListSize)
+        self.mcTree.GetMainWindow().Bind(wx.EVT_LEFT_UP,
+                                         self.task_list.OnTaskDragMouseUp)
         group_items = []
         self.model.GetChildren(dv.NullDataViewItem, group_items)
         for group_item in group_items:
@@ -483,7 +495,7 @@ class MainFrame(wx.Frame):
 
     def OnTaskHover(self, event):
         event.Skip()
-        if self._closing:
+        if self._closing or event.Dragging():
             return
         source = event.GetEventObject()
         pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))

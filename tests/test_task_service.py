@@ -46,7 +46,8 @@ class TaskServiceTests(unittest.TestCase):
                         patch.object(M3U8Downloader, '_jobs', {}),
                         patch.object(M3U8Downloader, '_changes', SimpleQueue()),
                         patch.object(M3U8Downloader, 'errors', SimpleQueue()),
-                        patch.object(SysSetting, '_values', config),):
+                        patch.object(SysSetting, '_values', config),
+                        patch.object(SysSetting, 'ConfigPath', return_value=self.root / 'settings.json')):
             patcher.start()
             self.addCleanup(patcher.stop)
 

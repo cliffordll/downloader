@@ -2,6 +2,8 @@ import os
 import json
 import threading
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -22,6 +24,12 @@ class TaskProgressTests(unittest.TestCase):
         cls.app = wx.GetApp() or wx.App(False)
 
     def setUp(self):
+        settings_dir = TemporaryDirectory(prefix='downloader-progress-test-')
+        self.addCleanup(settings_dir.cleanup)
+        settings_path = patch.object(SysSetting, 'ConfigPath',
+                                     return_value=Path(settings_dir.name) / 'settings.json')
+        settings_path.start()
+        self.addCleanup(settings_path.stop)
         self.task = TreeItem(parent=FileItem(fileName='task/download.m3u8'), childs=[
             FileItem(fileName='task/a.ts', fileSize=10), FileItem(fileName='task/b.ts')], download=1)
         self.tree = TreeData(items=[self.task])

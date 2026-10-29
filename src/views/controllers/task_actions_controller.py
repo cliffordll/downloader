@@ -253,6 +253,10 @@ class TaskActionsController:
             menu.Destroy()
 
     def _MoveTaskToGroup(self, task_id, group_id):
+        self.frame._SetPrimaryStatusText('正在移动任务，请稍候…')
+        # 只立即绘制状态栏，不进入嵌套事件循环，避免移动过程中重复操作任务。
+        self.frame.statusBar.Update()
+        busy_cursor = wx.BusyCursor()
         try:
             self.frame.runner.move_task_to_group(task_id, group_id)
             self.frame.OnRefresh(None)
@@ -264,10 +268,14 @@ class TaskActionsController:
                 if self.frame.model.IsContainer(group_item):
                     self.frame._SetTaskExpanded(group_item, True)
             self.frame._SyncDownloads()
+            self.frame._SetPrimaryStatusText('任务移动完成')
         except (ValueError, OSError, RuntimeError, sqlite3.Error,
                 TaskDataError, TaskConflictError) as error:
+            self.frame._SetPrimaryStatusText(f'移动任务失败：{error}')
             wx.MessageBox(f'移动任务失败：{error}', '分组操作失败',
                           wx.OK | wx.ICON_WARNING, parent=self.frame)
+        finally:
+            del busy_cursor
 
     def _RenameTask(self, task_id, current_name):
         dialog = TaskRenameDialog(self.frame, current_name)
