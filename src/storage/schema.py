@@ -5,12 +5,24 @@ import sqlalchemy as sa
 
 metadata = sa.MetaData()
 PROGRESS_COLUMNS = ('completed_segments', 'total_segments', 'downloaded_bytes', 'total_bytes', 'recorded_seconds')
+task_groups = sa.Table(
+    'task_groups', metadata,
+    sa.Column('id', sa.Text, primary_key=True, nullable=False),
+    sa.Column('name', sa.Text, nullable=False),
+    sa.Column('folder_path', sa.Text, nullable=False, unique=True),
+    sa.Column('position', sa.Integer, nullable=False, server_default='0'),
+    sa.Column('created_at', sa.Text, nullable=False),
+    sa.Column('updated_at', sa.Text, nullable=False),
+    sa.CheckConstraint('length(trim(name)) > 0'),
+    sa.CheckConstraint('position >= 0'),
+)
 tasks = sa.Table(
     'tasks', metadata,
     sa.Column('id', sa.Text, primary_key=True, nullable=False),
     sa.Column('type', sa.Text, nullable=False),
     sa.Column('source_type', sa.Text, nullable=False),
     sa.Column('name', sa.Text, nullable=False),
+    sa.Column('group_id', sa.Text, sa.ForeignKey('task_groups.id', ondelete='SET NULL')),
     sa.Column('encrypted', sa.Boolean, nullable=False, server_default='0'),
     sa.Column('source_url', sa.Text),
     sa.Column('save_dir', sa.Text, nullable=False),
@@ -32,6 +44,7 @@ tasks = sa.Table(
 )
 sa.Index('tasks_created', tasks.c.created_at, tasks.c.id)
 sa.Index('tasks_status', tasks.c.status)
+sa.Index('tasks_group_created', tasks.c.group_id, tasks.c.created_at, tasks.c.id)
 
 
 def _details(name, *columns):

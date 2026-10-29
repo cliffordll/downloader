@@ -185,6 +185,7 @@ class RTMPDetails(TaskModel):
 
 class TaskBase(TaskModel):
     id: UUID = Field(default_factory=uuid4, frozen=True)
+    group_id: UUID | None = None
     name: str = Field(min_length=1)
     encrypted: bool = False
     save_dir: Path
