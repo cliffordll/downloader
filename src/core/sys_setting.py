@@ -33,6 +33,7 @@ class SysSetting:
             'playback_port': 0,
             'auto_merge': False,
             'default_expand_tasks': False,
+            'last_group_id': None,
         }
 
     @classmethod
@@ -81,6 +82,8 @@ class SysSetting:
             raise ValueError('自动合并设置必须为开启或关闭。')
         if not isinstance(result['default_expand_tasks'], bool):
             raise ValueError('默认展开任务设置必须为开启或关闭。')
+        if result['last_group_id'] is not None and not isinstance(result['last_group_id'], str):
+            raise ValueError('上次选择的分组标识无效。')
         return result
 
     @classmethod

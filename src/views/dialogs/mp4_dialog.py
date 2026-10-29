@@ -19,7 +19,7 @@ class DownloadDialogMP4(AppDialog):
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.downEdit = DownloadEditMP4(self)
-        self.downPath = DownloadPath(self, work_path)
+        self.downPath = DownloadPath(self, work_path, task_service)
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
         self.downEdit.tcURI.Bind(wx.EVT_TEXT, self.downPath.OnSourceChanged)
         if capture:
@@ -47,7 +47,9 @@ class DownloadDialogMP4(AppDialog):
             downPath = self.downPath.GetDownPath()
             source_url = self.downEdit.GetBaseURI()
             task = self.tasks.create_mp4(downPath, source_url, filename=self.downPath.GetFileName(),
-                                         request_headers=self.request_headers)
+                                         request_headers=self.request_headers,
+                                         group_id=self.downPath.GetGroupId())
+            self.downPath.RememberGroupSelection()
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f'创建 MP4 任务失败：{error}', '提示', wx.OK|wx.ICON_WARNING, parent=self)
             return
