@@ -134,6 +134,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         self.keyMap = dict()
 
         self.parent = parent
+        self._processing_snapshot = None
         self.merge_failed = set()
         self.row_numbers = {}
         self.UpdateRowNumbers()
@@ -172,6 +173,23 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
                 self.fileTree.items[index] = to_tree_item(record, previous=task)
                 return index
         return None
+
+    def CacheProcessingState(self):
+        """文件移动持锁期间，原生控件仍可能查询单元格，使用移动前的状态快照。"""
+        runner = getattr(self.parent, 'runner', None)
+        self._processing_snapshot = {
+            task.task_id: bool(runner and runner.busy_processing(task.task_id))
+            for task in self.fileTree.items
+        }
+
+    def ClearProcessingStateCache(self):
+        self._processing_snapshot = None
+
+    def _BusyProcessing(self, task_id):
+        if self._processing_snapshot is not None:
+            return self._processing_snapshot.get(task_id, False)
+        runner = getattr(self.parent, 'runner', None)
+        return bool(runner and runner.busy_processing(task_id))
 
     def TaskInfo(self, index) -> TaskSummary:
         """自定义方法：汇总指定任务的分片进度和运行状态，供界面和 GetValue 使用。
@@ -216,11 +234,10 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         paused = snapshot['paused'] or bool(pending and pending <= snapshot['paused_files'])
         merging = task.task_status == TaskStatus.MERGING or bool(
             task.output_path and FFmpegConverter.IsConverting(str(task.output_path)))
-        runner = getattr(self.parent, 'runner', None)
-        if not merging and runner is not None and runner.busy_processing(task.task_id):
+        if not merging and self._BusyProcessing(task.task_id):
             status, merging = '检测时长', True
         elif task.duration_pending and total and done == total:
-            merging = bool(runner is not None and runner.busy_processing(task.task_id))
+            merging = self._BusyProcessing(task.task_id)
             status = '检测时长' if merging else '待检测时长'
         elif merging:
             status = '合并中'
@@ -315,8 +332,7 @@ class MultiColumnTreeModel(dv.PyDataViewModel):
         if task.task_status == TaskStatus.MERGING or (task.output_path and
                 FFmpegConverter.IsConverting(str(task.output_path))):
             return False
-        runner = getattr(self.parent, 'runner', None)
-        if runner is not None and runner.busy_processing(task.task_id):
+        if self._BusyProcessing(task.task_id):
             return False
         return M3U8Downloader.CanStartFile(PathManager.GetAbsPath(child.fileName))
 

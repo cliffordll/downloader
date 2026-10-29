@@ -644,6 +644,8 @@ class MainFrame(wx.Frame):
         """
         # 本次延迟调整开始执行，允许后续尺寸变化再次安排调整。
         self._columnFitPending = False
+        if getattr(getattr(self, 'task_actions', None), '_group_move_pending', False) is True:
+            return
         # CallAfter 执行时窗口可能已经关闭，此时不能再访问原生控件。
         if self._closing or not self or self.IsBeingDeleted() or not self.mcTree:
             return
@@ -763,6 +765,10 @@ class MainFrame(wx.Frame):
                                  if task.task_id and task.task_status == TaskStatus.MERGING)
 
     def OnClose(self, event):
+        if self.task_actions._group_move_pending and event.CanVeto():
+            self._SetPrimaryStatusText('正在移动任务，请等待完成后关闭窗口…')
+            event.Veto()
+            return
         self._PrepareClose()
         event.Skip()
 

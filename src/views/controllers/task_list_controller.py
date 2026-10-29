@@ -340,6 +340,9 @@ class TaskListController:
         """计时结束时只搜索最新输入；清空输入或关闭窗口会取消计时。"""
         if self.frame._closing:
             return
+        if getattr(getattr(self.frame, 'task_actions', None), '_group_move_pending', False) is True:
+            self.frame._searchTimer.StartOnce(200)
+            return
         self.frame._SearchItems(self.frame._searchText)
 
     def OnExpandAll(self, event):

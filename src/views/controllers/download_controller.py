@@ -23,6 +23,8 @@ class DownloadController:
         """启动只建立缓存；后续只刷新变化的单元格，不反复使整行和全部表头失效。"""
         if self.frame._closing:
             return
+        if getattr(getattr(self.frame, 'task_actions', None), '_group_move_pending', False) is True:
+            return  # 移动线程持有 runner 锁，延后同步，避免主线程间接等待。
         if (getattr(getattr(self.frame, 'task_list', None), '_task_drag_active', False)
                 and wx.GetMouseState().LeftIsDown()):
             return  # 原生拖放期间保留当前快照，松手后由下一次定时刷新追上。
@@ -224,6 +226,9 @@ class DownloadController:
                           '全部下载', wx.OK | wx.ICON_WARNING, parent=self.frame)
 
     def OnUpdateGlobalDownloadAction(self, event):
+        if getattr(getattr(self.frame, 'task_actions', None), '_group_move_pending', False) is True:
+            event.Enable(False)
+            return
         download_all = getattr(self.frame, 'downloadAllItem', None)
         download_tool = getattr(self.frame, '_downloadAllTool', None)
         if ((download_all is not None and event.GetId() == download_all.GetId())
@@ -240,6 +245,9 @@ class DownloadController:
             event.Enable(can_resume)
 
     def OnUpdatePauseDownloads(self, event):
+        if getattr(getattr(self.frame, 'task_actions', None), '_group_move_pending', False) is True:
+            event.Enable(False)
+            return
         paused = M3U8Downloader.IsPaused()
         busy = M3U8Downloader.IsBusy() or any(task.task_type == TaskType.MP4 and
             self.frame.runner.mp4.busy(task.task_id) for task in self.frame.model.fileTree.items)

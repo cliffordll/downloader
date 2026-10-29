@@ -21,6 +21,8 @@ class TaskActionsController:
 
     def __init__(self, frame):
         self.frame = frame
+        self._group_move_pending = False
+        self._move_busy_cursor = None
 
     def _SaveFileAs(self, source):
         source = Path(source)
@@ -253,12 +255,40 @@ class TaskActionsController:
             menu.Destroy()
 
     def _MoveTaskToGroup(self, task_id, group_id):
+        if self._group_move_pending or self.frame._closing:
+            return
+        self._group_move_pending = True
+        self.frame.ClearTaskToolTip()
+        self.frame.model.CacheProcessingState()
         self.frame._SetPrimaryStatusText('正在移动任务，请稍候…')
-        # 只立即绘制状态栏，不进入嵌套事件循环，避免移动过程中重复操作任务。
         self.frame.statusBar.Update()
-        busy_cursor = wx.BusyCursor()
+        self._move_busy_cursor = wx.BusyCursor()
+        # runner 在移动期间持锁；使用状态快照并减少不必要的列表绘制。
+        self.frame.mcTree.Freeze()
+        self.frame.Disable()
+
+        def move():
+            error = None
+            try:
+                self.frame.runner.move_task_to_group(task_id, group_id)
+            except Exception as exc:
+                error = exc
+            wx.CallAfter(self._FinishGroupMove, group_id, error)
+
         try:
-            self.frame.runner.move_task_to_group(task_id, group_id)
+            Thread(target=move, name='task-group-move').start()
+        except Exception as error:
+            self._FinishGroupMove(group_id, error)
+
+    def _FinishGroupMove(self, group_id, error):
+        if self.frame._closing or self.frame.IsBeingDeleted():
+            self._group_move_pending = False
+            self._move_busy_cursor = None
+            return
+        try:
+            self.frame.model.ClearProcessingStateCache()
+            if error is not None:
+                raise error
             self.frame.OnRefresh(None)
             if (self.frame._groupFilter == 'all'
                     or self.frame._groupFilter == group_id
@@ -269,13 +299,24 @@ class TaskActionsController:
                     self.frame._SetTaskExpanded(group_item, True)
             self.frame._SyncDownloads()
             self.frame._SetPrimaryStatusText('任务移动完成')
-        except (ValueError, OSError, RuntimeError, sqlite3.Error,
-                TaskDataError, TaskConflictError) as error:
+        except Exception as error:
             self.frame._SetPrimaryStatusText(f'移动任务失败：{error}')
+            # 错误弹窗前先恢复父窗口及光标。
+            self._RestoreAfterGroupMove()
             wx.MessageBox(f'移动任务失败：{error}', '分组操作失败',
                           wx.OK | wx.ICON_WARNING, parent=self.frame)
         finally:
-            del busy_cursor
+            if self._group_move_pending:
+                self._RestoreAfterGroupMove()
+
+    def _RestoreAfterGroupMove(self):
+        self._group_move_pending = False
+        self._move_busy_cursor = None
+        self.frame.model.ClearProcessingStateCache()
+        self.frame.mcTree.Thaw()
+        self.frame.Enable()
+        self.frame._FitTaskColumns()
+        self.frame.task_list._ScheduleTaskDragRefresh()
 
     def _RenameTask(self, task_id, current_name):
         dialog = TaskRenameDialog(self.frame, current_name)
