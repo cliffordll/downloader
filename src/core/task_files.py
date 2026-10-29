@@ -45,7 +45,10 @@ def _files(task, scope='all'):
         return paths
     if scope == 'work':
         paths.clear()
-    if isinstance(task, M3U8Task):
+    if isinstance(task, M3U8Task) and not (
+            scope == 'all' and task.details.playlist_path):
+        # Group/task deletion trashes a managed task's dedicated work directory
+        # as one item; enumerating each recorded segment is redundant.
         for segment in task.details.segments:
             path = segment_path(task, segment)
             paths.add(path)
@@ -61,7 +64,16 @@ def collect_task_trash_paths(task, other_tasks, *, scope='all'):
     root = task.save_dir.resolve()
     paths = _files(task, scope)
     other_tasks = list(other_tasks)
-    protected = {PathManager.GetPathKey(path) for other in other_tasks for path in _files(other)}
+    protected = set()
+    protected_directories = set()
+    for other in other_tasks:
+        other_paths = _files(other, 'output')
+        if isinstance(other, M3U8Task) and other.details.playlist_path:
+            # A managed M3U8 work directory owns its segment and playlist paths.
+            protected_directories.add(PathManager.GetPathKey(work_dir(other)))
+        elif isinstance(other, M3U8Task):
+            other_paths.update(_files(other, 'work'))
+        protected.update(PathManager.GetPathKey(path) for path in other_paths)
     work = None
     if isinstance(task, M3U8Task) and task.details.playlist_path and scope != 'output':
         candidate = work_dir(task)
@@ -72,7 +84,8 @@ def collect_task_trash_paths(task, other_tasks, *, scope='all'):
             def inside(path):
                 key = PathManager.GetPathKey(path)
                 return key == work_key or key.startswith(work_key + os.sep)
-            if (any(key == work_key or key.startswith(work_key + os.sep) for key in protected)
+            if (any(key == work_key or key.startswith(work_key + os.sep)
+                    for key in protected | protected_directories)
                     or any(inside(other.save_dir) for other in other_tasks)):
                 raise ValueError(f'工作文件夹也被其他任务使用，未删除：{candidate}')
             for other in other_tasks:
@@ -88,9 +101,16 @@ def collect_task_trash_paths(task, other_tasks, *, scope='all'):
                 work = candidate
     existing, directories = [], set()
     for path in sorted(paths):
+        # The validated, task-owned work directory is moved as one item. Walking
+        # every recorded segment beneath it adds thousands of redundant stat/resolve calls.
+        if work is not None and path.is_relative_to(work):
+            continue
         # 不跟随符号链接/目录联接，也不将被替换成目录的预期文件递归回收。
         _check_path(path, root, task.save_dir)
-        if PathManager.GetPathKey(path) in protected:
+        path_key = PathManager.GetPathKey(path)
+        if (path_key in protected
+                or any(path_key == directory or path_key.startswith(directory + os.sep)
+                       for directory in protected_directories)):
             raise ValueError(f'文件也被其他任务使用，未删除：{path}')
         if path.is_dir():
             raise ValueError(f'预期文件已变成目录，未删除：{path}')
