@@ -12,6 +12,7 @@ from src.views.ui_metrics import (
 )
 
 from src.views.dialogs.information_dialog import InformationDialog
+from src.views.dialogs.task_group_dialog import TaskGroupManagerDialog
 from src.core.task_runner import TaskRunner
 from src.core.http_service import LocalHTTPService
 from src.core.services.browser_pairing import load_or_create_pairing, pairing_path
@@ -81,6 +82,7 @@ class MainFrame(wx.Frame):
 
         self._searchText = ''
         self._filterText = ''
+        self._groupFilter = 'all'
         self._searchTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnSearchTimer, self._searchTimer)
         self._createMainPanel(initial_tree)
@@ -146,6 +148,9 @@ class MainFrame(wx.Frame):
 		
         # 任务菜单负责下载控制，查看菜单负责列表及界面展示。
         taskMenu = wx.Menu()
+        manageGroupsItem = taskMenu.Append(wx.ID_ANY, '管理分组…')
+        self.Bind(wx.EVT_MENU, self.OnManageGroups, manageGroupsItem)
+        taskMenu.AppendSeparator()
         self.downloadAllItem = taskMenu.Append(wx.ID_ANY, '全部下载\tCtrl-Shift-D')
         self.pauseAllItem = taskMenu.Append(wx.ID_ANY, '全部暂停\tCtrl-Shift-P')
         self.resumeAllItem = taskMenu.Append(wx.ID_ANY, '全部继续\tCtrl-Shift-R')
@@ -227,6 +232,8 @@ class MainFrame(wx.Frame):
             return self.toolBar.AddTool(tool_id, label, bundle, shortHelp=label)
 
         openButton = add_tool(wx.ID_OPEN, "打开下载文件夹", "folder-open")
+        self._manageGroupsTool = add_tool(wx.ID_ANY, '管理分组', 'folder-settings')
+        self.toolBar.Bind(wx.EVT_TOOL, self.OnManageGroups, self._manageGroupsTool)
         muButton = add_tool(wx.ID_ANY, "新建 M3U8 下载", "playlist")
         tsButton = add_tool(wx.ID_ANY, "新建 TS 模板下载", "segment")
         directButton = add_tool(wx.ID_ANY, '新建直链下载', 'url')
@@ -307,6 +314,8 @@ class MainFrame(wx.Frame):
         self.searchCtrl = wx.SearchCtrl(panel, style=wx.TE_PROCESS_ENTER)
         self.searchCtrl.SetDescriptiveText('筛选文件名或路径')
         self.searchCtrl.ShowCancelButton(True)
+        self.groupFilter = wx.Choice(panel, choices=[])
+        self.task_list.RefreshGroupFilter()
         self.statusFilter = wx.Choice(panel, choices=[
             '全部状态', '未开始', '等待下载', '下载中', '暂停中', '已暂停', '已中断', '录制中', '停止中', '录制失败',
             '部分完成', '待继续', '下载失败', '检测时长', '待合并', '合并中', '合并失败', '已完成'])
@@ -314,6 +323,7 @@ class MainFrame(wx.Frame):
         self.filterCount = wx.StaticText(panel, label='')
         self.filterCount.SetMinSize(self.FromDIP(wx.Size(140, -1)))
         uriSizer.Add(self.searchCtrl, proportion=1, flag=wx.EXPAND|wx.RIGHT, border=self.FromDIP(5))
+        uriSizer.Add(self.groupFilter, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(8))
         uriSizer.Add(self.statusFilter, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(10))
         uriSizer.Add(self.filterCount, flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=self.FromDIP(5))
         self.searchCtrl.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnSearch)
@@ -322,6 +332,7 @@ class MainFrame(wx.Frame):
         self.searchCtrl.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN, self.OnClearSearch)
         self.searchCtrl.Bind(wx.EVT_CHAR_HOOK, self.OnSearchKey)
         self.statusFilter.Bind(wx.EVT_CHOICE, self.OnStatusFilter)
+        self.groupFilter.Bind(wx.EVT_CHOICE, self.OnGroupFilter)
 
         self.emptyPanel = wx.Panel(panel)
         emptySizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -344,7 +355,10 @@ class MainFrame(wx.Frame):
         if encrypted_indexes:
             self.model.visible_tasks = set(range(len(initial_tree.items))) - encrypted_indexes
         # 创建DataViewCtrl
-        self.mcTree = dv.DataViewCtrl(panel, -1, style=wx.BORDER_THEME|dv.DV_ROW_LINES|dv.DV_VERT_RULES|dv.DV_VARIABLE_LINE_HEIGHT|dv.DV_ROW_LINES)
+        self.mcTree = dv.DataViewCtrl(
+            panel, -1,
+            style=(wx.BORDER_THEME | dv.DV_ROW_LINES | dv.DV_VERT_RULES
+                   | dv.DV_VARIABLE_LINE_HEIGHT))
         if wx.Platform == '__WXMAC__':
             # 列表采用略小的字号；自绘进度与操作文字同样读取此字体。
             font = wx.Font(self.mcTree.GetFont())
@@ -355,17 +369,16 @@ class MainFrame(wx.Frame):
         if wx.Platform == '__WXMSW__':
             self.mcTree.GetMainWindow().Bind(wx.EVT_PAINT, self.OnTaskListPaint)
         self.mcTree.AssociateModel(self.model)
+        task_drag_format = self.task_list.task_drag_format
+        self.mcTree.EnableDragSource(task_drag_format)
+        self.mcTree.EnableDropTarget(task_drag_format)
         self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
         self._UpdateFilterCount()
         # 添加多列
-        if wx.Platform == '__WXMAC__':
-            selection_renderer = TaskSelectionRenderer(self)
-            selection_column = dv.DataViewColumn('选择', selection_renderer, 7,
-                                                 width=self.FromDIP(42), align=wx.ALIGN_CENTER)
-            self.mcTree.AppendColumn(selection_column)
-        else:
-            self.mcTree.AppendToggleColumn('选择', 7, mode=dv.DATAVIEW_CELL_ACTIVATABLE,
-                                           width=self.FromDIP(42), align=wx.ALIGN_CENTER)
+        self._selectionRenderer = TaskSelectionRenderer(self)
+        selection_column = dv.DataViewColumn('选择', self._selectionRenderer, 7,
+                                             width=self.FromDIP(42), align=wx.ALIGN_CENTER)
+        self.mcTree.AppendColumn(selection_column)
         self.mcTree.AppendTextColumn("序列", 0, width=self.FromDIP(60))
         # # 自定义列
         # renderer = dv.DataViewTextRenderer()
@@ -389,7 +402,18 @@ class MainFrame(wx.Frame):
         self.mcTree.AppendColumn(actionColumn)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_EXPANDED, self._QueueRowNumbers)
         self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_COLLAPSED, self._QueueRowNumbers)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_BEGIN_DRAG, self.task_list.OnTaskBeginDrag)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_DROP_POSSIBLE,
+                         self.task_list.OnTaskDropPossible)
+        self.mcTree.Bind(dv.EVT_DATAVIEW_ITEM_DROP, self.task_list.OnTaskDrop)
         self.mcTree.GetMainWindow().Bind(wx.EVT_SIZE, self.OnTaskListSize)
+        self.mcTree.GetMainWindow().Bind(wx.EVT_LEFT_UP,
+                                         self.task_list.OnTaskDragMouseUp)
+        group_items = []
+        self.model.GetChildren(dv.NullDataViewItem, group_items)
+        for group_item in group_items:
+            if self.model.IsContainer(group_item):
+                self.mcTree.Expand(group_item)
         for index in range(self.mcTree.GetColumnCount()):
             column = self.mcTree.GetColumn(index)
             column.GetRenderer().EnableEllipsize(wx.ELLIPSIZE_END)
@@ -471,7 +495,7 @@ class MainFrame(wx.Frame):
 
     def OnTaskHover(self, event):
         event.Skip()
-        if self._closing:
+        if self._closing or event.Dragging():
             return
         source = event.GetEventObject()
         pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
@@ -509,12 +533,20 @@ class MainFrame(wx.Frame):
     def OnTaskListMouseDown(self, event):
         """Mac 行首箭头使用统一的程序展开路径。"""
         self._disclosureClick = False
+        self._selectionClickKey = None
         if self._closing:
             event.Skip()
             return
         source = event.GetEventObject()
         pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
         item, column = self.mcTree.HitTest(pos)
+        if (item.IsOk() and column is not None
+                and column.GetModelColumn() == 7):
+            self._selectionClickKey = self.model.ItemToObject(item)
+            self.mcTree.SetFocus()
+            self.mcTree.Select(item)
+            event.Skip(False)
+            return
         if not item.IsOk() or column is None or column != self.mcTree.GetExpanderColumn():
             event.Skip()
             return
@@ -535,6 +567,8 @@ class MainFrame(wx.Frame):
 
     def OnTaskListClick(self, event):
         """Mac 松开鼠标后分发操作，避免在按下事件中打开原生菜单或弹窗。"""
+        selection_key = getattr(self, '_selectionClickKey', None)
+        self._selectionClickKey = None
         if getattr(self, '_disclosureClick', False):
             self._disclosureClick = False
             event.Skip(False)
@@ -542,7 +576,19 @@ class MainFrame(wx.Frame):
         source = event.GetEventObject()
         pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
         item, column = self.mcTree.HitTest(pos)
-        if not item.IsOk() or column is None or column.GetModelColumn() != 4:
+        if selection_key is not None:
+            if (item.IsOk() and column is not None and column.GetModelColumn() == 7
+                    and self.model.ItemToObject(item) == selection_key):
+                self._selectionRenderer.ActivateCell(
+                    wx.Rect(self.mcTree.GetItemRect(item, column)),
+                    self.model, item, 7, event)
+            event.Skip(False)
+            return
+        if not item.IsOk() or column is None:
+            event.Skip()
+            return
+        model_column = column.GetModelColumn()
+        if model_column != 4:
             event.Skip()
             return
         cell = wx.Rect(self.mcTree.GetItemRect(item, column))
@@ -620,6 +666,8 @@ class MainFrame(wx.Frame):
         """
         # 本次延迟调整开始执行，允许后续尺寸变化再次安排调整。
         self._columnFitPending = False
+        if getattr(getattr(self, 'task_actions', None), '_group_move_pending', False) is True:
+            return
         # CallAfter 执行时窗口可能已经关闭，此时不能再访问原生控件。
         if self._closing or not self or self.IsBeingDeleted() or not self.mcTree:
             return
@@ -739,6 +787,10 @@ class MainFrame(wx.Frame):
                                  if task.task_id and task.task_status == TaskStatus.MERGING)
 
     def OnClose(self, event):
+        if self.task_actions._group_move_pending and event.CanVeto():
+            self._SetPrimaryStatusText('正在移动任务，请等待完成后关闭窗口…')
+            event.Veto()
+            return
         self._PrepareClose()
         event.Skip()
 
@@ -833,6 +885,15 @@ class MainFrame(wx.Frame):
 
     def OnTaskMenu(self, *args, **kwargs):
         return self.task_actions.OnTaskMenu(*args, **kwargs)
+
+    def OnManageGroups(self, event=None):
+        dialog = TaskGroupManagerDialog(self, self.tasks.repository, SysSetting.GetWorkPath(),
+                                       self.tasks, self.runner)
+        try:
+            dialog.ShowModal()
+        finally:
+            dialog.Destroy()
+        self.OnRefresh(None)
 
 
     def _RenameTask(self, *args, **kwargs):
@@ -1107,6 +1168,10 @@ class MainFrame(wx.Frame):
 
     def OnStatusFilter(self, *args, **kwargs):
         return self.task_list.OnStatusFilter(*args, **kwargs)
+
+
+    def OnGroupFilter(self, *args, **kwargs):
+        return self.task_list.OnGroupFilter(*args, **kwargs)
 
 
     def OnSearchTimer(self, *args, **kwargs):

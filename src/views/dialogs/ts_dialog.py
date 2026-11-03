@@ -19,7 +19,7 @@ class DownloadDialogTS(AppDialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         self.downEdit = DownloadEditTS(self)
-        self.downPath = DownloadPath(self, work_path)
+        self.downPath = DownloadPath(self, work_path, task_service)
         self.downEdit.Bind(wx.EVT_BUTTON, self.OnEditBtnClicked)
         self.downPath.Bind(wx.EVT_BUTTON, self.OnDownBtnClicked)
         self.downEdit.tcURI.Bind(wx.EVT_TEXT, self.downPath.OnSourceChanged)
@@ -64,7 +64,9 @@ class DownloadDialogTS(AppDialog):
                                    filename=self.downPath.GetFileName(),
                                    ts_pattern=self.downEdit.tcReg.GetValue().strip() or None,
                                    detect_duration=detect_duration,
-                                   request_headers=self.downEdit.GetRequestHeaders())
+                                   request_headers=self.downEdit.GetRequestHeaders(),
+                                   group_id=self.downPath.GetGroupId())
+            self.downPath.RememberGroupSelection()
         except (ValueError, OSError, sqlite3.Error, TaskDataError) as error:
             wx.MessageBox(f"下载任务创建失败：{error}", "提示", wx.ICON_WARNING, parent=self)
             return

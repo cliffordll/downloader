@@ -8,26 +8,28 @@ import wx.svg
 ICON_ROOT = Path(__file__).resolve().parents[3] / "icons"
 LOGO_ROOT = ICON_ROOT / "logo"
 ICON_FILES = {
+    "folder-plus": "tools/file-folder-plus.png",
+    "folder-settings": "tools/file-folder-settings.png",
     "folder-open": "tools/file-folder-open.png",
     "playlist": "files/live-m3u8.png",
     "segment": "files/video-ts.png",
     "url": "files/live-url.png",
     "browser": "tools/sys-extension.png",
-    "batch": "tools/task-batch.png",
-    "expand": "tools/view-expand.png",
-    "collapse": "tools/view-collapse.png",
-    "refresh": "tools/sys-refresh.png",
-    "download-all": "tools/task-download-all.png",
-    "task-resume": "tools/task-task-resume.png",
-    "task-pause": "tools/task-task-pause.png",
+    "batch": "tools/view-list-batch.png",
+    "expand": "tools/view-arrow-expand.png",
+    "collapse": "tools/view-arrow-collapse.png",
+    "refresh": "tools/view-arrow-ring-refresh.png",
+    "download-all": "tools/media-task-download-all.png",
+    "task-resume": "tools/media-task-resume.png",
+    "task-pause": "tools/media-task-pause.png",
     "settings": "tools/sys-settings.png",
-    "player-setting": "tools/play-player-setting.png",
-    "lock": "tools/lock-lock.png",
-    "unlock": "tools/lock-unlock.png",
-    "eye": "tools/lock-eye.png",
-    "eye-off": "tools/lock-eye-off.png",
-    "help": "tools/info-help.png",
-    "about": "tools/info-about.png"
+    "player-setting": "tools/media-monitor-settings.png",
+    "lock": "tools/net-lock.png",
+    "unlock": "tools/net-lock-open.png",
+    "eye": "tools/net-eye.png",
+    "eye-off": "tools/net-eye-off.png",
+    "help": "tools/frame-circle-help.png",
+    "about": "tools/frame-circle-about.png"
 }
 ICON_SIZES = (24, 30, 36, 48)
 

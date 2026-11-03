@@ -36,6 +36,10 @@ class TaskTypesUITests(unittest.TestCase):
         temp = TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
+        from src.core.sys_setting import SysSetting
+        settings_path = patch.object(SysSetting, 'ConfigPath', return_value=self.root / 'settings.json')
+        settings_path.start()
+        self.addCleanup(settings_path.stop)
         self.repo = TaskRepository(self.root / 'downloads.db')
         self.service = TaskService(self.repo)
 
@@ -231,7 +235,7 @@ class TaskTypesUITests(unittest.TestCase):
 
     def test_batch_toolbar_icon_is_available(self):
         icon_root = Path(__file__).resolve().parents[1] / 'icons'
-        self.assertEqual(ICON_FILES['batch'], 'tools/task-batch.png')
+        self.assertEqual(ICON_FILES['batch'], 'tools/view-list-batch.png')
         for directory in ('source', '24', '30', '36', '48'):
             self.assertTrue((icon_root / directory / ICON_FILES['batch']).is_file())
 
@@ -243,9 +247,9 @@ class TaskTypesUITests(unittest.TestCase):
 
     def test_all_download_toolbar_uses_dedicated_icon(self):
         icon_root = Path(__file__).resolve().parents[1] / 'icons'
-        self.assertEqual(ICON_FILES['download-all'], 'tools/task-download-all.png')
+        self.assertEqual(ICON_FILES['download-all'], 'tools/media-task-download-all.png')
         for directory in ('source', '24', '30', '36', '48'):
-            download_all = icon_root / directory / 'tools' / 'task-download-all.png'
+            download_all = icon_root / directory / 'tools' / 'media-task-download-all.png'
             self.assertTrue(download_all.is_file())
 
     def test_open_manifest_uses_last_selected_player(self):

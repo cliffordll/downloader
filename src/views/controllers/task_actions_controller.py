@@ -13,6 +13,7 @@ from src.schemas.task import FileStatus, TaskStatus, TaskType
 from src.storage.task_repository import TaskDataError, TaskConflictError
 from src.views.dialogs.segment_edit_dialog import SegmentEditDialog
 from src.views.dialogs.task_rename_dialog import TaskRenameDialog
+from src.views.dialogs.task_group_dialog import delete_task_group, rename_task_group
 
 
 class TaskActionsController:
@@ -20,6 +21,8 @@ class TaskActionsController:
 
     def __init__(self, frame):
         self.frame = frame
+        self._group_move_pending = False
+        self._move_busy_cursor = None
 
     def _SaveFileAs(self, source):
         source = Path(source)
@@ -114,6 +117,8 @@ class TaskActionsController:
         if not item.IsOk():
             return
         keys = self.frame.model.ParseKey(self.frame.model.ItemToObject(item))
+        if self.frame.model.IsGroupKey(keys):
+            return
         if len(keys) not in (1, 2):
             return
         index = keys[0]
@@ -187,6 +192,24 @@ class TaskActionsController:
 
         info = self.frame.model.TaskInfo(index)
         parent_item = self.frame.model.ObjectToItem(self.frame.model._BuildKey((index,)))
+        record = self.frame.tasks.repository.get(task.task_id) if task.task_id else None
+        if record is not None:
+            group_menu = wx.Menu()
+            ungrouped = group_menu.AppendRadioItem(wx.ID_ANY, '未分组')
+            ungrouped.Check(record.group_id is None)
+            ungrouped.Enable(task.rename_allowed and record.group_id is not None)
+            group_menu.Bind(wx.EVT_MENU,
+                            lambda event: self._MoveTaskToGroup(task.task_id, None), ungrouped)
+            for group in self.frame.tasks.repository.list_groups():
+                entry = group_menu.AppendRadioItem(wx.ID_ANY, group.name)
+                entry.Check(group.id == record.group_id)
+                entry.Enable(task.rename_allowed and group.id != record.group_id)
+                group_menu.Bind(wx.EVT_MENU,
+                                lambda event, group_id=group.id:
+                                    self._MoveTaskToGroup(task.task_id, group_id), entry)
+            if group_menu.GetMenuItemCount():
+                menu.AppendSeparator()
+                menu.AppendSubMenu(group_menu, '移动到分组')
         add('重命名…', lambda: self.frame._RenameTask(task.task_id, task.parent.displayName),
             task.rename_allowed)
         add('解密任务' if task.encrypted else '加密任务',
@@ -231,6 +254,70 @@ class TaskActionsController:
         finally:
             menu.Destroy()
 
+    def _MoveTaskToGroup(self, task_id, group_id):
+        if self._group_move_pending or self.frame._closing:
+            return
+        self._group_move_pending = True
+        self.frame.ClearTaskToolTip()
+        self.frame.model.CacheProcessingState()
+        self.frame._SetPrimaryStatusText('正在移动任务，请稍候…')
+        self.frame.statusBar.Update()
+        self._move_busy_cursor = wx.BusyCursor()
+        # runner 在移动期间持锁；使用状态快照并减少不必要的列表绘制。
+        self.frame.mcTree.Freeze()
+        self.frame.Disable()
+
+        def move():
+            error = None
+            try:
+                self.frame.runner.move_task_to_group(task_id, group_id)
+            except Exception as exc:
+                error = exc
+            wx.CallAfter(self._FinishGroupMove, group_id, error)
+
+        try:
+            Thread(target=move, name='task-group-move').start()
+        except Exception as error:
+            self._FinishGroupMove(group_id, error)
+
+    def _FinishGroupMove(self, group_id, error):
+        if self.frame._closing or self.frame.IsBeingDeleted():
+            self._group_move_pending = False
+            self._move_busy_cursor = None
+            return
+        try:
+            self.frame.model.ClearProcessingStateCache()
+            if error is not None:
+                raise error
+            self.frame.OnRefresh(None)
+            if (self.frame._groupFilter == 'all'
+                    or self.frame._groupFilter == group_id
+                    or (self.frame._groupFilter == 'ungrouped' and group_id is None)):
+                group_key = self.frame.model._BuildKey(self.frame.model._GroupKey(group_id))
+                group_item = self.frame.model.ObjectToItem(group_key)
+                if self.frame.model.IsContainer(group_item):
+                    self.frame._SetTaskExpanded(group_item, True)
+            self.frame._SyncDownloads()
+            self.frame._SetPrimaryStatusText('任务移动完成')
+        except Exception as error:
+            self.frame._SetPrimaryStatusText(f'移动任务失败：{error}')
+            # 错误弹窗前先恢复父窗口及光标。
+            self._RestoreAfterGroupMove()
+            wx.MessageBox(f'移动任务失败：{error}', '分组操作失败',
+                          wx.OK | wx.ICON_WARNING, parent=self.frame)
+        finally:
+            if self._group_move_pending:
+                self._RestoreAfterGroupMove()
+
+    def _RestoreAfterGroupMove(self):
+        self._group_move_pending = False
+        self._move_busy_cursor = None
+        self.frame.model.ClearProcessingStateCache()
+        self.frame.mcTree.Thaw()
+        self.frame.Enable()
+        self.frame._FitTaskColumns()
+        self.frame.task_list._ScheduleTaskDragRefresh()
+
     def _RenameTask(self, task_id, current_name):
         dialog = TaskRenameDialog(self.frame, current_name)
         try:
@@ -257,6 +344,25 @@ class TaskActionsController:
         if not item.IsOk():
             return
         keys = self.frame.model.ParseKey(self.frame.model.ItemToObject(item))
+        if self.frame.model.IsGroupKey(keys):
+            group = self.frame.model.groups_by_key.get(keys[1]) if keys[0] == -1 else None
+            if group is None:
+                return
+            try:
+                if action_id in ('move_group_up', 'move_group_down'):
+                    offset = -1 if action_id == 'move_group_up' else 1
+                    if self.frame.tasks.repository.move_group(group.id, offset):
+                        self.frame.OnRefresh(None)
+                elif action_id == 'rename_group':
+                    if rename_task_group(self.frame, self.frame.tasks.repository, group) is not None:
+                        self.frame.OnRefresh(None)
+                elif action_id == 'delete_group':
+                    delete_task_group(self.frame, self.frame.tasks.repository,
+                                      self.frame.tasks, self.frame.runner, group)
+            except Exception as error:
+                wx.MessageBox(f'分组操作失败：{error}', '分组操作失败',
+                              wx.OK | wx.ICON_WARNING, parent=self.frame)
+            return
         if len(keys) == 2:
             action = next((entry for entry in self.frame.model.FileActions(*keys) if entry['id'] == action_id), None)
             if action is not None and action['enabled']:

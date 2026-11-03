@@ -243,6 +243,51 @@ class TaskRunner:
         return task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING, TaskStatus.PAUSING,
                                TaskStatus.RECORDING, TaskStatus.STOPPING)
 
+    def can_move(self, task_id):
+        """Paused M3U8 queue entries are movable; active requests and workers are not."""
+        with self._lock:
+            if self.is_deleting(task_id) or self.busy_processing(task_id):
+                return False
+            try:
+                task = self._task(task_id)
+            except Exception:
+                return False
+            if not can_rename(task):
+                return False
+            if isinstance(task, MP4Task):
+                return not self.mp4.busy(task_id)
+            if isinstance(task, M3U8Task):
+                keys = self._keys(task)
+                snapshot = M3U8Downloader.Snapshot()
+                pending = keys & snapshot['pending']
+                requesting = keys & snapshot['requesting']
+                return not requesting and (
+                    not pending or snapshot['paused'] or pending <= snapshot['paused_files'])
+            return True
+
+    def move_task_to_group(self, task_id, group_id):
+        """Move one task using the same runtime queue checks as a batch move."""
+        moved = self.move_tasks_to_group([task_id], group_id)
+        return moved[0] if moved else None
+
+    def move_tasks_to_group(self, task_ids, group_id):
+        """Detach safely paused M3U8 entries before moving their task files."""
+        task_ids = list(dict.fromkeys(task_ids))
+        with self._lock:
+            tasks = [self._task(task_id) for task_id in task_ids]
+            for task in tasks:
+                if not self.can_move(task.id):
+                    raise ValueError(f'任务“{task.name}”正在运行或有请求未结束，无法移动分组。')
+            for task in tasks:
+                if not isinstance(task, M3U8Task):
+                    continue
+                keys = self._keys(task)
+                snapshot = M3U8Downloader.Snapshot()
+                pending = keys & snapshot['pending']
+                if pending:
+                    M3U8Downloader.RemovePausedTask(task.id, keys)
+            return self.tasks.move_tasks_to_group(task_ids, group_id)
+
     def rename(self, task_id, name):
         """Serialize rename against task starts and reject work represented in the task record."""
         with self._lock:

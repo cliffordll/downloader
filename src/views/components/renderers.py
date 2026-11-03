@@ -5,10 +5,10 @@ import wx.dataview as dv
 
 
 class TaskSelectionRenderer(dv.DataViewCustomRenderer):
-    """macOS 选择列：只为任务行绘制原生复选框，子行留空。"""
+    """跨平台选择列：支持任务复选框和分组部分选中的三态显示。"""
 
     def __init__(self, frame):
-        super().__init__('bool', dv.DATAVIEW_CELL_ACTIVATABLE, wx.ALIGN_CENTER)
+        super().__init__('long', dv.DATAVIEW_CELL_ACTIVATABLE, wx.ALIGN_CENTER)
         self.frame = frame
         self.value = None
 
@@ -32,7 +32,8 @@ class TaskSelectionRenderer(dv.DataViewCustomRenderer):
         rect.height = min(size.height, rect.height)
         rect.x += (cell.width - rect.width) // 2
         rect.y += (cell.height - rect.height) // 2
-        flags = wx.CONTROL_CHECKED if self.value else 0
+        flags = (wx.CONTROL_CHECKED if self.value == 1 else
+                 wx.CONTROL_UNDETERMINED if self.value == 2 else 0)
         wx.RendererNative.Get().DrawCheckBox(window, dc, rect, flags)
         return True
 
@@ -40,7 +41,8 @@ class TaskSelectionRenderer(dv.DataViewCustomRenderer):
         value = model.GetValue(item, col)
         if value is None:
             return False
-        return model.SetValue(not bool(value), item, col)
+        # 部分选中的组点击后全选；全选状态点击后清空。
+        return model.SetValue(0 if value == 1 else 1, item, col)
 
 
 class TaskProgressRenderer(dv.DataViewCustomRenderer):
@@ -215,7 +217,8 @@ class TaskActionRenderer(dv.DataViewCustomRenderer):
 
     def MinimumWidth(self, dc):
         """按四项操作的最长文字预留间距，以及原生单元格的左右留白。"""
-        labels = ('下载', '暂停', '继续', '重试', '删除', '更多', '录制', '停止')
+        labels = ('下载', '暂停', '继续', '重试', '删除', '更多', '录制', '停止',
+                  '上移', '下移', '重命名')
         text_width = max(dc.GetTextExtent(label)[0] for label in labels)
         if wx.Platform == '__WXMAC__':
             return max(self.frame.FromDIP(160),

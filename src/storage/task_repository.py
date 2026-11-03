@@ -19,9 +19,10 @@ from sqlalchemy.pool import NullPool
 
 from src.core.app_paths import database_path
 from src.schemas.task import TASK_ADAPTER, Task
+from src.schemas.task_group import TaskGroup
 from src.storage.errors import TaskConflictError, TaskDataError
 from src.storage.migrations import upgrade_database
-from src.storage.schema import tasks, detail_tables, segments, outputs, PROGRESS_COLUMNS
+from src.storage.schema import tasks, task_groups, detail_tables, segments, outputs, PROGRESS_COLUMNS
 
 
 class TaskRepository:
@@ -133,7 +134,8 @@ class TaskRepository:
             values = self._values(saved)
             values.pop('id')
             cursor = connection.execute(
-                tasks.update().where(tasks.c.id == str(task.id), tasks.c.updated_at == expected,
+                tasks.update().where(tasks.c.id == str(task.id),
+                                     tasks.c.updated_at.in_((expected, expected.replace('Z', '+00:00'))),
                                      tasks.c.type == task.type.value,
                                      tasks.c.created_at == original['created_at']).values(**values))
             if cursor.rowcount != 1:
@@ -232,6 +234,99 @@ class TaskRepository:
         with self._transaction() as connection:
             rows = connection.execute(sa.select(tasks).order_by(tasks.c.created_at, tasks.c.id)).mappings()
             return [self._read(connection, row) for row in rows]
+
+    @staticmethod
+    def _read_group(row) -> TaskGroup:
+        return TaskGroup.model_validate(dict(row))
+
+    @staticmethod
+    def _utc_timestamp(value: datetime) -> str:
+        """Serialize timestamps in the same UTC-Z format used by Pydantic JSON."""
+        return value.isoformat(timespec='microseconds').replace('+00:00', 'Z')
+
+    def list_groups(self) -> list[TaskGroup]:
+        """按用户排序位置读取分组；不创建或检查磁盘目录。"""
+        with self._transaction() as connection:
+            rows = connection.execute(sa.select(task_groups).order_by(
+                task_groups.c.position, task_groups.c.name.collate('NOCASE'), task_groups.c.id
+            )).mappings()
+            return [self._read_group(row) for row in rows]
+
+    def get_group(self, group_id: UUID) -> TaskGroup | None:
+        with self._transaction() as connection:
+            row = connection.execute(sa.select(task_groups).where(
+                task_groups.c.id == str(group_id))).mappings().first()
+            return None if row is None else self._read_group(row)
+
+    def create_group(self, name: str, folder_path: Path, *, position: int = 0) -> TaskGroup:
+        """保存分组元数据；目录创建由上层文件服务负责。"""
+        group = TaskGroup(name=name, folder_path=Path(folder_path).expanduser().resolve(),
+                          position=position)
+        values = group.model_dump(mode='json')
+        with self._transaction(write=True) as connection:
+            connection.execute(task_groups.insert().values(**values))
+        return group
+
+    def update_group(self, group: TaskGroup) -> TaskGroup:
+        """保存重命名、目录变更或排序，并用更新时间检测陈旧快照。"""
+        saved_group = TaskGroup.model_validate(group.model_dump(mode='json'))
+        saved_group.updated_at = max(datetime.now(timezone.utc),
+                                     group.updated_at + timedelta(microseconds=1))
+        original = group.model_dump(mode='json')
+        expected = original['updated_at']
+        values = saved_group.model_dump(mode='json')
+        values.pop('id')
+        with self._transaction(write=True) as connection:
+            cursor = connection.execute(task_groups.update().where(
+                task_groups.c.id == str(group.id),
+                task_groups.c.updated_at.in_((expected, expected.replace('Z', '+00:00')))
+            ).values(**values))
+            if cursor.rowcount != 1:
+                raise TaskConflictError('分组不存在或已更新，请重新读取后再修改。')
+            if original['folder_path'] != values['folder_path']:
+                connection.execute(tasks.update().where(
+                    tasks.c.group_id == str(group.id)
+                ).values(save_dir=values['folder_path'],
+                         updated_at=self._utc_timestamp(
+                             max(datetime.now(timezone.utc), saved_group.updated_at))))
+        return saved_group
+
+    def move_group(self, group_id: UUID, offset: int) -> bool:
+        """Move a group one place in display order and persist normalized positions."""
+        if offset not in (-1, 1):
+            raise ValueError('分组只能上移或下移一位。')
+        with self._transaction(write=True) as connection:
+            rows = list(connection.execute(sa.select(task_groups).order_by(
+                task_groups.c.position, task_groups.c.name.collate('NOCASE'), task_groups.c.id
+            )).mappings())
+            ordered_ids = [row['id'] for row in rows]
+            try:
+                index = ordered_ids.index(str(group_id))
+            except ValueError:
+                raise ValueError('分组不存在，请刷新后重试。') from None
+            destination = index + offset
+            if destination < 0 or destination >= len(ordered_ids):
+                return False
+            ordered_ids[index], ordered_ids[destination] = ordered_ids[destination], ordered_ids[index]
+            now = datetime.now(timezone.utc)
+            rows_by_id = {row['id']: row for row in rows}
+            for position, group_key in enumerate(ordered_ids):
+                row = rows_by_id[group_key]
+                if row['position'] == position:
+                    continue
+                previous = datetime.fromisoformat(row['updated_at'].replace('Z', '+00:00'))
+                updated_at = max(now, previous + timedelta(microseconds=1))
+                connection.execute(task_groups.update().where(
+                    task_groups.c.id == group_key
+                ).values(position=position,
+                         updated_at=self._utc_timestamp(updated_at)))
+        return True
+
+    def delete_group(self, group_id: UUID) -> bool:
+        """删除分组元数据；外键将其任务设为未分组，磁盘文件不受影响。"""
+        with self._transaction(write=True) as connection:
+            return connection.execute(task_groups.delete().where(
+                task_groups.c.id == str(group_id))).rowcount == 1
 
     def delete(self, task_id: UUID) -> bool:
         """只删除记录及关联详情，返回是否存在；磁盘文件由后续业务层单独处理。"""
