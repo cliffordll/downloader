@@ -375,8 +375,8 @@ class MainFrame(wx.Frame):
         self._knownTaskPaths = {task.parent.fileName for task in self.model.fileTree.items if task.parent}
         self._UpdateFilterCount()
         # 添加多列
-        selection_renderer = TaskSelectionRenderer(self)
-        selection_column = dv.DataViewColumn('选择', selection_renderer, 7,
+        self._selectionRenderer = TaskSelectionRenderer(self)
+        selection_column = dv.DataViewColumn('选择', self._selectionRenderer, 7,
                                              width=self.FromDIP(42), align=wx.ALIGN_CENTER)
         self.mcTree.AppendColumn(selection_column)
         self.mcTree.AppendTextColumn("序列", 0, width=self.FromDIP(60))
@@ -533,12 +533,20 @@ class MainFrame(wx.Frame):
     def OnTaskListMouseDown(self, event):
         """Mac 行首箭头使用统一的程序展开路径。"""
         self._disclosureClick = False
+        self._selectionClickKey = None
         if self._closing:
             event.Skip()
             return
         source = event.GetEventObject()
         pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
         item, column = self.mcTree.HitTest(pos)
+        if (item.IsOk() and column is not None
+                and column.GetModelColumn() == 7):
+            self._selectionClickKey = self.model.ItemToObject(item)
+            self.mcTree.SetFocus()
+            self.mcTree.Select(item)
+            event.Skip(False)
+            return
         if not item.IsOk() or column is None or column != self.mcTree.GetExpanderColumn():
             event.Skip()
             return
@@ -559,6 +567,8 @@ class MainFrame(wx.Frame):
 
     def OnTaskListClick(self, event):
         """Mac 松开鼠标后分发操作，避免在按下事件中打开原生菜单或弹窗。"""
+        selection_key = getattr(self, '_selectionClickKey', None)
+        self._selectionClickKey = None
         if getattr(self, '_disclosureClick', False):
             self._disclosureClick = False
             event.Skip(False)
@@ -566,7 +576,19 @@ class MainFrame(wx.Frame):
         source = event.GetEventObject()
         pos = self.mcTree.ScreenToClient(source.ClientToScreen(event.GetPosition()))
         item, column = self.mcTree.HitTest(pos)
-        if not item.IsOk() or column is None or column.GetModelColumn() != 4:
+        if selection_key is not None:
+            if (item.IsOk() and column is not None and column.GetModelColumn() == 7
+                    and self.model.ItemToObject(item) == selection_key):
+                self._selectionRenderer.ActivateCell(
+                    wx.Rect(self.mcTree.GetItemRect(item, column)),
+                    self.model, item, 7, event)
+            event.Skip(False)
+            return
+        if not item.IsOk() or column is None:
+            event.Skip()
+            return
+        model_column = column.GetModelColumn()
+        if model_column != 4:
             event.Skip()
             return
         cell = wx.Rect(self.mcTree.GetItemRect(item, column))
